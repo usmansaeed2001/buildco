@@ -1,0 +1,46 @@
+{# The workhorse template: a badge, a headline, a paragraph, and an optional
+   detail table plus call-to-action.
+
+   Most notifications in the system are exactly this shape, so they share one file
+   rather than each getting a near-identical copy. Reach for a dedicated template only
+   when the body genuinely differs — the estimate review request and the meeting
+   invite do; a status change does not.
+
+   Context:
+     badge      pill text            (optional)
+     tone       blue|green|amber|red|grey, default blue
+     headline   bold title line
+     body       one paragraph        (optional)
+     rows       list of (label, value) pairs  (optional)
+     callout_title / callout_body    quoted block (optional)
+     cta_url / cta_label             button (optional)
+     footer_note                     small closing line (optional)
+#}
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+
+{% block content %}
+  {% if badge is defined and badge %}
+    {{ ui.badge(badge, tone | default("blue")) }}
+  {% endif %}
+
+  {{ ui.headline(headline) }}
+
+  {% if body is defined and body %}
+    {{ ui.paragraph(body) }}
+  {% endif %}
+
+  {% if callout_body is defined and callout_body %}
+    {{ ui.callout(callout_title | default("Note"), callout_body, callout_tone | default("amber")) }}
+  {% endif %}
+
+  {{ ui.detail_table(rows | default([])) }}
+
+  {% if cta_url is defined and cta_url %}
+    {{ ui.button(cta_url, cta_label | default("Open"), cta_color | default("#111827")) }}
+  {% endif %}
+
+  {% if footer_note is defined and footer_note %}
+    <p style="font-size:13px;color:#9CA3AF;margin:0">{{ footer_note }}</p>
+  {% endif %}
+{% endblock %}

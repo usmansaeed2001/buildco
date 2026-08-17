@@ -1,0 +1,13 @@
+{# Meeting cancellation, sent with a METHOD:CANCEL .ics attachment.
+   Context: title, when #}
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+
+{% block content %}
+  {{ ui.badge("Meeting Cancelled", "red") }}
+  {{ ui.headline(title) }}
+  {{ ui.paragraph("This meeting has been cancelled. Open the attachment to remove it from your calendar.") }}
+  {{ ui.detail_table([("Was scheduled for", when)]) }}
+{% endblock %}
+
+{% block footer %}Powered by {{ brand_name }} · Open the attached .ics file to remove this event from your calendar.{% endblock %}

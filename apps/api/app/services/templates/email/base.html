@@ -1,0 +1,31 @@
+{# Shared shell for every transactional email.
+
+   Email clients strip <style> blocks and ignore most modern CSS, so everything here
+   is inline and table-safe on purpose. Do not refactor it into classes. #}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>{{ brand_name }}</title>
+</head>
+<body style="margin:0;padding:0;background:#F3F4F6;font-family:system-ui,-apple-system,'Segoe UI',sans-serif">
+  <div style="max-width:{% block width %}560px{% endblock %};margin:40px auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #E5E7EB">
+
+    <div style="background:#111827;padding:24px 32px">
+      <img src="{{ logo_url }}" width="34" height="34" style="border-radius:8px;object-fit:contain;vertical-align:middle" alt="{{ brand_name }}"/>
+      <span style="font-size:18px;font-weight:600;color:#fff;vertical-align:middle;margin-left:12px">Build<span style="color:#3B82F6">Co</span></span>
+    </div>
+
+    <div style="padding:28px 32px">
+      {% block content %}{% endblock %}
+    </div>
+
+    <div style="background:#F9FAFB;border-top:1px solid #E5E7EB;padding:14px 32px">
+      <p style="font-size:11px;color:#9CA3AF;margin:0">
+        {% block footer %}Powered by {{ brand_name }} · Automated notification.{% endblock %}
+      </p>
+    </div>
+  </div>
+</body>
+</html>

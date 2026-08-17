@@ -1,0 +1,89 @@
+{# The estimate sent to an external reviewer, with the approve / request-changes /
+   reject links. This is the only email that leaves the organisation, so it carries the
+   full line-item breakdown.
+
+   Context:
+     project_name, identifier, client_name, insurance_carrier, pm_name,
+     submitted_by, submitted_at, recipient_name,
+     totals   -> EstimateTotals
+     rooms    -> the raw rooms document
+     approve_url, changes_url, reject_url
+#}
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+
+{% block width %}640px{% endblock %}
+
+{% block content %}
+  {{ ui.badge("Supplement Estimate — Review Required", "blue") }}
+  {{ ui.headline(project_name) }}
+  {{ ui.paragraph(
+      (("Hi " ~ recipient_name ~ ", ") if recipient_name else "")
+      ~ "please review the supplement estimate below and use the buttons at the bottom to approve, request changes, or reject."
+  ) }}
+
+  {{ ui.detail_table([
+      ("Claim ID", identifier),
+      ("Client", client_name),
+      ("Carrier", insurance_carrier),
+      ("Project Manager", pm_name),
+      ("Submitted by", submitted_by),
+      ("Submitted at", submitted_at)
+  ]) }}
+
+  {{ ui.stat_tiles([
+      ("Total", "$" ~ (totals.total | money)),
+      ("Rooms", totals.room_count),
+      ("Items", totals.item_count)
+  ]) }}
+
+  <table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;margin-bottom:24px">
+    <thead>
+      <tr style="background:#F9FAFB">
+        <th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#9CA3AF;border-bottom:1px solid #E5E7EB">Description</th>
+        <th style="padding:8px 12px;text-align:right;font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#9CA3AF;border-bottom:1px solid #E5E7EB">Qty</th>
+        <th style="padding:8px 12px;text-align:right;font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#9CA3AF;border-bottom:1px solid #E5E7EB">Unit&nbsp;$</th>
+        <th style="padding:8px 12px;text-align:right;font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#9CA3AF;border-bottom:1px solid #E5E7EB">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for room in rooms %}
+      <tr>
+        <td colspan="4" style="padding:10px 12px 6px;font-size:13px;font-weight:600;color:#111827;background:#F9FAFB;border-bottom:1px solid #E5E7EB">
+          <span style="display:inline-block;width:3px;height:14px;background:#3B82F6;border-radius:2px;margin-right:8px;vertical-align:middle"></span>
+          {{ room.name }}
+          <span style="font-size:11px;font-weight:400;color:#6B7280;margin-left:8px">${{ room.total | money }}</span>
+        </td>
+      </tr>
+        {% for item in room["items"] %}
+        <tr>
+          <td style="padding:7px 12px;font-size:12px;color:#374151;border-bottom:1px solid #F3F4F6">{{ item.name }}</td>
+          <td style="padding:7px 12px;font-size:12px;color:#6B7280;text-align:right;border-bottom:1px solid #F3F4F6">{{ item.quantity }} {{ item.unit }}</td>
+          <td style="padding:7px 12px;font-size:12px;color:#6B7280;text-align:right;border-bottom:1px solid #F3F4F6">${{ item.unit_cost | money }}</td>
+          <td style="padding:7px 12px;font-size:12px;font-weight:500;color:#111827;text-align:right;border-bottom:1px solid #F3F4F6">${{ item.total | money }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="4" style="padding:7px 12px;font-size:12px;color:#9CA3AF;border-bottom:1px solid #F3F4F6">No line items.</td>
+        </tr>
+        {% endfor %}
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="background:#111827">
+        <td colspan="3" style="padding:12px;font-size:12px;font-weight:600;color:#9CA3AF;letter-spacing:0.06em;text-transform:uppercase">Project Total</td>
+        <td style="padding:12px;font-size:18px;font-weight:700;color:#F59E0B;text-align:right">${{ totals.total | money }}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  {{ ui.button(approve_url, "✓ Approve", "#059669") }}
+  {{ ui.button(changes_url, "✎ Request Changes", "#F59E0B") }}
+  {{ ui.button(reject_url, "✗ Reject", "#DC2626") }}
+
+  <p style="font-size:11px;color:#9CA3AF;margin:8px 0 0;text-align:center">
+    Approving or rejecting records your decision immediately. Requesting changes lets you add notes for the submitter.
+  </p>
+{% endblock %}
+
+{% block footer %}Powered by {{ brand_name }} Supplement Forms · If you did not expect this email you can safely ignore it.{% endblock %}

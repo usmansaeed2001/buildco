@@ -1,0 +1,33 @@
+{# Meeting invitation, sent with an .ics attachment.
+
+   Context: title, description, location, when, organiser, meet_link, color, updated #}
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+
+{% block content %}
+  <div style="width:12px;height:12px;border-radius:50%;background:{{ color }};display:inline-block;margin-bottom:14px"></div>
+  {{ ui.headline((("📅 Meeting Updated: " if updated else "") ~ title)) }}
+  {{ ui.paragraph(
+      "This meeting has been updated. Open the attached file to refresh your calendar."
+      if updated else
+      "You have been invited to a meeting. Open the attached file to add it to your calendar."
+  ) }}
+
+  {{ ui.detail_table([
+      ("Date & Time", when),
+      ("Location", location),
+      ("Google Meet", meet_link),
+      ("Details", description),
+      ("Organised by", organiser)
+  ]) }}
+
+  {% if meet_link %}
+    {{ ui.button(meet_link, "🎥 Join Google Meet", "#059669") }}
+  {% endif %}
+
+  <p style="font-size:13px;color:#6B7280;margin:0">
+    Open the <strong>.ics attachment</strong> to add this meeting to Google Calendar, Apple Calendar, or Outlook.
+  </p>
+{% endblock %}
+
+{% block footer %}Powered by {{ brand_name }} · The attached .ics file opens in Google Calendar, Apple Calendar, or Outlook.{% endblock %}

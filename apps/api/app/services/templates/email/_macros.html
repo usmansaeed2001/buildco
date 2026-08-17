@@ -1,0 +1,75 @@
+{# Reusable fragments for email bodies.
+
+   Import at the top of a template:
+       {% import "_macros.html" as ui %}
+#}
+
+{# Small coloured pill above the headline. tone: blue | green | amber | red | grey #}
+{% macro badge(text, tone="blue") %}
+  {% set palette = {
+      "blue":  ("#EFF6FF", "#2563EB"),
+      "green": ("#D1FAE5", "#059669"),
+      "amber": ("#FEF3C7", "#D97706"),
+      "red":   ("#FEE2E2", "#DC2626"),
+      "grey":  ("#F3F4F6", "#6B7280")
+  } %}
+  {% set colors = palette.get(tone, palette["blue"]) %}
+  <div style="display:inline-block;background:{{ colors[0] }};color:{{ colors[1] }};font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:4px 10px;border-radius:100px;margin-bottom:18px">{{ text }}</div>
+{% endmacro %}
+
+{% macro headline(text) %}
+  <h2 style="font-size:19px;font-weight:600;color:#111827;margin:0 0 8px">{{ text }}</h2>
+{% endmacro %}
+
+{% macro paragraph(text) %}
+  <p style="font-size:14px;color:#6B7280;margin:0 0 20px;line-height:1.6">{{ text }}</p>
+{% endmacro %}
+
+{# rows: a list of (label, value) pairs. Values are escaped. #}
+{% macro detail_table(rows) %}
+  {% if rows %}
+  <div style="background:#F9FAFB;border-radius:8px;padding:16px 20px;margin-bottom:22px">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      {% for label, value in rows %}
+      <tr>
+        <td style="color:#9CA3AF;padding:5px 0;width:150px;vertical-align:top">{{ label }}</td>
+        <td style="color:#111827;font-weight:500">{{ value if value not in (None, "") else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{# Full-width call-to-action button. #}
+{% macro button(url, label, color="#111827") %}
+  <a href="{{ url }}" style="display:block;text-align:center;padding:13px;background:{{ color }};color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;margin-bottom:14px">{{ label }}</a>
+{% endmacro %}
+
+{# Highlighted callout for reviewer notes and similar quoted text. #}
+{% macro callout(title, body, tone="amber") %}
+  {% set palette = {
+      "amber": ("#FEF3C7", "#FDE68A", "#92400E", "#78350F"),
+      "red":   ("#FEF2F2", "#FECACA", "#991B1B", "#7F1D1D"),
+      "green": ("#ECFDF5", "#A7F3D0", "#065F46", "#064E3B")
+  } %}
+  {% set c = palette.get(tone, palette["amber"]) %}
+  <div style="background:{{ c[0] }};border:1px solid {{ c[1] }};border-radius:8px;padding:16px 20px;margin-bottom:22px">
+    <div style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:{{ c[2] }};margin-bottom:8px">{{ title }}</div>
+    <p style="font-size:13px;color:{{ c[3] }};margin:0;line-height:1.6;white-space:pre-wrap">{{ body }}</p>
+  </div>
+{% endmacro %}
+
+{# Three-across summary tiles: cells is a list of (label, value) pairs. #}
+{% macro stat_tiles(cells) %}
+  <table style="width:100%;border-collapse:separate;border-spacing:10px 0;margin:0 -10px 22px">
+    <tr>
+      {% for label, value in cells %}
+      <td style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;padding:14px 16px;width:33%">
+        <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#9CA3AF;margin-bottom:4px">{{ label }}</div>
+        <div style="font-size:20px;font-weight:700;color:#111827">{{ value }}</div>
+      </td>
+      {% endfor %}
+    </tr>
+  </table>
+{% endmacro %}

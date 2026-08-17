@@ -1,0 +1,12 @@
+{# Emitted by project_rules when a project reaches ProjectStatus.CLOSED.
+   Context: project_name, headline, body (all supplied by the rules engine). #}
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+
+{% block content %}
+  {{ ui.badge("Project Closed", "green") }}
+  {{ ui.headline(headline) }}
+  {{ ui.paragraph(body) }}
+  {{ ui.detail_table([("Project", project_name)]) }}
+  <p style="font-size:13px;color:#9CA3AF;margin:0">No further action is needed.</p>
+{% endblock %}
