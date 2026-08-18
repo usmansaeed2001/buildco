@@ -16,6 +16,7 @@ htmlcov/
 !.env.example
 *-credentials.json
 service-account*.json
+apps/api/secrets/
 
 # Node (Phase 2)
 node_modules/

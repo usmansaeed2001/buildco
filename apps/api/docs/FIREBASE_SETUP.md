@@ -8,6 +8,115 @@ frontend — the backend can be fully exercised once these exist.
 
 ---
 
+## Status (as of 2026-08-18)
+
+**Backend auth is fully configured and tested against the interim project
+`buildco-production-505918`.** See §0 for why it's the interim project rather than the
+client's org, and the go-live checklist there for what moving to the client's account
+still requires.
+
+| Section | Status |
+|---|---|
+| §1 Project | ✅ Done — `buildco-production-505918` |
+| §2 Sign-in providers | ✅ Email/Password and Google enabled, domains authorized (`localhost` + Firebase Hosting domains — no production frontend domain yet, see below) |
+| §3 Service account | ✅ Done — JSON key path, not ADC (org policy blocks key creation on the client's project, moot here since this is the personal-account project) |
+| §4 Calendar API | ⏭️ Deferred — not needed until the meetings feature is worked on |
+| §5 Supporting APIs | ✅ All enabled |
+| §6 Password hash params | ⏭️ Skipped — no Supabase user migration for this project; fresh users only |
+| §8 Verification | ✅ Fully tested — see results below |
+
+**§8 was run for real**, not just read through: real Email/Password self-service
+signup (`accounts:signUp`, not an Admin-SDK-created user) → `POST /auth/session` →
+`GET /users/me`, plus the ban/revocation check with a second, separately-provisioned
+admin account. Every row in the §8 table passed. Test accounts were deleted afterward
+(both the Firebase users and their `profiles` rows) — nothing left over except the
+original synthetic `dev-owner` profile from earlier `AUTH_DISABLED=true` testing.
+
+Google sign-in is enabled and configured but **not** end-to-end tested — that provider
+needs a real browser OAuth redirect, which isn't possible from curl. Nothing suggests
+it won't work; it just hasn't been exercised the way Email/Password has.
+
+**Frontend integration does not exist yet.** This entire setup only covers the
+backend's ability to verify tokens — there is no frontend code calling Firebase Auth,
+so no authorized domain has been added for a production frontend URL, and the "Web app
+config" handoff in §7 hasn't happened (no web app is registered under **Your apps**
+yet either). That's separate, upcoming work — see `README.md` / the frontend repo for
+where that stands, and add the production domain to Authorized domains (§2) once it's
+decided.
+
+---
+
+## 0. Interim setup: developing under a personal account
+
+The client's Google Workspace (`buildcogrp.com`) does not yet have anyone confirmed as
+Organization Administrator in GCP — `admin@buildcogrp.com` could not access
+`admin.google.com`, and self-claiming the org-level IAM role requires Workspace Super
+Admin status that account doesn't have. Resolving that is on the client; it should not
+block development.
+
+**Decision:** develop and deploy against a project under the developer's personal
+Google account for now, then transition to the client's org once their GCP org access
+is sorted out.
+
+- **Interim project ID:** `buildco-production-505918` (personal account), not
+  `buildco-production` — that ID is a separate project already created under the
+  client's `buildcogrp.com` org during initial setup, and project IDs are globally
+  unique, so the two cannot share a name.
+- Cloud SQL, Cloud Run, and any other billed resources also run under the developer's
+  personal billing during this interim period.
+- Everything else in this document (§1–§9) applies as written — just substitute
+  `buildco-production-505918` wherever the doc says `buildco-production` or
+  `FIREBASE_PROJECT_ID`.
+
+### Go-live transition checklist
+
+When the client's org access is resolved, moving from the interim project to the
+client-owned one is **not** a one-line credential swap. Work through this in order:
+
+- [ ] Confirm someone has the `Organization Administrator` IAM role on the
+      `buildcogrp.com` GCP org (see the org-access troubleshooting notes below if not).
+- [ ] Create (or reuse) `buildco-production` under the client's org, and re-run §1–§6
+      of this document against it from scratch — sign-in providers, service
+      account/ADC, Calendar API, supporting APIs, and password hash parameters are all
+      per-project and do not carry over.
+- [ ] **Migrate Firebase Auth users.** Users created in `buildco-production-505918`
+      during development do not exist in the new project. Either re-run the Supabase
+      user import (see `USER_MIGRATION.md`) against the client's project directly, or
+      export/re-import users between the two Firebase projects if real interim users
+      need to be preserved.
+- [ ] **Migrate Cloud SQL.** Provision the database under the client's billing and
+      migrate data (`pg_dump`/`pg_restore` or Cloud SQL's built-in migration tooling)
+      from the interim instance. Do not just re-point the connection string — the
+      interim data has to actually move.
+- [ ] Update `.env` / Secret Manager in every deploy target: `FIREBASE_PROJECT_ID`,
+      `FIREBASE_CREDENTIALS_FILE` (or ADC project), and the database connection string.
+- [ ] Update Authorized domains (§2) for the production frontend URL under the new
+      project — this does not carry over automatically.
+- [ ] Point DNS / frontend deploy at the new backend once it's verified against the new
+      project (§8 verification steps).
+- [ ] Decommission the interim `buildco-production-505918` project (or downgrade it to
+      a personal scratch project) once the swap is confirmed working end-to-end.
+
+### Finding who has GCP org access
+
+If `admin.google.com` doesn't let a given account in (click-and-nothing-happens is the
+typical symptom of no admin role, not a connectivity issue), that account is not a
+Workspace admin. Check with:
+
+```bash
+gcloud organizations list                          # get the org ID
+gcloud organizations get-iam-policy ORG_ID          # see who holds organizationAdmin
+```
+
+The second command itself requires org-level permission to run, so a "permission
+denied" there confirms the account you're using has no org IAM access either. Only a
+confirmed Workspace **Super Admin** (admin.google.com → Account → Admin roles) can
+self-claim the `Organization Administrator` GCP role from a zero-permissions starting
+point, via the IAM page in Cloud Console with the organization (not a project) selected
+as the resource. If no such account is available, this has to go back to the client.
+
+---
+
 ## 1. Create the project
 
 A Firebase project *is* a GCP project, so creating one here gets you Cloud Run, Cloud
@@ -136,7 +245,7 @@ Then locally:
 ```bash
 # apps/api/.env
 AUTH_DISABLED=false
-FIREBASE_PROJECT_ID=buildco-prod-xxxx
+FIREBASE_PROJECT_ID=buildco-prod-xxxx   # buildco-production-505918 for the current interim project — see §0
 FIREBASE_CREDENTIALS_FILE=./secrets/firebase-admin.json
 ```
 
