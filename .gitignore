@@ -14,6 +14,9 @@ htmlcov/
 .env
 .env.*
 !.env.example
+# Committed on purpose: the Firebase web config is public by design, and Vite
+# inlines it at build time, so CI has no other way to learn it.
+!apps/staff-web/.env.production
 *-credentials.json
 service-account*.json
 apps/api/secrets/
@@ -22,6 +25,7 @@ apps/api/secrets/
 node_modules/
 dist/
 .turbo/
+*.tsbuildinfo
 
 # Editors / OS
 .DS_Store

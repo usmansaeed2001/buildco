@@ -128,7 +128,7 @@ class Settings(BaseSettings):
 
     @property
     def logo_url(self) -> str:
-        return f"{self.site_url}/logo.jpeg"
+        return f"{self.site_url}/logo.png"
 
 
 @lru_cache(maxsize=1)

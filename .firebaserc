@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "buildco-production-505918"
+  },
+  "targets": {
+    "buildco-production-505918": {
+      "hosting": {
+        "staff": ["buildco-production-505918"]
+      }
+    }
+  }
+}
