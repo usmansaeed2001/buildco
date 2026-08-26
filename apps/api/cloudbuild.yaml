@@ -1,0 +1,117 @@
+# Cloud Build: API -> Cloud Run. Triggered on push to `production`, filtered to
+# apps/api/**.
+#
+# Order is the point: check, then build, then migrate, then deploy. Each step's failure
+# stops the ones after it, so a red test suite or a failed migration can never reach a
+# serving revision. That matters more here than with a manual deploy, because a merge to
+# `production` now deploys with nobody watching.
+#
+# Run it by hand against the current checkout with:
+#   gcloud builds submit --config=apps/api/cloudbuild.yaml \
+#     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
+#
+# The image reference is written out in full at each use rather than held in a
+# substitution. Cloud Build does NOT expand substitutions recursively: a
+# `_IMAGE: .../buildco-api:${SHORT_SHA}` entry is passed through verbatim and the build
+# fails with `could not parse reference` on the literal `${SHORT_SHA}` text. Repetition
+# is the price of it working.
+
+steps:
+  # ── Gate ────────────────────────────────────────────────────────────────────
+  # Mirrors `make check`. The image build does not run tests - the Dockerfile
+  # deliberately excludes tests/ - so this is the only thing standing between a bad
+  # merge and production.
+  - id: check
+    name: python:3.12-slim
+    dir: apps/api
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        pip install --quiet --root-user-action=ignore uv
+        uv sync --frozen --group dev
+        uv run ruff check .
+        uv run mypy app
+        uv run pytest -q
+
+  # ── Build ───────────────────────────────────────────────────────────────────
+  # Tagged with the commit sha, never `latest`. That is what makes a rollback one
+  # command and lets you tell which revision is actually running.
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    dir: apps/api
+    args:
+      - build
+      - -t
+      - us-central1-docker.pkg.dev/${PROJECT_ID}/buildco/buildco-api:${SHORT_SHA}
+      - .
+    waitFor: ['check']
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - us-central1-docker.pkg.dev/${PROJECT_ID}/buildco/buildco-api:${SHORT_SHA}
+    waitFor: ['build']
+
+  # ── Migrate ─────────────────────────────────────────────────────────────────
+  # As a Cloud Run Job, not a build step talking to the database directly: the job has
+  # the same Cloud SQL connectivity and the same service account as the app, so it
+  # cannot succeed in an environment the app then fails in.
+  #
+  # --wait is load-bearing. Without it the command returns immediately and the deploy
+  # below races a schema that may not exist yet.
+  #
+  # Migrations must stay backward-compatible with the currently deployed revision
+  # (expand/contract) - see DEVELOPMENT_GUIDELINES.md §8. Traffic rollback is instant;
+  # the database does not roll back with it.
+  #
+  # $$IMAGE, not $IMAGE: Cloud Build reads a single $ as its own substitution syntax and
+  # would replace it with an empty string before bash ever sees the script.
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/buildco/buildco-api:${SHORT_SHA}"
+        gcloud run jobs update buildco-migrate --image="$$IMAGE" --region="${_REGION}" --quiet
+        gcloud run jobs execute buildco-migrate --region="${_REGION}" --wait
+    waitFor: ['push']
+
+  # ── Deploy ──────────────────────────────────────────────────────────────────
+  # Only the image is passed. `gcloud run deploy` on an existing service preserves every
+  # setting it is not told to change, so env vars, secret bindings, the Cloud SQL
+  # attachment, scaling and --no-cpu-throttling all survive.
+  #
+  # That is deliberate: it keeps secret names and infrastructure config out of the
+  # repository, and means CI rolls the image and nothing else. The trade-off is that
+  # changing an env var is a manual `gcloud run services update` - it will NOT happen by
+  # editing this file. See DEPLOY_CLOUD_RUN.md §8 for the full deploy command.
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/buildco/buildco-api:${SHORT_SHA}"
+        gcloud run deploy buildco-api --image="$$IMAGE" --region="${_REGION}" --quiet
+        gcloud run services describe buildco-api --region="${_REGION}" \
+          --format='value(status.url)'
+    waitFor: ['migrate']
+
+images:
+  - us-central1-docker.pkg.dev/${PROJECT_ID}/buildco/buildco-api:${SHORT_SHA}
+
+substitutions:
+  _REGION: us-central1
+
+options:
+  # Required when the build runs as a service account without a user-owned logs bucket.
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+timeout: 2400s

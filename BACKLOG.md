@@ -10,7 +10,43 @@ project `buildco-production-505918` — see `apps/api/docs/FIREBASE_SETUP.md` §
 
 ---
 
-## 1. Signed GCS URLs fail on Cloud Run — attachments are unusable
+## 1. No automatic deployment — releases are manual
+
+**Blocked, not deferred.** The GitHub repository lives under the client's account, so it
+cannot be connected to Cloud Build in the interim project `buildco-production-505918`.
+Cloud Build triggers require that connection; there is no way around it from this side.
+
+**Consequence: a merge to `production` deploys nothing.** Someone has to run the release
+by hand. `production` being green is no longer the same as production *running* that
+code — the branch is the intent, a release is the act. The procedure is
+[`RELEASE.md`](RELEASE.md).
+
+Everything except the connection is done and exercised:
+
+- `apps/api/cloudbuild.yaml` and `apps/staff-web/cloudbuild.yaml` are written and were
+  each run end to end through Cloud Build
+- The build service account holds every role both pipelines need
+- `firebase deploy` authenticating via ADC (no `FIREBASE_TOKEN`) is proven working
+
+So the manual procedure is not a parallel, drift-prone script — it runs those same
+configs with `gcloud builds submit --config=…`. Connecting the repository later changes
+who pushes the button and nothing else.
+
+Two unblocking paths:
+
+- **Move to the client's GCP org** (§10) and connect the repo there. The real fix, and it
+  resolves several other items at once.
+- **Fork or mirror the repo** under an account that can be connected. Faster, but leaves
+  two remotes to keep in sync, which is its own failure mode.
+
+- [ ] Repository connected to Cloud Build
+- [ ] Two triggers created on `^production$` with the included-files filters in
+      `RELEASE.md`
+- [ ] A no-op commit to `production` confirms the right trigger fires and the other
+      does not
+- [ ] `RELEASE.md` updated to describe the automatic path
+
+## 2. Signed GCS URLs fail on Cloud Run — attachments are unusable
 
 **Severity: high.** Confirmed broken in production, not theoretical.
 
@@ -46,7 +82,7 @@ existing attachments would render with no URL and no error anywhere.
 - [ ] Still works locally against the service-account JSON
 - [ ] Correct the claim in `DEPLOY_CLOUD_RUN.md` §3
 
-## 2. `/review/{token}` is not routed — reviewer emails go nowhere
+## 3. `/review/{token}` is not routed — reviewer emails go nowhere
 
 The backend builds approval links as `{SITE_URL}/review/{token}` and
 `apps/staff-web/src/api/client.ts` already handles the 410 spent-link case, but
@@ -56,7 +92,7 @@ NotFound page.
 Blocks the whole submit-for-review flow end to end. Keep it out of the beta script until
 this and item 3 are done.
 
-## 3. Resend has no verified domain
+## 4. Resend has no verified domain
 
 `GET /domains` returns empty, so the only sender is `onboarding@resend.dev`, which
 **delivers only to the address that owns the Resend account**. Every other recipient is
@@ -66,7 +102,7 @@ testers.
 The adapter never raises — it logs `email_skipped` and returns False — so nothing appears
 broken. Verify a domain in Resend and point `NOTIFY_FROM_EMAIL` at it.
 
-## 4. OAuth consent screen is unbranded, and testers must be allowlisted
+## 5. OAuth consent screen is unbranded, and testers must be allowlisted
 
 Deferred from the deployment plan's Phase 4. Neither blocks email/password sign-in.
 
@@ -88,7 +124,7 @@ Real fix is either dropping the Calendar scope from sign-in and requesting it
 incrementally when meetings are built, or submitting for OAuth verification (privacy
 policy, verified domain, demo video, multi-week review).
 
-## 5. `/healthz` is unreachable on Cloud Run
+## 6. `/healthz` is unreachable on Cloud Run
 
 Cloud Run's front end reserves that exact path. The request never reaches the container:
 the 404 carries no `x-request-id` and no `server: Google Frontend`, unlike every other
@@ -101,7 +137,7 @@ will report the service down while it is healthy.
 
 Suggested: add a `/livez` alias in `app/routers/health.py` and correct §9.
 
-## 6. `staff-web` is mostly placeholders
+## 7. `staff-web` is mostly placeholders
 
 Built: auth (login / signup / setup), the launcher, the estimates list. Rendering
 `<Pending>`: the estimate editor, `/projects`, `/calendar`, `/team`, `/settings`.
@@ -109,7 +145,7 @@ Built: auth (login / signup / setup), the launcher, the estimates list. Renderin
 This is the honest scope of the current beta — a tester can sign in and exercise
 estimates. Worth stating plainly to whoever tests it.
 
-## 7. OpenAPI docs are public on the Cloud Run origin
+## 8. OpenAPI docs are public on the Cloud Run origin
 
 `/docs`, `/redoc` and `/openapi.json` are unauthenticated on
 `https://buildco-api-*.run.app`. They are **not** reachable through the Hosting origin —
@@ -117,7 +153,7 @@ those paths sit outside `/api/**`, so the SPA catch-all swallows them — which 
 exposure to anyone who knows the `run.app` URL. Fine for a closed beta; gate before
 anything real.
 
-## 8. Schema alignment against live Supabase is unfinished
+## 9. Schema alignment against live Supabase is unfinished
 
 From `apps/api/docs/DATABASE.md`. Irrelevant while the beta runs on a fresh database,
 **blocking** for the data migration:
@@ -134,7 +170,7 @@ From `apps/api/docs/DATABASE.md`. Irrelevant while the beta runs on a fresh data
 Indexes, foreign keys, unique and check constraints have never been compared at all,
 because the column inventory the alignment rests on does not carry them.
 
-## 9. Move to the client's GCP organisation
+## 10. Move to the client's GCP organisation
 
 Everything runs under a personal account on personal billing. `FIREBASE_SETUP.md` §0 has
 the full transition checklist — it is not a credential swap: Firebase Auth users, Cloud
@@ -143,7 +179,23 @@ and none of them carry over.
 
 Blocked on someone at `buildcogrp.com` holding the `Organization Administrator` role.
 
-## 10. Smaller things
+## 11. The Cloud Build service account holds roles/editor
+
+Builds run as `685076437457-compute@developer.gserviceaccount.com`, the Compute Engine
+default service account, which carries `roles/editor` project-wide. That is the project
+default rather than something the deployment granted, but it means anything that can
+trigger a build can do almost anything in the project.
+
+The pipeline's actual needs are narrow and are already granted explicitly:
+`run.admin`, `artifactregistry.writer`, `firebasehosting.admin`,
+`serviceusage.serviceUsageConsumer`, `logging.logWriter`, and `iam.serviceAccountUser`
+on the `buildco-api` service account.
+
+Done looks like: a dedicated `buildco-ci` service account holding only those roles, set
+as the trigger's service account, and `roles/editor` removed from the compute default.
+Worth doing before anyone outside the team can open a PR.
+
+## 12. Smaller things
 
 - `GROQ_MODEL` will rot again. Groq retires hosted models without aliasing the old id
   forward, and a retired id fails every call with a 400 that only says the model does not
