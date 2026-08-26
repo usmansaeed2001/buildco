@@ -134,7 +134,9 @@ a local version ahead of production can accept syntax that fails on deploy.
 
 ## 2. Schema alignment
 
-**Status: not started. Must happen before migration `0001` touches production data.**
+**Status: types and defaults aligned; nullability unverified.** `0001` has been
+regenerated against the live column inventory. Two checks still need to run against
+production — see [Outstanding](#outstanding-two-queries-against-production) below.
 
 ### The problem
 
@@ -233,6 +235,43 @@ These are intentional and must **not** be "corrected" back during alignment:
 | `project_supplements` unique constraint added | The old code could link the same estimate to a project twice. |
 | Money columns are `NUMERIC(12,2)` | Totals were previously computed in floating point. |
 | Enum columns are `text` + `CHECK` | Matches what transfers from Supabase, and avoids the awkwardness of altering a Postgres `ENUM` inside a transaction. |
+| `created_at` / `updated_at` on every table | `TimestampMixin`. Live has `updated_at` only on `estimates`. Both are `NOT NULL DEFAULT now()`, so existing rows acquire a value on load rather than failing. |
+| `project_supplements.linked_at`, not `created_at` | The live column is named `linked_at`. `TimestampMixin` was silently renaming it — a column that would have been dropped on load. This table is exempt from the mixin; a link row is created and deleted, never updated, so it has no `updated_at`. |
+| `meeting_attendees.user_id` nullable | Live has it `NOT NULL`. Ours is looser, so every live row still loads. Keeps the door open for non-staff attendees. |
+| `id` has no `gen_random_uuid()` default | Ids are generated in Python so a parent and its children can be written in one flush. See `models/base.py`. Anything inserting by raw SQL must supply an id. |
+| Text columns are `varchar(N)`, not `text` | Bounded at the API boundary too. **This is a tightening** — see the length check below. |
+
+### Outstanding: two queries against production
+
+Everything above is settled. What is *not* settled is whether live **data** fits the
+constraints, and that cannot be inferred from the column inventory alone.
+
+Our schema is stricter than live in two ways. Both are safe for new writes and both
+can reject an existing row at load time:
+
+1. **31 columns are `NOT NULL` where live allows `NULL`.** Live pairs a default with a
+   nullable column, so the default only applies when the column is omitted — a row that
+   wrote an explicit `NULL` still holds one.
+2. **33 columns are `varchar(N)` where live is unbounded `text`.**
+
+Run these against production and expect all-zeros. Anything non-zero is a row to
+backfill or a cap to raise, decided before the cutover, not during it:
+
+```bash
+psql "$SUPABASE_CONNECTION_STRING" -f docs/reference/verify_nulls.sql
+psql "$SUPABASE_CONNECTION_STRING" -f docs/reference/verify_lengths.sql
+```
+
+**Also still missing: a real `pg_dump`.** `docs/reference/supabase_actual_schema.sql`
+currently contains a connection error, not a schema — the direct Supabase host resolves
+to IPv6 only and was unreachable. Use the **Session pooler** connection string from the
+Supabase dashboard (Project Settings → Database), which is IPv4, and re-run Step 1.
+
+Until that dump exists, the alignment rests on a column inventory that is missing
+**indexes, foreign keys, unique constraints, and check constraints entirely** — and the
+CSV it came from was truncated by the SQL editor's 100-row cap, cutting off partway
+through `projects`. `projects` columns from `amount_collected` onward are therefore
+unconfirmed against live.
 
 ---
 
@@ -246,6 +285,7 @@ this section covers what is specific to this codebase.
 ```bash
 gcloud sql instances create buildco-db \
   --database-version=POSTGRES_16 \
+  --edition=ENTERPRISE \
   --tier=db-f1-micro \
   --region=us-central1 \
   --storage-type=SSD --storage-size=10GB --storage-auto-increase \
@@ -256,6 +296,24 @@ gcloud sql instances create buildco-db \
 gcloud sql databases create buildco --instance=buildco-db
 gcloud sql users create buildco_app --instance=buildco-db --password=<from-secret-manager>
 ```
+
+**`--edition=ENTERPRISE` is not optional.** Cloud SQL now defaults new instances to
+`ENTERPRISE_PLUS`, which has no shared-core tiers, so omitting the flag fails with:
+
+```
+Invalid Tier (db-f1-micro) for (ENTERPRISE_PLUS) Edition.
+Use a predefined Tier like db-perf-optimized-N-* instead.
+```
+
+The error names the tier, so the natural reading is that `db-f1-micro` is wrong. It is
+not — the *edition* is. The smallest ENTERPRISE_PLUS tier costs several times more and
+buys nothing this workload needs.
+
+Generate the password with **alphanumeric characters only**. `app/db.py` passes
+`DATABASE_URL` to asyncpg verbatim and percent-encodes nothing, so a `@`, `/`, `%` or
+`:` in it silently corrupts the URL into a connection error that points nowhere near
+the password. Store it in Secret Manager as `db-app-password` at the same time, with
+`printf` rather than `echo` — see `DEPLOY_CLOUD_RUN.md` §4.
 
 Do the same for staging. Validating a migration against staging before production is
 the entire point of having one.
@@ -323,11 +381,17 @@ and never run anything destructive without a fresh verified backup.
 
 ## Checklist before production data touches this schema
 
-- [ ] `pg_dump --schema-only` of live Supabase captured and committed
-- [ ] Diffed against the generated schema, table by table
-- [ ] Every difference triaged as model bug / deliberate / cruft
-- [ ] `0001` regenerated and reviewed line by line
-- [ ] Applies and reverses cleanly
+- [ ] `pg_dump --schema-only` of live Supabase captured and committed — **blocked on
+      IPv6; use the Session pooler string.** Needed for indexes, FKs, and constraints,
+      none of which the column CSV carries
+- [x] Diffed against the generated schema, table by table — columns only
+- [x] Every column difference triaged as model bug / deliberate / cruft
+- [x] `0001` regenerated and reviewed line by line
+- [x] Applies and reverses cleanly (`upgrade` → `downgrade base` → `upgrade`)
+- [x] `alembic check` reports no drift; suite green on SQLite and Postgres
+- [ ] `verify_nulls.sql` returns all zeros against production
+- [ ] `verify_lengths.sql` returns all zeros against production
+- [ ] `projects` columns past `reimbursements` confirmed against live (CSV was truncated)
 - [ ] A real Supabase data dump loads into it without error
 - [ ] Row counts match the source after load
 - [ ] FK integrity verified (see [`USER_MIGRATION.md`](USER_MIGRATION.md) §7)

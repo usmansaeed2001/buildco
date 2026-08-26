@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text, Uuid
+from sqlalchemy import ForeignKey, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -33,10 +33,14 @@ class ProjectActivity(Base, UUIDPrimaryKey, TimestampMixin):
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")
     )
     #: Snapshot of the actor's display name at the time of the action.
-    user_name: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    user_name: Mapped[str] = mapped_column(
+        String(200), server_default=text("''"), default="", nullable=False
+    )
 
     action: Mapped[str] = mapped_column(String(200), nullable=False)
-    details: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    details: Mapped[str] = mapped_column(
+        Text, server_default=text("''"), default="", nullable=False
+    )
 
     project: Mapped[Project] = relationship("Project", back_populates="activity")
 

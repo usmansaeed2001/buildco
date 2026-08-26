@@ -80,6 +80,19 @@ def attachment_path(
     return f"{estimate_id}/{room}_{item}_{stamp}.{_extension(file_name)}"
 
 
+def closing_form_path(project_id: str, form_number: int, file_name: str) -> str:
+    """Build the object key for a closing-form photo.
+
+    Lives in the attachments bucket under its own ``projects/`` prefix, which keeps it
+    clear of the estimate keys (those start with a bare estimate UUID) and lets one
+    prefix check authorise the whole family. The legacy app stored this photo as a
+    base64 data URI inside the ``closing_form_1`` JSONB column, which bloated every
+    project-detail read; only the key is stored now.
+    """
+    stamp = int(time.time() * 1000)
+    return f"projects/{project_id}/closing-forms/{form_number}_{stamp}.{_extension(file_name)}"
+
+
 def avatar_path(user_id: str, file_name: str) -> str:
     """Build the object key for a profile avatar. Deliberately overwrites in place."""
     return f"{user_id}/avatar.{_extension(file_name)}"

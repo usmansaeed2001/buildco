@@ -28,6 +28,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -63,26 +64,50 @@ class Project(Base, UUIDPrimaryKey, TimestampMixin):
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), index=True
     )
 
-    owner_name: Mapped[str] = mapped_column(String(300), default="", nullable=False)
-    address: Mapped[str] = mapped_column(String(500), default="", nullable=False)
-    work_type: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    owner_name: Mapped[str] = mapped_column(
+        String(300), server_default=text("''"), default="", nullable=False
+    )
+    address: Mapped[str] = mapped_column(
+        String(500), server_default=text("''"), default="", nullable=False
+    )
+    work_type: Mapped[str] = mapped_column(
+        String(200), server_default=text("''"), default="", nullable=False
+    )
     start_date: Mapped[date | None] = mapped_column(Date)
-    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    notes: Mapped[str] = mapped_column(Text, server_default=text("''"), default="", nullable=False)
 
     work_status: Mapped[str] = mapped_column(
-        String(30), default=WorkStatus.CONTRACT_SENT, nullable=False, index=True
+        String(30),
+        server_default=text("'contract_sent'"),
+        default=WorkStatus.CONTRACT_SENT,
+        nullable=False,
+        index=True,
     )
     status: Mapped[str] = mapped_column(
-        String(30), default=ProjectStatus.ACTIVE, nullable=False, index=True
+        String(30),
+        server_default=text("'active'"),
+        default=ProjectStatus.ACTIVE,
+        nullable=False,
+        index=True,
     )
 
     # ── Money ─────────────────────────────────────────────────────────────────
     # Numeric, never float: these are dollars and they get summed.
-    total_budget: Mapped[Decimal] = mapped_column(_MONEY, default=Decimal("0"), nullable=False)
-    labor_cost: Mapped[Decimal] = mapped_column(_MONEY, default=Decimal("0"), nullable=False)
-    materials_cost: Mapped[Decimal] = mapped_column(_MONEY, default=Decimal("0"), nullable=False)
-    reimbursements: Mapped[Decimal] = mapped_column(_MONEY, default=Decimal("0"), nullable=False)
-    amount_collected: Mapped[Decimal] = mapped_column(_MONEY, default=Decimal("0"), nullable=False)
+    total_budget: Mapped[Decimal] = mapped_column(
+        _MONEY, server_default=text("0"), default=Decimal("0"), nullable=False
+    )
+    labor_cost: Mapped[Decimal] = mapped_column(
+        _MONEY, server_default=text("0"), default=Decimal("0"), nullable=False
+    )
+    materials_cost: Mapped[Decimal] = mapped_column(
+        _MONEY, server_default=text("0"), default=Decimal("0"), nullable=False
+    )
+    reimbursements: Mapped[Decimal] = mapped_column(
+        _MONEY, server_default=text("0"), default=Decimal("0"), nullable=False
+    )
+    amount_collected: Mapped[Decimal] = mapped_column(
+        _MONEY, server_default=text("0"), default=Decimal("0"), nullable=False
+    )
 
     # ── Closing forms ─────────────────────────────────────────────────────────
     #: Form 1 is the Material Sign-Off, form 2 the Project Sign-Off. Both present is

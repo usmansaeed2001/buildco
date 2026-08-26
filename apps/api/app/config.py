@@ -91,7 +91,12 @@ class Settings(BaseSettings):
 
     # ── AI (Groq) ─────────────────────────────────────────────────────────────
     groq_api_key: str | None = None
-    groq_model: str = "llama-3.3-70b-versatile"
+    #: Groq retires hosted models on its own schedule and does not keep the old
+    #: name working — a retired id fails every call with a 400 that only says the
+    #: model does not exist. `llama-3.3-70b-versatile` was the original default and
+    #: is gone. Check https://console.groq.com/docs/models before assuming this one
+    #: is still live; overriding GROQ_MODEL per environment is cheaper than a deploy.
+    groq_model: str = "openai/gpt-oss-120b"
     groq_base_url: str = "https://api.groq.com/openai/v1"
 
     # ── Google Calendar ───────────────────────────────────────────────────────
@@ -128,7 +133,7 @@ class Settings(BaseSettings):
 
     @property
     def logo_url(self) -> str:
-        return f"{self.site_url}/logo.jpeg"
+        return f"{self.site_url}/logo.png"
 
 
 @lru_cache(maxsize=1)

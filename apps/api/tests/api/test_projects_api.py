@@ -360,3 +360,96 @@ async def test_a_linked_supplement_carries_its_computed_total(owner_client):
     ).json()
 
     assert link["estimate"]["total"] == "30.00"
+
+
+# ── Closing-form photos ───────────────────────────────────────────────────────
+
+
+async def test_a_closing_form_photo_url_is_unavailable_without_a_bucket(owner_client):
+    project = await make_project(owner_client)
+
+    response = await owner_client.post(
+        f"/api/v1/projects/{project['id']}/closing-forms/1/photo-upload-url",
+        json={"file_name": "material.jpg", "content_type": "image/jpeg"},
+    )
+
+    assert response.status_code == 503
+
+
+async def test_a_closing_form_photo_cannot_claim_another_projects_path(owner_client):
+    """The form body is otherwise opaque, so the photo key is the one field that has
+    to be checked — an unvalidated key would render someone else's object."""
+    project = await make_project(owner_client)
+    other = await make_project(owner_client, owner_name="Someone Else")
+
+    response = await owner_client.put(
+        f"/api/v1/projects/{project['id']}/closing-forms/1",
+        json={
+            "data": {
+                "cf1_signatory": "Jordan",
+                "material_photo_path": f"projects/{other['id']}/closing-forms/1_123.jpg",
+            }
+        },
+    )
+
+    assert response.status_code == 403
+
+
+async def test_a_closing_form_photo_path_rejects_traversal(owner_client):
+    project = await make_project(owner_client)
+
+    response = await owner_client.put(
+        f"/api/v1/projects/{project['id']}/closing-forms/1",
+        json={
+            "data": {
+                "material_photo_path": (f"projects/{project['id']}/closing-forms/../../secret.jpg")
+            }
+        },
+    )
+
+    assert response.status_code == 403
+
+
+async def test_a_closing_form_accepts_its_own_photo_path(owner_client):
+    project = await make_project(owner_client)
+    path = f"projects/{project['id']}/closing-forms/1_123.jpg"
+
+    response = await owner_client.put(
+        f"/api/v1/projects/{project['id']}/closing-forms/1",
+        json={"data": {"cf1_signatory": "Jordan", "material_photo_path": path}},
+    )
+
+    assert response.status_code == 200
+    fetched = await get_project(owner_client, project["id"])
+    assert fetched["closing_form_1"]["material_photo_path"] == path
+
+
+async def test_a_closing_form_without_a_photo_is_unaffected(owner_client):
+    """The check must not make the photo mandatory — form 2 has no photo at all."""
+    project = await make_project(owner_client)
+
+    response = await owner_client.put(
+        f"/api/v1/projects/{project['id']}/closing-forms/2",
+        json={"data": {"cf2_owner_sig": "Jordan"}},
+    )
+
+    assert response.status_code == 200
+
+
+async def test_a_project_can_be_deleted(owner_client):
+    project = await make_project(owner_client)
+
+    response = await owner_client.delete(f"/api/v1/projects/{project['id']}")
+    assert response.status_code == 200
+
+    assert (await owner_client.get(f"/api/v1/projects/{project['id']}")).status_code == 404
+
+
+async def test_a_member_cannot_delete_a_project(client_as, owner, member):
+    async with client_as(owner) as elevated:
+        project = await make_project(elevated, assigned_to=str(member.id))
+
+    async with client_as(member) as theirs:
+        response = await theirs.delete(f"/api/v1/projects/{project['id']}")
+
+    assert response.status_code == 403

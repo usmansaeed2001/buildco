@@ -242,3 +242,61 @@ async def test_every_response_carries_a_request_id(owner_client):
     response = await owner_client.get("/api/v1/users/me")
 
     assert response.headers["X-Request-ID"]
+
+
+# ── Avatars ───────────────────────────────────────────────────────────────────
+
+
+async def test_an_avatar_upload_url_is_unavailable_without_a_bucket(owner_client):
+    response = await owner_client.post(
+        "/api/v1/users/me/avatar-upload-url",
+        json={"file_name": "me.png", "content_type": "image/png"},
+    )
+
+    assert response.status_code == 503
+
+
+async def test_an_avatar_url_is_recorded_on_the_profile(owner_client):
+    url = "https://storage.googleapis.com/buildco-avatars/abc/avatar.png"
+
+    response = await owner_client.put("/api/v1/users/me/avatar", json={"avatar_url": url})
+
+    assert response.status_code == 200
+    assert response.json()["avatar_url"] == url
+    assert (await owner_client.get("/api/v1/users/me")).json()["avatar_url"] == url
+
+
+# ── Session provisioning ──────────────────────────────────────────────────────
+
+
+async def test_the_first_user_to_establish_a_session_becomes_the_owner(anon_client):
+    """The provisioning rule that replaces Supabase's ``handle_new_user`` trigger.
+
+    Exercised over HTTP here because every other test bypasses the route entirely via
+    the ``get_current_user`` override, so the rule was only ever unit-tested.
+    """
+    response = await anon_client.post(
+        "/api/v1/auth/session", headers={"Authorization": "Bearer any-token"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created"] is True
+    assert body["user"]["role"] == "owner"
+
+
+async def test_establishing_a_session_twice_provisions_only_once(anon_client):
+    first = await anon_client.post(
+        "/api/v1/auth/session", headers={"Authorization": "Bearer any-token"}
+    )
+    second = await anon_client.post(
+        "/api/v1/auth/session", headers={"Authorization": "Bearer any-token"}
+    )
+
+    assert first.json()["created"] is True
+    assert second.json()["created"] is False
+    assert second.json()["user"]["id"] == first.json()["user"]["id"]
+
+
+async def test_a_session_cannot_be_established_without_a_token(anon_client):
+    assert (await anon_client.post("/api/v1/auth/session")).status_code == 401

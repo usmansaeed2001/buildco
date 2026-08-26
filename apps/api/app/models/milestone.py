@@ -9,7 +9,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, Uuid
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -29,11 +29,15 @@ class PaymentMilestone(Base, UUIDPrimaryKey, TimestampMixin):
     )
 
     label: Mapped[str] = mapped_column(String(300), nullable=False)
-    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), server_default=text("0"), default=Decimal("0"), nullable=False
+    )
     due_date: Mapped[date | None] = mapped_column(Date)
-    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    notes: Mapped[str] = mapped_column(Text, server_default=text("''"), default="", nullable=False)
 
-    paid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    paid: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), default=False, nullable=False
+    )
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     paid_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")

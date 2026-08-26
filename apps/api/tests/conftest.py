@@ -45,6 +45,7 @@ import pytest  # noqa: E402
 for chatty in ("aiosqlite", "sqlalchemy.engine", "asyncio"):
     logging.getLogger(chatty).setLevel(logging.WARNING)
 logging.getLogger("app").setLevel(logging.CRITICAL)
+from fastapi import Depends  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncSession,
@@ -119,6 +120,34 @@ class NotificationRecorder:
 
     def templates(self) -> list[str]:
         return [s.template for s in self.sent]
+
+
+@pytest.fixture(autouse=True)
+def fake_auth_provider():  # type: ignore[no-untyped-def]
+    """Pin token verification to the fake provider for every test.
+
+    Without this the result depends on the machine: a developer with
+    ``FIREBASE_CREDENTIALS_FILE`` set in ``.env`` (or with gcloud ADC available) builds
+    the real provider, which rejects the synthetic tokens these tests send. Popping the
+    env vars is not enough, because pydantic-settings still reads ``.env``.
+    """
+    from app.services.integrations import firebase
+
+    def _unavailable(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("Firebase is deliberately unavailable under test.")
+
+    # Patch the construction rather than ``get_auth_provider`` itself: routers import
+    # that function by reference at module scope, so rebinding the module attribute
+    # would not reach them. Making the real provider fail to build sends the (cached,
+    # shared) resolver down its own non-production fallback to the fake.
+    original = firebase.FirebaseAuthProvider
+    firebase.FirebaseAuthProvider = _unavailable  # type: ignore[assignment]
+    firebase.reset_auth_provider()
+    try:
+        yield
+    finally:
+        firebase.FirebaseAuthProvider = original  # type: ignore[assignment]
+        firebase.reset_auth_provider()
 
 
 @pytest.fixture
@@ -209,11 +238,17 @@ def app_factory(session_factory, notifications):  # type: ignore[no-untyped-def]
 
         if user is not None:
 
-            async def override_user() -> Profile:
-                # Re-read per request so role changes made mid-test are honoured.
-                async with session_factory() as session:
-                    refreshed = await session.get(Profile, user.id)
-                    return refreshed if refreshed is not None else user
+            async def override_user(session: AsyncSession = Depends(get_db)) -> Profile:
+                """Re-read per request so role changes made mid-test are honoured.
+
+                It takes the *request's* session rather than opening its own, because
+                that is what the real ``get_current_user`` does. Loading the profile
+                into a separate session returns an object that detaches the moment that
+                session closes, so any handler mutating the current user — saving an
+                avatar, updating a name — would flush nothing and silently no-op.
+                """
+                refreshed = await session.get(Profile, user.id)
+                return refreshed if refreshed is not None else user
 
             application.dependency_overrides[get_current_user] = override_user
 

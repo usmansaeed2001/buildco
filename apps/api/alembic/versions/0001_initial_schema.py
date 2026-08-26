@@ -2,7 +2,7 @@
 
 Revision ID: 0001
 Revises:
-Created: 2026-08-17 15:16:38.593552
+Created: 2026-08-23 10:45:03.149962
 """
 
 from __future__ import annotations
@@ -26,19 +26,27 @@ def upgrade() -> None:
         "profiles",
         sa.Column("firebase_uid", sa.String(length=128), nullable=True),
         sa.Column("email", sa.String(length=320), nullable=False),
-        sa.Column("full_name", sa.String(length=200), nullable=False),
+        sa.Column("full_name", sa.String(length=200), server_default=sa.text("''"), nullable=False),
         sa.Column("phone", sa.String(length=40), nullable=True),
         sa.Column("avatar_url", sa.String(length=1000), nullable=True),
-        sa.Column("role", sa.String(length=20), nullable=False),
-        sa.Column("status", sa.String(length=20), nullable=False),
+        sa.Column("role", sa.String(length=20), server_default=sa.text("'member'"), nullable=False),
+        sa.Column(
+            "status", sa.String(length=20), server_default=sa.text("'active'"), nullable=False
+        ),
         sa.Column("removed_by", sa.Uuid(), nullable=True),
         sa.Column("removed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.CheckConstraint(
             "role in ('owner','admin','member')", name=op.f("ck_profiles_role_valid")
@@ -58,17 +66,30 @@ def upgrade() -> None:
         "approval_requests",
         sa.Column("user_id", sa.Uuid(), nullable=False),
         sa.Column("email", sa.String(length=320), nullable=False),
-        sa.Column("full_name", sa.String(length=200), nullable=False),
-        sa.Column("status", sa.String(length=20), nullable=False),
-        sa.Column("requested_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("full_name", sa.String(length=200), server_default=sa.text("''"), nullable=False),
+        sa.Column(
+            "status", sa.String(length=20), server_default=sa.text("'pending'"), nullable=False
+        ),
+        sa.Column(
+            "requested_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("reviewed_by", sa.Uuid(), nullable=True),
         sa.Column("reviewed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.CheckConstraint(
             "status in ('pending','approved','denied')",
@@ -103,14 +124,27 @@ def upgrade() -> None:
     op.create_table(
         "estimates",
         sa.Column("created_by", sa.Uuid(), nullable=True),
-        sa.Column("project_name", sa.String(length=300), nullable=False),
-        sa.Column("client_name", sa.String(length=300), nullable=False),
+        sa.Column(
+            "project_name",
+            sa.String(length=300),
+            server_default=sa.text("'New Estimate'"),
+            nullable=False,
+        ),
+        sa.Column(
+            "client_name", sa.String(length=300), server_default=sa.text("''"), nullable=False
+        ),
         sa.Column("identifier", sa.String(length=40), nullable=False),
-        sa.Column("pm_name", sa.String(length=200), nullable=False),
-        sa.Column("insurance_carrier", sa.String(length=200), nullable=False),
-        sa.Column("rooms", app.models.base.JSONBType(), nullable=False),
-        sa.Column("notes", sa.Text(), nullable=False),
-        sa.Column("status", sa.String(length=30), nullable=False),
+        sa.Column("pm_name", sa.String(length=200), server_default=sa.text("''"), nullable=False),
+        sa.Column(
+            "insurance_carrier", sa.String(length=200), server_default=sa.text("''"), nullable=False
+        ),
+        sa.Column(
+            "rooms", app.models.base.JSONBType(), server_default=sa.text("'[]'"), nullable=False
+        ),
+        sa.Column("notes", sa.Text(), server_default=sa.text("''"), nullable=False),
+        sa.Column(
+            "status", sa.String(length=30), server_default=sa.text("'active'"), nullable=False
+        ),
         sa.Column("approval_token", sa.String(length=128), nullable=True),
         sa.Column("submitted_to", sa.String(length=320), nullable=True),
         sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=True),
@@ -121,10 +155,16 @@ def upgrade() -> None:
         sa.Column("deleted_by", sa.Uuid(), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.CheckConstraint(
             "status in ('active','archived','locked','submitted','approved','rejected','changes_requested')",
@@ -161,28 +201,68 @@ def upgrade() -> None:
         "projects",
         sa.Column("created_by", sa.Uuid(), nullable=True),
         sa.Column("assigned_to", sa.Uuid(), nullable=True),
-        sa.Column("owner_name", sa.String(length=300), nullable=False),
-        sa.Column("address", sa.String(length=500), nullable=False),
-        sa.Column("work_type", sa.String(length=200), nullable=False),
+        sa.Column(
+            "owner_name", sa.String(length=300), server_default=sa.text("''"), nullable=False
+        ),
+        sa.Column("address", sa.String(length=500), server_default=sa.text("''"), nullable=False),
+        sa.Column("work_type", sa.String(length=200), server_default=sa.text("''"), nullable=False),
         sa.Column("start_date", sa.Date(), nullable=True),
-        sa.Column("notes", sa.Text(), nullable=False),
-        sa.Column("work_status", sa.String(length=30), nullable=False),
-        sa.Column("status", sa.String(length=30), nullable=False),
-        sa.Column("total_budget", sa.Numeric(precision=12, scale=2), nullable=False),
-        sa.Column("labor_cost", sa.Numeric(precision=12, scale=2), nullable=False),
-        sa.Column("materials_cost", sa.Numeric(precision=12, scale=2), nullable=False),
-        sa.Column("reimbursements", sa.Numeric(precision=12, scale=2), nullable=False),
-        sa.Column("amount_collected", sa.Numeric(precision=12, scale=2), nullable=False),
+        sa.Column("notes", sa.Text(), server_default=sa.text("''"), nullable=False),
+        sa.Column(
+            "work_status",
+            sa.String(length=30),
+            server_default=sa.text("'contract_sent'"),
+            nullable=False,
+        ),
+        sa.Column(
+            "status", sa.String(length=30), server_default=sa.text("'active'"), nullable=False
+        ),
+        sa.Column(
+            "total_budget",
+            sa.Numeric(precision=12, scale=2),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "labor_cost",
+            sa.Numeric(precision=12, scale=2),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "materials_cost",
+            sa.Numeric(precision=12, scale=2),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "reimbursements",
+            sa.Numeric(precision=12, scale=2),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "amount_collected",
+            sa.Numeric(precision=12, scale=2),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
         sa.Column("closing_form_1", app.models.base.JSONBType(), nullable=True),
         sa.Column("closing_form_2", app.models.base.JSONBType(), nullable=True),
         sa.Column("closing_form_submitted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("closing_form_submitted_by", sa.Uuid(), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.CheckConstraint(
             "status in ('active','pending_payment','closed','cancelled')",
@@ -218,19 +298,25 @@ def upgrade() -> None:
     op.create_table(
         "attachments",
         sa.Column("estimate_id", sa.Uuid(), nullable=False),
-        sa.Column("room_index", sa.Integer(), nullable=True),
-        sa.Column("item_index", sa.Integer(), nullable=True),
+        sa.Column("room_index", sa.Integer(), server_default=sa.text("0"), nullable=False),
+        sa.Column("item_index", sa.Integer(), server_default=sa.text("0"), nullable=False),
         sa.Column("file_name", sa.String(length=500), nullable=False),
         sa.Column("file_type", sa.String(length=200), nullable=False),
         sa.Column("storage_path", sa.String(length=1000), nullable=False),
-        sa.Column("is_video", sa.Boolean(), nullable=False),
+        sa.Column("is_video", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column("uploaded_by", sa.Uuid(), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.ForeignKeyConstraint(
             ["estimate_id"],
@@ -254,19 +340,27 @@ def upgrade() -> None:
         sa.Column("created_by", sa.Uuid(), nullable=True),
         sa.Column("project_id", sa.Uuid(), nullable=True),
         sa.Column("title", sa.String(length=300), nullable=False),
-        sa.Column("description", sa.Text(), nullable=False),
-        sa.Column("location", sa.String(length=500), nullable=False),
+        sa.Column("description", sa.Text(), server_default=sa.text("''"), nullable=False),
+        sa.Column("location", sa.String(length=500), server_default=sa.text("''"), nullable=False),
         sa.Column("start_time", sa.DateTime(timezone=True), nullable=False),
         sa.Column("end_time", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("color", sa.String(length=20), nullable=False),
+        sa.Column(
+            "color", sa.String(length=20), server_default=sa.text("'#3B82F6'"), nullable=False
+        ),
         sa.Column("meet_link", sa.String(length=1000), nullable=True),
         sa.Column("google_event_id", sa.String(length=200), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.ForeignKeyConstraint(
             ["created_by"],
@@ -288,18 +382,26 @@ def upgrade() -> None:
         "payment_milestones",
         sa.Column("project_id", sa.Uuid(), nullable=False),
         sa.Column("label", sa.String(length=300), nullable=False),
-        sa.Column("amount", sa.Numeric(precision=12, scale=2), nullable=False),
+        sa.Column(
+            "amount", sa.Numeric(precision=12, scale=2), server_default=sa.text("0"), nullable=False
+        ),
         sa.Column("due_date", sa.Date(), nullable=True),
-        sa.Column("notes", sa.Text(), nullable=False),
-        sa.Column("paid", sa.Boolean(), nullable=False),
+        sa.Column("notes", sa.Text(), server_default=sa.text("''"), nullable=False),
+        sa.Column("paid", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column("paid_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("paid_by", sa.Uuid(), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.ForeignKeyConstraint(
             ["paid_by"],
@@ -322,15 +424,21 @@ def upgrade() -> None:
         "project_activity",
         sa.Column("project_id", sa.Uuid(), nullable=False),
         sa.Column("user_id", sa.Uuid(), nullable=True),
-        sa.Column("user_name", sa.String(length=200), nullable=False),
+        sa.Column("user_name", sa.String(length=200), server_default=sa.text("''"), nullable=False),
         sa.Column("action", sa.String(length=200), nullable=False),
-        sa.Column("details", sa.Text(), nullable=False),
+        sa.Column("details", sa.Text(), server_default=sa.text("''"), nullable=False),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.ForeignKeyConstraint(
             ["project_id"],
@@ -354,13 +462,10 @@ def upgrade() -> None:
         sa.Column("project_id", sa.Uuid(), nullable=False),
         sa.Column("estimate_id", sa.Uuid(), nullable=False),
         sa.Column("linked_by", sa.Uuid(), nullable=True),
+        sa.Column(
+            "linked_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        ),
         sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
-        ),
-        sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
-        ),
         sa.ForeignKeyConstraint(
             ["estimate_id"],
             ["estimates.id"],
@@ -399,13 +504,19 @@ def upgrade() -> None:
         sa.Column("meeting_id", sa.Uuid(), nullable=False),
         sa.Column("user_id", sa.Uuid(), nullable=True),
         sa.Column("email", sa.String(length=320), nullable=False),
-        sa.Column("name", sa.String(length=200), nullable=False),
+        sa.Column("name", sa.String(length=200), server_default=sa.text("''"), nullable=False),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.ForeignKeyConstraint(
             ["meeting_id"],

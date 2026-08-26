@@ -1,0 +1,46 @@
+# Build context sent to Cloud Build / the Docker daemon.
+#
+# This file is a security boundary, not an optimisation. Without it,
+# `gcloud builds submit` from this directory uploads `.env` and
+# `secrets/firebase-admin.json` — a live Firebase Admin private key that can mint
+# credentials for any user in the project — to Cloud Build. The Dockerfile never
+# COPYs them, so the image stays clean either way; the point is that they must not
+# leave the machine in the first place.
+
+# Credentials and configuration
+.env
+.env.*
+!.env.example
+secrets/
+*-credentials.json
+service-account*.json
+
+# Python build artefacts and local virtualenv
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Not needed at runtime. The Dockerfile copies only app/, alembic/, alembic.ini,
+# pyproject.toml and uv.lock; everything else here is context weight.
+# The Dockerfile itself is deliberately NOT ignored: `gcloud builds submit` uploads
+# this context as a tarball and Cloud Build then looks for the Dockerfile inside it.
+tests/
+docs/
+*.md
+docker-compose.yml
+Makefile
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

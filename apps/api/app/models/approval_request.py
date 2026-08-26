@@ -12,10 +12,10 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Uuid
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Uuid, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UUIDPrimaryKey
+from app.models.base import Base, TimestampMixin, UUIDPrimaryKey, utcnow
 from app.models.enums import ApprovalRequestStatus, values
 
 if TYPE_CHECKING:
@@ -39,13 +39,23 @@ class ApprovalRequest(Base, UUIDPrimaryKey, TimestampMixin):
     )
     #: Snapshotted so the request is still readable if the profile is later purged.
     email: Mapped[str] = mapped_column(String(320), nullable=False)
-    full_name: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    full_name: Mapped[str] = mapped_column(
+        String(200), server_default=text("''"), default="", nullable=False
+    )
 
     status: Mapped[str] = mapped_column(
-        String(20), default=ApprovalRequestStatus.PENDING, nullable=False, index=True
+        String(20),
+        server_default=text("'pending'"),
+        default=ApprovalRequestStatus.PENDING,
+        nullable=False,
+        index=True,
     )
     requested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, index=True
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=utcnow,
+        nullable=False,
+        index=True,
     )
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")

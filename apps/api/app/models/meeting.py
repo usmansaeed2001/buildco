@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -34,8 +34,12 @@ class Meeting(Base, UUIDPrimaryKey, TimestampMixin):
     )
 
     title: Mapped[str] = mapped_column(String(300), nullable=False)
-    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    location: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    description: Mapped[str] = mapped_column(
+        Text, server_default=text("''"), default="", nullable=False
+    )
+    location: Mapped[str] = mapped_column(
+        String(500), server_default=text("''"), default="", nullable=False
+    )
 
     start_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
@@ -43,7 +47,9 @@ class Meeting(Base, UUIDPrimaryKey, TimestampMixin):
     end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     #: Hex colour used by the calendar UI.
-    color: Mapped[str] = mapped_column(String(20), default="#3B82F6", nullable=False)
+    color: Mapped[str] = mapped_column(
+        String(20), server_default=text("'#3B82F6'"), default="#3B82F6", nullable=False
+    )
 
     meet_link: Mapped[str | None] = mapped_column(String(1000))
     google_event_id: Mapped[str | None] = mapped_column(String(200))
@@ -79,7 +85,9 @@ class MeetingAttendee(Base, UUIDPrimaryKey, TimestampMixin):
     )
 
     email: Mapped[str] = mapped_column(String(320), nullable=False)
-    name: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    name: Mapped[str] = mapped_column(
+        String(200), server_default=text("''"), default="", nullable=False
+    )
 
     meeting: Mapped[Meeting] = relationship("Meeting", back_populates="attendees")
     profile: Mapped[Profile | None] = relationship("Profile", lazy="selectin")
