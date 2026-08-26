@@ -26,8 +26,14 @@ gcloud services enable \
   sqladmin.googleapis.com \
   secretmanager.googleapis.com \
   artifactregistry.googleapis.com \
-  cloudbuild.googleapis.com
+  cloudbuild.googleapis.com \
+  iamcredentials.googleapis.com
 ```
+
+`iamcredentials` is the one that looks optional and is not. Cloud Run's credentials
+carry no private key, so GCS V4 URL signing goes through the IAM `signBlob` API. With
+that API off, `create_download_url` logs `storage_sign_failed` and returns `null` —
+attachments render with no URL and no error anywhere.
 
 - [ ] APIs enabled
 
@@ -108,6 +114,39 @@ is optional; unset ones degrade to a logged no-op rather than blocking boot.
 - [ ] `database-url` created, with no trailing newline
 - [ ] `site-url` set to the real Firebase Hosting origin
 - [ ] Remaining integration secrets created (or deliberately skipped)
+
+---
+
+## 4b. Storage buckets
+
+Step 8 passes two bucket names as environment variables but nothing above creates
+them. Uploads go **direct from the browser** to a V4 signed PUT URL, so they also need
+a CORS policy or every upload dies in preflight with no useful message.
+
+```bash
+gcloud storage buckets create gs://$PROJECT-attachments gs://$PROJECT-avatars \
+  --location="$REGION" --uniform-bucket-level-access
+
+cat > /tmp/cors.json <<'JSON'
+[{"origin": ["https://YOUR-SITE.web.app", "http://localhost:5173"],
+  "method": ["GET", "PUT", "HEAD"],
+  "responseHeader": ["Content-Type", "Content-Length"],
+  "maxAgeSeconds": 3600}]
+JSON
+gcloud storage buckets update gs://$PROJECT-attachments gs://$PROJECT-avatars \
+  --cors-file=/tmp/cors.json
+
+# Avatars only. storage.py serves them via public_url, not a signed URL.
+gcloud storage buckets add-iam-policy-binding gs://$PROJECT-avatars \
+  --member=allUsers --role=roles/storage.objectViewer
+```
+
+**Attachments must stay private.** They are reached only through signed URLs; making
+that bucket public would expose every customer document to anyone holding a path.
+
+- [ ] Both buckets created with uniform bucket-level access
+- [ ] CORS applied to both, listing every origin that serves the frontend
+- [ ] `allUsers:objectViewer` on avatars only — confirm attachments has no `allUsers`
 
 ---
 
@@ -196,6 +235,7 @@ gcloud run deploy "$SERVICE" \
   --min-instances=0 \
   --max-instances=10 \
   --cpu=1 --memory=512Mi \
+  --no-cpu-throttling \
   --timeout=300 \
   --set-env-vars="ENVIRONMENT=production,FIREBASE_PROJECT_ID=$PROJECT,GCS_ATTACHMENTS_BUCKET=$PROJECT-attachments,GCS_AVATARS_BUCKET=$PROJECT-avatars,CORS_ORIGINS=https://your-app.web.app" \
   --set-secrets="DATABASE_URL=database-url:latest,SITE_URL=site-url:latest,RESEND_API_KEY=resend-key:latest,SLACK_WEBHOOK_URL=slack-webhook:latest,GROQ_API_KEY=groq-key:latest"
@@ -204,6 +244,10 @@ gcloud run deploy "$SERVICE" \
 - `--max-instances=10` is the connection budget, not an arbitrary cap. Raising it means
   revisiting §2.
 - `ENVIRONMENT=production` makes `config.py` reject `AUTH_DISABLED` outright. Keep it.
+- **`--no-cpu-throttling` is why reviewer emails arrive.** Resend sends and Slack
+  posts are dispatched from FastAPI `BackgroundTasks`, which run *after* the response
+  is returned. Under default throttling the instance loses CPU at exactly that moment,
+  so the task is dropped — silently, with a 200 already sent to the caller.
 - `--allow-unauthenticated` is correct here: the app does its own Firebase auth. IAM
   auth would block the browser.
 
