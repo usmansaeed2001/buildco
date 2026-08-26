@@ -163,7 +163,7 @@ class SupplementLinkOut(ORMSchema):
     project_id: uuid.UUID
     estimate_id: uuid.UUID
     linked_by: uuid.UUID | None = None
-    created_at: datetime
+    linked_at: datetime
     estimate: LinkedEstimate | None = None
 
 
@@ -192,6 +192,17 @@ class ClosingFormSubmit(Schema):
     """
 
     data: dict[str, Any]
+
+
+class ClosingFormPhotoUploadRequest(Schema):
+    """Step 1 of the Material Sign-Off photo upload.
+
+    The returned ``storage_path`` is what belongs in the form's ``material_photo_path``
+    field when the form is submitted.
+    """
+
+    file_name: str = Field(min_length=1, max_length=500)
+    content_type: str = Field(min_length=1, max_length=200)
 
 
 class ProjectDetailOut(ORMSchema):

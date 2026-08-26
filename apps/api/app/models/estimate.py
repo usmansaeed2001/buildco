@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, Uuid
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, JSONBType, TimestampMixin, UUIDPrimaryKey
@@ -39,18 +39,32 @@ class Estimate(Base, UUIDPrimaryKey, TimestampMixin):
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), index=True
     )
 
-    project_name: Mapped[str] = mapped_column(String(300), default="New Estimate", nullable=False)
-    client_name: Mapped[str] = mapped_column(String(300), default="", nullable=False)
+    project_name: Mapped[str] = mapped_column(
+        String(300), server_default=text("'New Estimate'"), default="New Estimate", nullable=False
+    )
+    client_name: Mapped[str] = mapped_column(
+        String(300), server_default=text("''"), default="", nullable=False
+    )
     #: Human-facing claim reference, e.g. ``CLM-482913``. Unique per estimate.
     identifier: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
-    pm_name: Mapped[str] = mapped_column(String(200), default="", nullable=False)
-    insurance_carrier: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    pm_name: Mapped[str] = mapped_column(
+        String(200), server_default=text("''"), default="", nullable=False
+    )
+    insurance_carrier: Mapped[str] = mapped_column(
+        String(200), server_default=text("''"), default="", nullable=False
+    )
 
-    rooms: Mapped[list[Any]] = mapped_column(JSONBType, default=list, nullable=False)
-    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    rooms: Mapped[list[Any]] = mapped_column(
+        JSONBType, server_default=text("'[]'"), default=list, nullable=False
+    )
+    notes: Mapped[str] = mapped_column(Text, server_default=text("''"), default="", nullable=False)
 
     status: Mapped[str] = mapped_column(
-        String(30), default=EstimateStatus.ACTIVE, nullable=False, index=True
+        String(30),
+        server_default=text("'active'"),
+        default=EstimateStatus.ACTIVE,
+        nullable=False,
+        index=True,
     )
 
     # ── External review workflow ──────────────────────────────────────────────

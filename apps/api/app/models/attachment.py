@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Uuid
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -31,8 +31,12 @@ class Attachment(Base, UUIDPrimaryKey, TimestampMixin):
         nullable=False,
         index=True,
     )
-    room_index: Mapped[int | None] = mapped_column(Integer)
-    item_index: Mapped[int | None] = mapped_column(Integer)
+    room_index: Mapped[int] = mapped_column(
+        Integer, server_default=text("0"), default=0, nullable=False
+    )
+    item_index: Mapped[int] = mapped_column(
+        Integer, server_default=text("0"), default=0, nullable=False
+    )
 
     file_name: Mapped[str] = mapped_column(String(500), default="", nullable=False)
     file_type: Mapped[str] = mapped_column(String(200), default="", nullable=False)
@@ -40,7 +44,9 @@ class Attachment(Base, UUIDPrimaryKey, TimestampMixin):
     #: verbatim — ``{estimate_id}/{room_index}_{item_index}_{epoch_ms}.{ext}`` — so
     #: objects copied over from Supabase Storage stay addressable.
     storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)
-    is_video: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_video: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), default=False, nullable=False
+    )
 
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")

@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Uuid
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -35,12 +35,18 @@ class Profile(Base, UUIDPrimaryKey, TimestampMixin):
 
     firebase_uid: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
-    full_name: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    full_name: Mapped[str] = mapped_column(
+        String(200), server_default=text("''"), default="", nullable=False
+    )
     phone: Mapped[str | None] = mapped_column(String(40))
     avatar_url: Mapped[str | None] = mapped_column(String(1000))
 
-    role: Mapped[str] = mapped_column(String(20), default=Role.MEMBER, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default=UserStatus.ACTIVE, nullable=False)
+    role: Mapped[str] = mapped_column(
+        String(20), server_default=text("'member'"), default=Role.MEMBER, nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), server_default=text("'active'"), default=UserStatus.ACTIVE, nullable=False
+    )
 
     removed_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")

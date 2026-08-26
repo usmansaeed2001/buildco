@@ -1,0 +1,101 @@
+table_schema,table_name,column_name,ordinal_position,data_type,is_nullable,column_default
+public,approval_requests,id,1,uuid,NO,gen_random_uuid()
+public,approval_requests,user_id,2,uuid,NO,null
+public,approval_requests,email,3,text,NO,null
+public,approval_requests,full_name,4,text,YES,''::text
+public,approval_requests,requested_at,5,timestamp with time zone,YES,now()
+public,approval_requests,status,6,text,NO,'pending'::text
+public,approval_requests,reviewed_by,7,uuid,YES,null
+public,approval_requests,reviewed_at,8,timestamp with time zone,YES,null
+public,attachments,id,1,uuid,NO,gen_random_uuid()
+public,attachments,estimate_id,2,uuid,NO,null
+public,attachments,room_index,3,integer,NO,0
+public,attachments,item_index,4,integer,NO,0
+public,attachments,file_name,5,text,NO,null
+public,attachments,file_type,6,text,NO,null
+public,attachments,storage_path,7,text,NO,null
+public,attachments,is_video,8,boolean,YES,false
+public,attachments,uploaded_by,9,uuid,YES,null
+public,attachments,created_at,10,timestamp with time zone,YES,now()
+public,estimates,id,1,uuid,NO,gen_random_uuid()
+public,estimates,created_by,2,uuid,YES,null
+public,estimates,project_name,3,text,NO,'New Estimate'::text
+public,estimates,client_name,4,text,YES,''::text
+public,estimates,identifier,5,text,NO,null
+public,estimates,pm_name,6,text,YES,''::text
+public,estimates,insurance_carrier,7,text,YES,''::text
+public,estimates,rooms,8,jsonb,NO,'[]'::jsonb
+public,estimates,notes,9,text,YES,''::text
+public,estimates,status,10,text,NO,'active'::text
+public,estimates,created_at,11,timestamp with time zone,YES,now()
+public,estimates,updated_at,12,timestamp with time zone,YES,now()
+public,estimates,approval_token,13,text,YES,null
+public,estimates,submitted_to,14,text,YES,null
+public,estimates,submitted_at,15,timestamp with time zone,YES,null
+public,estimates,submitted_by,16,uuid,YES,null
+public,estimates,reviewed_at,17,timestamp with time zone,YES,null
+public,estimates,review_note,18,text,YES,null
+public,estimates,deleted_at,19,timestamp with time zone,YES,null
+public,estimates,deleted_by,20,uuid,YES,null
+public,meeting_attendees,id,1,uuid,NO,gen_random_uuid()
+public,meeting_attendees,meeting_id,2,uuid,NO,null
+public,meeting_attendees,user_id,3,uuid,NO,null
+public,meeting_attendees,email,4,text,NO,null
+public,meeting_attendees,name,5,text,YES,''::text
+public,meetings,id,1,uuid,NO,gen_random_uuid()
+public,meetings,created_at,2,timestamp with time zone,YES,now()
+public,meetings,created_by,3,uuid,YES,null
+public,meetings,title,4,text,NO,null
+public,meetings,description,5,text,YES,''::text
+public,meetings,location,6,text,YES,''::text
+public,meetings,start_time,7,timestamp with time zone,NO,null
+public,meetings,end_time,8,timestamp with time zone,NO,null
+public,meetings,color,9,text,YES,'#3B82F6'::text
+public,meetings,project_id,10,uuid,YES,null
+public,meetings,meet_link,11,text,YES,null
+public,meetings,google_event_id,12,text,YES,null
+public,payment_milestones,id,1,uuid,NO,gen_random_uuid()
+public,payment_milestones,project_id,2,uuid,NO,null
+public,payment_milestones,created_at,3,timestamp with time zone,YES,now()
+public,payment_milestones,label,4,text,NO,null
+public,payment_milestones,amount,5,numeric,NO,0
+public,payment_milestones,due_date,6,date,YES,null
+public,payment_milestones,paid,7,boolean,YES,false
+public,payment_milestones,paid_at,8,timestamp with time zone,YES,null
+public,payment_milestones,paid_by,9,uuid,YES,null
+public,payment_milestones,notes,10,text,YES,''::text
+public,profiles,id,1,uuid,NO,null
+public,profiles,email,2,text,NO,null
+public,profiles,full_name,3,text,YES,''::text
+public,profiles,role,4,text,NO,'member'::text
+public,profiles,created_at,5,timestamp with time zone,YES,now()
+public,profiles,status,6,text,NO,'active'::text
+public,profiles,removed_by,7,uuid,YES,null
+public,profiles,removed_at,8,timestamp with time zone,YES,null
+public,profiles,avatar_url,9,text,YES,null
+public,profiles,phone,10,text,YES,null
+public,project_activity,id,1,uuid,NO,gen_random_uuid()
+public,project_activity,project_id,2,uuid,NO,null
+public,project_activity,created_at,3,timestamp with time zone,YES,now()
+public,project_activity,user_id,4,uuid,YES,null
+public,project_activity,user_name,5,text,YES,''::text
+public,project_activity,action,6,text,NO,null
+public,project_activity,details,7,text,YES,''::text
+public,project_supplements,id,1,uuid,NO,gen_random_uuid()
+public,project_supplements,project_id,2,uuid,NO,null
+public,project_supplements,estimate_id,3,uuid,NO,null
+public,project_supplements,linked_at,4,timestamp with time zone,YES,now()
+public,project_supplements,linked_by,5,uuid,YES,null
+public,projects,id,1,uuid,NO,gen_random_uuid()
+public,projects,created_at,2,timestamp with time zone,YES,now()
+public,projects,created_by,3,uuid,YES,null
+public,projects,owner_name,4,text,NO,''::text
+public,projects,address,5,text,NO,''::text
+public,projects,work_type,6,text,YES,''::text
+public,projects,start_date,7,date,YES,null
+public,projects,notes,8,text,YES,''::text
+public,projects,assigned_to,9,uuid,YES,null
+public,projects,total_budget,10,numeric,YES,0
+public,projects,labor_cost,11,numeric,YES,0
+public,projects,materials_cost,12,numeric,YES,0
+public,projects,reimbursements,13,numeric,YES,0

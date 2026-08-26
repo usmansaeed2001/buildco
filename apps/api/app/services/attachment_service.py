@@ -110,8 +110,12 @@ async def record_attachment(
 
     attachment = Attachment(
         estimate_id=estimate.id,
-        room_index=room_index,
-        item_index=item_index,
+        # Both columns are NOT NULL, and the request schema leaves them optional so a
+        # caller may omit them for an estimate-level file. Coerce here rather than
+        # passing the ``None`` through, which suppresses the column default and fails
+        # the constraint. ``storage.attachment_path`` already defaults the same way.
+        room_index=room_index if room_index is not None else 0,
+        item_index=item_index if item_index is not None else 0,
         file_name=file_name,
         file_type=content_type,
         storage_path=storage_path,

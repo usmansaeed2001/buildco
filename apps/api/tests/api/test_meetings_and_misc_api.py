@@ -314,3 +314,92 @@ async def test_a_video_attachment_is_flagged_from_its_mime_type(owner_client):
     assert response.json()["is_video"] is True
     # No bucket configured, so there is no URL to sign — the row still returns.
     assert response.json()["url"] is None
+
+
+async def test_an_attachment_records_without_explicit_indexes(owner_client):
+    """Both index columns are NOT NULL while the request schema leaves them optional.
+
+    Passing the ``None`` straight through suppressed the column default and made the
+    very first photo upload a 500 — the one existing creation test supplied both
+    indexes, so the path was never exercised.
+    """
+    estimate = (await owner_client.post("/api/v1/estimates", json={"project_name": "X"})).json()
+
+    response = await owner_client.post(
+        f"/api/v1/estimates/{estimate['id']}/attachments",
+        json={
+            "storage_path": f"{estimate['id']}/0_0_123.jpg",
+            "file_name": "photo.jpg",
+            "content_type": "image/jpeg",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["room_index"] == 0
+    assert body["item_index"] == 0
+
+
+async def test_attachments_are_listed_for_an_estimate(owner_client):
+    estimate = (await owner_client.post("/api/v1/estimates", json={"project_name": "X"})).json()
+    await owner_client.post(
+        f"/api/v1/estimates/{estimate['id']}/attachments",
+        json={
+            "storage_path": f"{estimate['id']}/1_2_123.jpg",
+            "file_name": "photo.jpg",
+            "content_type": "image/jpeg",
+            "room_index": 1,
+            "item_index": 2,
+        },
+    )
+
+    response = await owner_client.get(f"/api/v1/estimates/{estimate['id']}/attachments")
+
+    assert response.status_code == 200
+    rows = response.json()
+    assert len(rows) == 1
+    assert rows[0]["file_name"] == "photo.jpg"
+    assert rows[0]["room_index"] == 1
+    assert rows[0]["url"] is None
+
+
+async def test_an_attachment_can_be_deleted(owner_client):
+    estimate = (await owner_client.post("/api/v1/estimates", json={"project_name": "X"})).json()
+    created = (
+        await owner_client.post(
+            f"/api/v1/estimates/{estimate['id']}/attachments",
+            json={
+                "storage_path": f"{estimate['id']}/0_0_123.jpg",
+                "file_name": "photo.jpg",
+                "content_type": "image/jpeg",
+            },
+        )
+    ).json()
+
+    response = await owner_client.delete(f"/api/v1/attachments/{created['id']}")
+    assert response.status_code == 200
+
+    remaining = (await owner_client.get(f"/api/v1/estimates/{estimate['id']}/attachments")).json()
+    assert remaining == []
+
+
+async def test_a_member_cannot_delete_an_attachment_on_another_persons_estimate(
+    client_as, member, other_member
+):
+    async with client_as(other_member) as theirs:
+        estimate = (await theirs.post("/api/v1/estimates", json={"project_name": "X"})).json()
+        created = (
+            await theirs.post(
+                f"/api/v1/estimates/{estimate['id']}/attachments",
+                json={
+                    "storage_path": f"{estimate['id']}/0_0_123.jpg",
+                    "file_name": "photo.jpg",
+                    "content_type": "image/jpeg",
+                },
+            )
+        ).json()
+
+    async with client_as(member) as mine:
+        response = await mine.delete(f"/api/v1/attachments/{created['id']}")
+
+    assert response.status_code == 403

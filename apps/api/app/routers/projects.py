@@ -17,9 +17,11 @@ from app.errors import NotFound
 from app.models.enums import ProjectStatus, WorkStatus
 from app.models.project import Project
 from app.models.project_supplement import ProjectSupplement
+from app.schemas.attachment import UploadUrlOut
 from app.schemas.common import Ack, Page
 from app.schemas.project import (
     ActivityOut,
+    ClosingFormPhotoUploadRequest,
     ClosingFormSubmit,
     LinkedEstimate,
     MilestoneCreate,
@@ -305,7 +307,7 @@ def _link_out(link: ProjectSupplement) -> SupplementLinkOut:
         project_id=link.project_id,
         estimate_id=link.estimate_id,
         linked_by=link.linked_by,
-        created_at=link.created_at,
+        linked_at=link.linked_at,
         estimate=(
             LinkedEstimate(
                 id=estimate.id,
@@ -356,6 +358,35 @@ async def unlink_supplement(
 
 
 # ── Closing forms ─────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/{project_id}/closing-forms/{form_number}/photo-upload-url",
+    response_model=UploadUrlOut,
+)
+async def create_closing_form_photo_url(
+    body: ClosingFormPhotoUploadRequest,
+    actor: CurrentUser,
+    project: AccessibleProject,
+    form_number: Annotated[int, Path(ge=1, le=2)],
+) -> UploadUrlOut:
+    """Get a signed URL to PUT a closing-form photo straight to storage.
+
+    Put the returned ``storage_path`` in the form's ``material_photo_path`` when
+    submitting. Send ``required_headers`` verbatim on the PUT.
+    """
+    signed = await project_service.create_closing_form_photo_url(
+        project,
+        form_number,
+        file_name=body.file_name,
+        content_type=body.content_type,
+    )
+    return UploadUrlOut(
+        upload_url=signed.upload_url,
+        storage_path=signed.storage_path,
+        required_headers=signed.required_headers,
+        expires_in=signed.expires_in,
+    )
 
 
 @router.put("/{project_id}/closing-forms/{form_number}", response_model=ProjectOut)

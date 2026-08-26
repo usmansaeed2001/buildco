@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import Conflict, NotFound
+from app.errors import Conflict, Forbidden, NotFound
 from app.logging import get_logger
 from app.models.enums import ELEVATED_ROLES, ProjectStatus, Role, WorkStatus
 from app.models.estimate import Estimate
@@ -27,6 +27,8 @@ from app.models.profile import Profile
 from app.models.project import Project
 from app.models.project_activity import ProjectActivity
 from app.models.project_supplement import ProjectSupplement
+from app.services.integrations import storage
+from app.services.integrations.storage import SignedUpload
 from app.services.rules import project_rules
 from app.services.rules.project_rules import (
     MilestoneSnapshot,
@@ -180,7 +182,7 @@ async def list_supplements(session: AsyncSession, project_id: uuid.UUID) -> list
         await session.scalars(
             select(ProjectSupplement)
             .where(ProjectSupplement.project_id == project_id)
-            .order_by(ProjectSupplement.created_at)
+            .order_by(ProjectSupplement.linked_at)
         )
     )
 
@@ -499,6 +501,8 @@ async def submit_closing_form(
     if form_number not in FORM_NAMES:
         raise NotFound(f"Unknown closing form {form_number}. Expected 1 or 2.")
 
+    _assert_photo_belongs_to(project, data)
+
     if form_number == 1:
         project.closing_form_1 = data
     else:
@@ -518,3 +522,47 @@ async def submit_closing_form(
     both_submitted = bool(project.closing_form_1) and bool(project.closing_form_2)
     notifications = await _reconcile(session, project, actor)
     return MutationResult(project=project, notifications=notifications), both_submitted
+
+
+# ── Closing-form photos ───────────────────────────────────────────────────────
+
+#: Key in a closing form's ``data`` holding the uploaded photo's object key. The form
+#: body is otherwise opaque, so this is the one field the backend looks at — it has to,
+#: because an unvalidated key would let a caller claim any object in the bucket.
+PHOTO_PATH_KEY = "material_photo_path"
+
+
+def closing_form_prefix(project_id: uuid.UUID) -> str:
+    return f"projects/{project_id}/closing-forms/"
+
+
+def _assert_photo_belongs_to(project: Project, data: dict[str, Any]) -> None:
+    """Reject a photo key that does not sit under this project's own prefix.
+
+    Same reasoning as ``attachment_service.record_attachment``: the client posts a key
+    it claims to have uploaded, and without this check it could name someone else's
+    object and have the form render it.
+    """
+    path = data.get(PHOTO_PATH_KEY)
+    if path is None or path == "":
+        return
+    if not isinstance(path, str):
+        raise Forbidden("That storage path is not valid for this project.")
+    if not path.startswith(closing_form_prefix(project.id)) or ".." in path:
+        raise Forbidden("That storage path does not belong to this project.")
+
+
+async def create_closing_form_photo_url(
+    project: Project, form_number: int, *, file_name: str, content_type: str
+) -> SignedUpload:
+    """Mint a signed PUT for a closing-form photo.
+
+    Access is already established by ``AccessibleProject`` on the route, and closing
+    forms are open to any role assigned to the project — matching the legacy app, where
+    members could complete a sign-off.
+    """
+    if form_number not in FORM_NAMES:
+        raise NotFound(f"Unknown closing form {form_number}. Expected 1 or 2.")
+
+    path = storage.closing_form_path(str(project.id), form_number, file_name)
+    return await storage.create_upload_url("attachments", path, content_type)

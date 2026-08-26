@@ -15,18 +15,22 @@ Repository: <https://github.com/buildco51/buildco>
 
 ```
 buildco/
+  firebase.json    Hosting config: SPA fallback + /api/** rewrite to Cloud Run
   apps/
     api/           FastAPI backend (Python 3.12)   ← implemented
-    staff-web/     React internal ops app          ← Phase 2
+    staff-web/     React internal ops app          ← in progress
     customer-web/  React customer site             ← Phase 3
-  packages/
-    shared/        TS domain types generated from the API's OpenAPI schema
-    ui/            Shared React component library
-    api-client/    Typed API client
 ```
 
-Only `apps/api` exists today. The frontend packages arrive in Phase 2, at which point a
-root `package.json` and `turbo.json` join them.
+`packages/shared`, `packages/ui`, and `packages/api-client` were planned in
+`migration-docs/03-frontend-migration.md` but are **deliberately not built yet**. They
+exist to share code between `staff-web` and `customer-web`, and until the second app
+exists there is nothing to share — three packages, a root `package.json`, and a
+`turbo.json` would be indirection serving one consumer. `staff-web` keeps its API
+client and types internally; extracting them later is a mechanical move.
+
+Domain types are generated from the API's OpenAPI schema rather than hand-written, so
+the two cannot drift. See `apps/staff-web/README.md`.
 
 ---
 
@@ -162,5 +166,7 @@ hotfix.
 | Firebase Auth | Interface implemented and swappable. Awaiting a project and credentials — see [`apps/api/docs/FIREBASE_SETUP.md`](apps/api/docs/FIREBASE_SETUP.md). |
 | User migration | Planned and documented — see [`apps/api/docs/USER_MIGRATION.md`](apps/api/docs/USER_MIGRATION.md). |
 | Cloud Storage, Resend, Slack, Groq, Calendar | Adapters implemented; degrade to logged no-ops without credentials. |
-| Cloud Run deploy + CI | Dockerfile ready. No service, no pipeline. |
-| React frontends | Not started. |
+| Cloud Run deploy + CI | Dockerfile ready, deploy runbook written (`apps/api/docs/DEPLOY_CLOUD_RUN.md`). No service, no pipeline. |
+| `staff-web` foundation | Vite + React + TS + Tailwind. Typed API client generated from OpenAPI, Firebase Auth wired to `POST /auth/session`, routing and guards, design system. Money and permission rules ported from the backend with their tests. |
+| `staff-web` screens | Auth, launcher, and the estimates list are built. Estimate editor, projects, meetings, team, settings, and the public review page are not. |
+| Firebase Hosting | `firebase.json` written — SPA fallback plus an `/api/**` rewrite to Cloud Run, so the frontend calls same-origin `/api/v1` in every environment. Not deployed. |
