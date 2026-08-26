@@ -81,12 +81,27 @@ Takes roughly 6–10 minutes. Watch for:
 Then verify:
 
 ```bash
-curl -sf https://buildco-production-505918.web.app/readyz
-curl -s  https://buildco-production-505918.web.app/api/v1/auth/status?email=you@example.com
+API=$(gcloud run services describe buildco-api --region=us-central1 \
+  --project=buildco-production-505918 --format='value(status.url)')
+
+curl -sf "$API/readyz"                          # {"status":"ready","database":"up"}
+curl -s  "https://buildco-production-505918.web.app/api/v1/auth/status?email=you@example.com"
 ```
 
-`/readyz` is the one that matters — it actually touches the database. (`/healthz` will
-always 404: Cloud Run's front end reserves that path. See `BACKLOG.md`.)
+`/readyz` is the one that matters — it actually touches the database rather than only
+proving the process is alive.
+
+**Check it against the Cloud Run URL, not the Hosting origin.** `/readyz` sits outside
+`/api/**`, so Hosting does not rewrite it — the SPA catch-all serves `index.html` and you
+get `200 text/html`. A `curl -sf .../readyz` against the web.app domain therefore passes
+whether the database is reachable or not, which is worse than not checking at all.
+
+The second command is the counterpart: it goes through the Hosting origin *because* it is
+under `/api/**`, so a JSON response proves the rewrite still reaches Cloud Run. Between
+them the two cover both hops.
+
+`/healthz` will always 404 — Cloud Run's front end reserves that exact path and the
+request never reaches the container. See [`BACKLOG.md`](BACKLOG.md) §6.
 
 ## Release the frontend
 
