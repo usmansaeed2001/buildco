@@ -5,7 +5,7 @@
  * button all behave. The legacy list kept both in module-level variables, which is why
  * reloading always dumped you back on "active" with an empty search box.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useCreateEstimate, useEstimates } from "@/api/queries/estimates";
 import type { EstimateOut } from "@/api/types";
@@ -21,6 +21,7 @@ import type { StoredRoom } from "@/domain/estimateTotals";
 import { formatMoney } from "@/domain/money";
 import { cn } from "@/lib/cn";
 import { daysLeftInTrash, displayName, formatDate } from "@/lib/format";
+import { hasUnseen, markSeen } from "@/lib/seen";
 import { ApiError } from "@/api/client";
 import { TrashList } from "./TrashList";
 
@@ -35,10 +36,18 @@ export function EstimatesListPage() {
   const status = (params.get("status") as EstimateStatus | null) ?? undefined;
   const search = params.get("q") ?? "";
 
-  const { data, isPending, error, refetch } = useEstimates({
-    trash: isTrash,
-    ...(isTrash ? {} : { status }),
-  });
+  /**
+   * One request for the whole list, filtered by status in the browser.
+   *
+   * The status chips each carry an unread dot, which needs to know what is in the
+   * *other* statuses too — so a server-filtered query could not light them. This is
+   * also how the legacy list worked, and it removes a round trip per chip click.
+   *
+   * 200 is the API's own ceiling. Beyond that the dots (and the list) would be
+   * computed from a partial set; revisit with real pagination if a team ever gets
+   * there.
+   */
+  const { data, isPending, error, refetch } = useEstimates({ trash: isTrash, limit: 200 });
 
   const createEstimate = useCreateEstimate();
 
@@ -57,17 +66,42 @@ export function EstimatesListPage() {
    * is instant and avoids a request per keystroke. Revisit if a team ever exceeds the
    * 50-row page.
    */
-  const visible = useMemo(() => {
-    const items = data?.items ?? [];
-    const needle = search.trim().toLowerCase();
-    if (!needle) return items;
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
 
-    return items.filter((estimate) =>
+  /** Ids per status, for the chips' unread dots. */
+  const idsByStatus = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const estimate of items) {
+      const bucket = map.get(estimate.status);
+      if (bucket) bucket.push(estimate.id);
+      else map.set(estimate.status, [estimate.id]);
+    }
+    return map;
+  }, [items]);
+
+  const inStatus = useMemo(
+    () => (status ? items.filter((estimate) => estimate.status === status) : items),
+    [items, status],
+  );
+
+  const visible = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return inStatus;
+
+    return inStatus.filter((estimate) =>
       [estimate.project_name, estimate.client_name, estimate.identifier, estimate.pm_name]
         .filter(Boolean)
         .some((field) => field.toLowerCase().includes(needle)),
     );
-  }, [data?.items, search]);
+  }, [inStatus, search]);
+
+  // Viewing a status clears its dot. Deliberately not scoped to the search: what has
+  // been *shown* is the whole status, and a search is a lens over it rather than a
+  // different list.
+  useEffect(() => {
+    if (isTrash || !status) return;
+    markSeen(status, idsByStatus.get(status) ?? []);
+  }, [isTrash, status, idsByStatus]);
 
   async function handleCreate() {
     try {
@@ -97,6 +131,9 @@ export function EstimatesListPage() {
           <Chip
             key={value}
             active={status === value && !isTrash}
+            // The dot means "something arrived here since you last looked". Never on
+            // the chip you are looking at — the effect above has just cleared it.
+            unread={!isTrash && status !== value && hasUnseen(value, idsByStatus.get(value) ?? [])}
             onClick={() => setParams(withSearch(params, { status: value }))}
           >
             {ESTIMATE_STATUS_LABELS[value]}
@@ -170,10 +207,12 @@ function withSearch(current: URLSearchParams, next: Record<string, string>): URL
 
 function Chip({
   active,
+  unread = false,
   onClick,
   children,
 }: {
   active: boolean;
+  unread?: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -183,13 +222,20 @@ function Chip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+        "flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors",
         active
           ? "bg-gray-900 text-white"
           : "bg-white text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
       )}
     >
       {children}
+      {unread && (
+        // Announced, not just coloured: a red dot alone says nothing to a screen
+        // reader, and colour alone fails anyone who cannot distinguish it.
+        <span className="size-1.5 rounded-full bg-danger-500">
+          <span className="sr-only">new</span>
+        </span>
+      )}
     </button>
   );
 }

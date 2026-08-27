@@ -33,8 +33,23 @@ class LineItem(Schema):
     model_config = Schema.model_config | {"populate_by_name": True}
 
     name: str = Field(min_length=1, max_length=300)
-    category: ItemCategory = ItemCategory.OTHER
-    unit: ItemUnit = ItemUnit.EA
+
+    #: Free text, not the ``ItemCategory`` / ``ItemUnit`` enums, for two reasons.
+    #:
+    #: A team can define its own units and categories in Settings (``team_settings``),
+    #: and a value you can define but not use is not a setting — with the enums here,
+    #: choosing "Roll" on a line was a 422 for the whole estimate.
+    #:
+    #: And documents written by the legacy app already contain categories the enums do
+    #: not know (``electrical``, ``plumbing``). Under the enum the only way to keep such
+    #: an estimate saveable was to rewrite those rows to ``other`` on every save, which
+    #: silently destroyed the classification someone had chosen.
+    #:
+    #: Nothing computes on either field — totals use ``quantity * unitCost``, and the
+    #: category only picks a swatch colour — so the enums remain what the UI *offers*
+    #: rather than what the column *permits*.
+    category: str = Field(default=ItemCategory.OTHER.value, max_length=100)
+    unit: str = Field(default=ItemUnit.EA.value, max_length=50)
     quantity: Quantity = Decimal("0")
     unit_cost: UnitCost = Field(default=Decimal("0"), alias="unitCost")
     is_custom: bool = Field(default=False, alias="isCustom")

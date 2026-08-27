@@ -15,6 +15,7 @@ import { Link, useParams } from "react-router-dom";
 import { ApiError } from "@/api/client";
 import type { EstimateOut } from "@/api/types";
 import { useAttachments } from "@/api/queries/attachments";
+import { useTeamSettings } from "@/api/queries/settings";
 import {
   useEstimate,
   useEstimateTransition,
@@ -28,14 +29,14 @@ import { Alert, ErrorState, LoadingState } from "@/components/feedback";
 import { Modal } from "@/components/Modal";
 import { TabList, TabPanel, useTabParam } from "@/components/Tabs";
 import { useToast } from "@/components/Toast";
-import type { EstimateStatus } from "@/domain/enums";
+import { ITEM_CATEGORIES, ITEM_UNITS, type EstimateStatus } from "@/domain/enums";
 import { computeTotals } from "@/domain/estimateTotals";
 import { canEdit } from "@/domain/estimateRules";
 import type { ActorSnapshot, EstimateSnapshot, TransitionAction } from "@/domain/estimateRules";
 import { formatMoney } from "@/domain/money";
 import { downloadCsv } from "@/lib/csv";
 import { formatDateTime } from "@/lib/format";
-import { hasUnsupportedCategory, readRooms, toWireRooms } from "./document";
+import { readRooms, toWireRooms } from "./document";
 import type { EstimateDetails } from "./document";
 import { buildEstimateCsv, estimateCsvFilename } from "./estimateCsv";
 import { useAutosave, type SaveState } from "./useAutosave";
@@ -43,6 +44,7 @@ import { useEstimateDocument } from "./useEstimateDocument";
 import { LineItemsTable } from "./LineItemsTable";
 import { ProjectDetailsTab } from "./ProjectDetailsTab";
 import { EstimateToolbar } from "./EstimateToolbar";
+import { CataloguePicker } from "./CataloguePicker";
 import { ParseNotesDrawer } from "./ParseNotesDrawer";
 import { ReportModal } from "./ReportModal";
 import { SubmitForReviewModal } from "./SubmitForReviewModal";
@@ -85,6 +87,7 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
   const [showSubmit, setShowSubmit] = useState(false);
   const [showParse, setShowParse] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [showCatalogue, setShowCatalogue] = useState(false);
 
   const snapshot: EstimateSnapshot = {
     status: estimate.status as EstimateStatus,
@@ -105,6 +108,19 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
   // Fetched once for the whole estimate rather than per row: the list is small, and a
   // request per line item would be dozens of round trips for one screen.
   const { data: attachments } = useAttachments(estimate.id);
+
+  // Built-ins first, then whatever the team added in Settings. Both are only what the
+  // dropdowns *offer* — `LineItem.category` and `.unit` are bounded strings server-side,
+  // so a legacy value on an existing row is kept rather than rewritten.
+  const { data: teamSettings } = useTeamSettings();
+  const units = useMemo(
+    () => [...ITEM_UNITS, ...(teamSettings?.custom_units ?? [])],
+    [teamSettings?.custom_units],
+  );
+  const categories = useMemo(
+    () => [...ITEM_CATEGORIES, ...(teamSettings?.custom_categories ?? [])],
+    [teamSettings?.custom_categories],
+  );
 
   const updateEstimate = useUpdateEstimate(estimate.id);
   const transition = useEstimateTransition(estimate.id);
@@ -130,19 +146,6 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
         rooms: toWireRooms(value.rooms),
       }),
   });
-
-  // A stored row carrying `electrical` or `plumbing` will be written back as `other`,
-  // and silently rewriting someone's data is not acceptable even when it is the only
-  // way to keep the estimate saveable. Count them so the banner can say how many.
-  const coercedCount = useMemo(
-    () =>
-      (estimate.rooms ?? []).reduce((count, room) => {
-        const items = (room as { items?: unknown }).items;
-        if (!Array.isArray(items)) return count;
-        return count + items.filter((item) => hasUnsupportedCategory(item ?? {})).length;
-      }, 0),
-    [estimate.rooms],
-  );
 
   const totals = computeTotals(document.rooms);
 
@@ -301,14 +304,6 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
         </Alert>
       )}
 
-      {coercedCount > 0 && editable && (
-        <Alert tone="warning">
-          {coercedCount} {coercedCount === 1 ? "line uses a category" : "lines use categories"} this
-          version no longer supports (such as <code>electrical</code>). They now show as{" "}
-          <code>other</code>, and saving will store them that way.
-        </Alert>
-      )}
-
       <TabList tabs={TABS} active={tab} onChange={setTab} label="Estimate sections" />
 
       <TabPanel id="items" active={tab}>
@@ -329,8 +324,11 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
               roomIndex={document.activeIndex ?? 0}
               estimateId={estimate.id}
               attachments={attachments ?? []}
+              units={units}
+              categories={categories}
               readOnly={!editable}
               onAddItem={document.addItem}
+              onAddFromCatalogue={() => setShowCatalogue(true)}
               onUpdateItem={document.updateItem}
               onDeleteItem={document.deleteItem}
             />
@@ -360,6 +358,12 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
           onChange={(field, value) => setDetails((current) => ({ ...current, [field]: value }))}
         />
       </TabPanel>
+
+      <CataloguePicker
+        open={showCatalogue}
+        onClose={() => setShowCatalogue(false)}
+        onPick={document.addPreparedItem}
+      />
 
       <ParseNotesDrawer
         open={showParse}

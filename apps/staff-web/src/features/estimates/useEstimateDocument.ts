@@ -26,6 +26,8 @@ export interface EstimateDocument {
   deleteRoom: (index: number) => void;
 
   addItem: () => void;
+  /** Append a fully-formed line, e.g. one picked from the rate list. */
+  addPreparedItem: (item: LineItemDoc) => void;
   updateItem: <K extends keyof LineItemDoc>(
     itemIndex: number,
     field: K,
@@ -95,6 +97,18 @@ export function useEstimateDocument(initial: RoomDoc[]): EstimateDocument {
     );
   }, [update, activeIndex]);
 
+  const addPreparedItem = useCallback(
+    (item: LineItemDoc) => {
+      if (activeIndex === null) return;
+      update((current) =>
+        current.map((room, i) =>
+          i === activeIndex ? { ...room, items: [...room.items, item] } : room,
+        ),
+      );
+    },
+    [update, activeIndex],
+  );
+
   const updateItem = useCallback(
     <K extends keyof LineItemDoc>(itemIndex: number, field: K, value: LineItemDoc[K]) => {
       if (activeIndex === null) return;
@@ -158,6 +172,7 @@ export function useEstimateDocument(initial: RoomDoc[]): EstimateDocument {
     renameRoom,
     deleteRoom,
     addItem,
+    addPreparedItem,
     updateItem,
     deleteItem,
     undo: history.undo,

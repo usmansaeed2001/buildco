@@ -366,6 +366,16 @@ clean REST instead of frozen. Beyond the shape, these behaviours changed on purp
 12. **Money is `Decimal` end to end.** Totals were computed in floating point in both
     the browser and the review email, independently.
 
+13. **Line-item `category` and `unit` are bounded strings, not enums.** They were enums
+    at first, and that made two things impossible. A team can define its own units and
+    categories in Settings, and a value you can define but cannot use is not a setting —
+    picking "Roll" on a line was a 422 for the whole estimate. And documents written by
+    the legacy app contain `electrical` and `plumbing`, so the only way to keep such an
+    estimate saveable was to rewrite those rows to `other` on every save, silently
+    destroying a classification someone had chosen. Nothing computes on either field:
+    totals use `quantity * unitCost`, and the category only picks a swatch colour. The
+    enums remain what the UI *offers*.
+
 ---
 
 ## Migration notes
@@ -392,4 +402,4 @@ dropped, `profiles.id` preserved, `firebase_uid` added.
 | Cloud Storage | Adapter complete. Buckets not created, CORS not configured, objects not copied. |
 | Resend / Slack / Groq / Calendar | Adapters complete. Keys not supplied. |
 | Cloud Run deploy | `Dockerfile` ready. No service, no CI pipeline. |
-| Frontend | Not started (Phase 2). |
+| Frontend | Complete — every route in `apps/staff-web` is built. |

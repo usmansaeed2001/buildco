@@ -1512,10 +1512,16 @@ export interface components {
         LineItem: {
             /** Name */
             name: string;
-            /** @default other */
-            category: components["schemas"]["ItemCategory"];
-            /** @default Ea */
-            unit: components["schemas"]["ItemUnit"];
+            /**
+             * Category
+             * @default other
+             */
+            category: string;
+            /**
+             * Unit
+             * @default Ea
+             */
+            unit: string;
             /**
              * Quantity
              * @default 0
