@@ -27,6 +27,8 @@ export function EstimateToolbar({
   onTransition,
   onDelete,
   onExportCsv,
+  onGenerateReport,
+  onParseNotes,
   onSubmitForReview,
 }: {
   actor: ActorSnapshot;
@@ -36,6 +38,9 @@ export function EstimateToolbar({
   onTransition: (action: TransitionAction) => void;
   onDelete: () => void;
   onExportCsv: () => void;
+  onGenerateReport: () => void;
+  /** Absent on a read-only estimate: parsing writes into the document. */
+  onParseNotes?: () => void;
   onSubmitForReview: () => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -55,6 +60,16 @@ export function EstimateToolbar({
           Send for approval
         </Button>
       )}
+
+      {onParseNotes && (
+        <Button size="sm" onClick={onParseNotes}>
+          Parse notes
+        </Button>
+      )}
+
+      <Button size="sm" onClick={onGenerateReport}>
+        Report
+      </Button>
 
       <Button size="sm" onClick={onExportCsv}>
         Export CSV

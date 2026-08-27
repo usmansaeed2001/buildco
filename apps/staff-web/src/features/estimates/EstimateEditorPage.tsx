@@ -43,6 +43,8 @@ import { useEstimateDocument } from "./useEstimateDocument";
 import { LineItemsTable } from "./LineItemsTable";
 import { ProjectDetailsTab } from "./ProjectDetailsTab";
 import { EstimateToolbar } from "./EstimateToolbar";
+import { ParseNotesDrawer } from "./ParseNotesDrawer";
+import { ReportModal } from "./ReportModal";
 import { SubmitForReviewModal } from "./SubmitForReviewModal";
 import { RoomRail } from "./RoomRail";
 
@@ -81,6 +83,8 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
   const [tab, setTab] = useTabParam(TABS);
   const [showChanges, setShowChanges] = useState(false);
   const [showSubmit, setShowSubmit] = useState(false);
+  const [showParse, setShowParse] = useState(false);
+  const [showReport, setShowReport] = useState(false);
 
   const snapshot: EstimateSnapshot = {
     status: estimate.status as EstimateStatus,
@@ -250,6 +254,8 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
             onTransition={(action) => void runTransition(action)}
             onDelete={() => void runDelete()}
             onExportCsv={exportCsv}
+            onGenerateReport={() => setShowReport(true)}
+            {...(editable ? { onParseNotes: () => setShowParse(true) } : {})}
             onSubmitForReview={() => {
               // Commit first: the reviewer must be emailed the estimate as it stands on
               // screen, not the copy from before the last debounce.
@@ -354,6 +360,24 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
           onChange={(field, value) => setDetails((current) => ({ ...current, [field]: value }))}
         />
       </TabPanel>
+
+      <ParseNotesDrawer
+        open={showParse}
+        hasExistingRooms={document.rooms.length > 0}
+        onClose={() => setShowParse(false)}
+        onApply={document.applyRooms}
+      />
+
+      <ReportModal
+        open={showReport}
+        onClose={() => setShowReport(false)}
+        report={{
+          identifier: estimate.identifier,
+          status: estimate.status as EstimateStatus,
+          details,
+          rooms: document.rooms,
+        }}
+      />
 
       <SubmitForReviewModal
         open={showSubmit}

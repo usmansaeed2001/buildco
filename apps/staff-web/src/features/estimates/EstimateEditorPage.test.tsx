@@ -544,6 +544,60 @@ describe("EstimateEditorPage", () => {
     });
   });
 
+  describe("parse notes and report", () => {
+    it("opens the parser and applies its result as an undoable step", async () => {
+      serveEstimate(estimateWith());
+      server.use(
+        http.post(url("/ai/parse-estimate"), () =>
+          HttpResponse.json({
+            project_name: "",
+            client_name: "",
+            pm_name: "",
+            insurance_carrier: "",
+            notes: "",
+            rooms: [{ name: "Hallway", items: [] }],
+          }),
+        ),
+      );
+
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "Parse notes" }));
+      await user.type(screen.getByLabelText(/Site notes/), "Hallway needs trim");
+      await user.click(screen.getAllByRole("button", { name: "Parse notes" })[1]!);
+      await user.click(await screen.findByRole("button", { name: "Add to this estimate" }));
+
+      expect(await screen.findByRole("button", { name: /^Hallway/ })).toBeVisible();
+      // Applying is a document edit, so the same Undo takes it back — the legacy
+      // drawer overwrote the estimate with no way to reverse it.
+      await user.click(screen.getByRole("button", { name: "Undo" }));
+      expect(screen.queryByRole("button", { name: /^Hallway/ })).not.toBeInTheDocument();
+    });
+
+    it("does not offer the parser on a read-only estimate", async () => {
+      serveEstimate(estimateWith({ status: "locked" }));
+      renderEditor(MEMBER);
+      await waitForEditor();
+
+      expect(screen.queryByRole("button", { name: "Parse notes" })).not.toBeInTheDocument();
+      // The report is a read, so it stays available.
+      expect(screen.getByRole("button", { name: "Report" })).toBeVisible();
+    });
+
+    it("previews the report with the estimate's own figures", async () => {
+      serveEstimate(estimateWith());
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "Report" }));
+
+      expect(await screen.findByRole("heading", { name: "Estimate report" })).toBeVisible();
+      expect(screen.getAllByText("CLM-100200").length).toBeGreaterThan(1);
+      expect(screen.getByRole("button", { name: "Download PDF" })).toBeVisible();
+    });
+  });
+
   describe("submitting for review", () => {
     it("offers the button on an active estimate and sends the recipient", async () => {
       serveEstimate(estimateWith());
