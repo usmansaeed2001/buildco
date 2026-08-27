@@ -202,7 +202,28 @@ Run these against production after a release, or locally before merging somethin
 - [ ] Sign in as a member **not** assigned: the project 404s rather than 403s, and the
       list says they have no assigned projects
 
-### 3.5 Attachments *(needs §1.2 released first)*
+### 3.5 Closing forms
+
+These are **signed legal documents**. The wording is reproduced verbatim from the legacy
+app and must not be paraphrased — someone has agreed to those exact sentences.
+
+- [ ] Open the **Material Sign-Off**. Check the letterhead against the legacy form:
+      address, phone, email, licence number
+- [ ] It refuses to submit without a signature
+- [ ] Add a material photo *(needs §1.2 released)*; the thumbnail appears
+- [ ] Submit it. The card marks it done, and the activity feed records it
+- [ ] Reopen it, click **Edit**, correct a field, submit again — these are signed on a
+      phone in a driveway and a typo must be fixable
+- [ ] **Print it.** Only the document prints — no dialog chrome, no page navigation, no
+      buttons. Fields print as filled-in blanks rather than as form controls with
+      borders. Compare against a legacy printout side by side
+- [ ] Open the **Project Sign-Off**. Confirm the $250-per-day and 7-day clauses read
+      exactly as they did before
+- [ ] It refuses to submit without **both** signatures
+- [ ] Submit it. The work status becomes **Completed**, and the project closes (or moves
+      to awaiting payment if a milestone is unpaid)
+
+### 3.6 Attachments *(needs §1.2 released first)*
 
 - [ ] Upload a photo to a line item; the thumbnail appears
 - [ ] Reload; the thumbnail still resolves — this is the part §1.2 breaks silently
@@ -259,6 +280,18 @@ editing `cloudbuild.yaml` will not do it.
 ## 7. Change log for this file
 
 Newest first. Each phase appends what it added and what it now needs from you.
+
+### Phase 6 — closing forms
+- §3.5 added; attachments moved to §3.6.
+- **The print check is the one that needs a human.** Printing cannot be asserted in a
+  test suite — the layout comes from an `@media print` block and only a real print
+  preview shows whether it worked. Compare against a legacy printout.
+- The legal wording lives in one place (`features/projects/closingForms.ts`) and is
+  covered by tests that assert the exact sentences. If the client ever revises the
+  terms, that file is the only thing to change — but treat it as a legal change, not a
+  copy edit.
+- The material photo is stored as an object key, not a base64 data URI. The legacy app
+  inlined the image into the JSONB column, which bloated every project-detail read.
 
 ### Phase 5 — projects
 - §3.4 added; attachments moved to §3.5.
