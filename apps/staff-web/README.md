@@ -102,6 +102,17 @@ The proxy is four lines in [`vite.config.ts`](vite.config.ts); the rewrite is in
 | `npm run test:watch` | Vitest, watching |
 | `npm run generate:api` | Regenerate `src/api/schema.d.ts` from the API's OpenAPI schema |
 
+### What the tests cover, and what they do not
+
+`npm run test` (Vitest + Testing Library + MSW) covers components, pages and the pure
+logic in `domain/`, with the network mocked. It is fast, runs anywhere, and needs
+nothing running.
+
+Nothing currently exercises a real browser against the real API, so the `/api/v1`
+proxy, Firebase Auth and Postgres are only ever verified together **by hand**. That is
+a deliberate deferral, recorded as `BACKLOG.md` §12 — read it before assuming a green
+suite means a working sign-in.
+
 `npm run preview` serves the built files but has **no proxy**, so every API call 404s.
 To exercise a production build end to end, use the Firebase emulator instead — it
 applies the real rewrite. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
@@ -129,9 +140,9 @@ src/
   api/          schema.d.ts (generated), client.ts, queries/ (TanStack Query hooks)
   auth/         Firebase setup, AuthProvider, route guards
   domain/       pure logic — money, totals, permission rules. Unit-tested.
-  components/   design system — Button, Badge, Modal, form controls, AppShell
+  components/   design system — Button, Badge, Modal, Table, Tabs, FileDrop, form controls, AppShell
   features/     one folder per area: auth, estimates, projects, meetings, team, review
-  lib/          formatting, local settings, CSV, PDF, speech
+  lib/          formatting, CSV, PDF, speech
   styles/       the Tailwind theme
 ```
 
