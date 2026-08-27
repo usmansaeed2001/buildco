@@ -75,10 +75,10 @@ app/
   deps.py            get_current_user, require_role, require_project_access
   errors.py          AppError hierarchy + the single error envelope
   logging.py         structlog JSON output
-  models/            10 tables
+  models/            12 tables
   schemas/           request/response models
   routers/           health, users, estimates, attachments, projects, meetings,
-                     reviews, ai
+                     reviews, ai, settings
   services/
     rules/           project_rules, estimate_rules, user_rules, estimate_totals
     integrations/    email, slack, storage, calendar, groq, firebase
@@ -186,6 +186,21 @@ Authenticated by the approval token in the URL. No session required.
 | POST | `/public/reviews/{token}/reject` |
 | POST | `/public/reviews/{token}/request-changes` |
 
+### Settings and the rate catalogue
+
+| Method | Path | Role | Notes |
+|---|---|---|---|
+| GET | `/settings` | any | Team-wide preferences. The row is created on first read, so this never 404s. |
+| PATCH | `/settings` | owner/admin | `notification_prefs` is **merged**; the two lists replace wholesale. |
+| GET | `/catalogue-items` | any | The universal rate list. Members need it to price a line. |
+| POST | `/catalogue-items` | owner/admin | |
+| PATCH | `/catalogue-items/{id}` | owner/admin | Estimates already priced from it are untouched. |
+| DELETE | `/catalogue-items/{id}` | owner/admin | |
+
+The three switchable notifications are `estimate_locked`, `member_joined` and
+`member_removed`. An unknown key is a 422 rather than a stored no-op. Access attempts by
+removed users are deliberately not switchable — a security signal, not a routine update.
+
 ### AI
 
 | Method | Path | Notes |
@@ -196,7 +211,7 @@ Authenticated by the approval token in the URL. No session required.
 
 ## Domain model
 
-Ten tables. `profiles.id` remains the internal user id (every FK points at it);
+Twelve tables. `profiles.id` remains the internal user id (every FK points at it);
 `firebase_uid` links a profile to its Firebase identity.
 
 ```

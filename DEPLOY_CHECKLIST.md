@@ -245,7 +245,27 @@ app and must not be paraphrased — someone has agreed to those exact sentences.
 > a failure, and the form says so. In Testing mode the refresh token expires after
 > **7 days**, so this will stop working periodically until the OAuth app is verified.
 
-### 3.7 Attachments *(needs §1.2 released first)*
+### 3.7 Team, profile and settings
+
+- [ ] **Team**: change someone's role; it takes effect on reload
+- [ ] Your own row offers no role control and a disabled Remove — nobody changes their
+      own role, and nobody removes themselves
+- [ ] As an **admin**, the owner's row offers no role control and Remove is disabled
+      saying "The owner cannot be removed". Demote first is deliberate: it makes locking
+      the team out of its own account a two-step, owner-only act
+- [ ] Remove a member. They are signed out **immediately**, not at token expiry
+- [ ] Have them try to sign in; an access request appears on the Team page. Restore it
+      and confirm they can sign in again
+- [ ] **Profile**: change your name; the topbar updates without a reload
+- [ ] Upload a photo *(needs §1.2 released)*
+- [ ] **Settings**: add a rate. **Open it in another browser or as another user** — it
+      is there. This is the whole point of the phase; in the legacy app the "universal"
+      rate list was per-browser
+- [ ] Add a custom unit; it appears in the estimate editor's unit dropdown
+- [ ] Turn off "Member removed", then remove someone. **No email arrives.** Turn it back
+      on and repeat: the email arrives. The legacy toggles gated nothing at all
+
+### 3.8 Attachments *(needs §1.2 released first)*
 
 - [ ] Upload a photo to a line item; the thumbnail appears
 - [ ] Reload; the thumbnail still resolves — this is the part §1.2 breaks silently
@@ -280,6 +300,7 @@ editing `cloudbuild.yaml` will not do it.
 |---|---|---|
 | `RESEND_API_KEY` | Secret Manager `resend-key` | §1.1 |
 | `NOTIFY_FROM_EMAIL` | Cloud Run env var | §1.1 |
+| *(no new config)* | — | Phase 8 added two tables but no new environment variables or secrets. |
 | `GROQ_MODEL` | Cloud Run env var | Groq retires hosted models without aliasing the old id forward. A retired id fails every call with a 400 saying only that the model does not exist. Currently `openai/gpt-oss-120b` |
 | `SITE_URL` | Secret Manager `site-url` | Reviewer links are built from it. Wrong value = links to the wrong host |
 | `GCS_ATTACHMENTS_BUCKET` / `GCS_AVATARS_BUCKET` | Cloud Run env vars | Unset means download URLs come back `null` and uploads 503 |
@@ -302,6 +323,22 @@ editing `cloudbuild.yaml` will not do it.
 ## 7. Change log for this file
 
 Newest first. Each phase appends what it added and what it now needs from you.
+
+### Phase 8 — team, profile and settings
+- §3.7 added; attachments moved to §3.8.
+- **This phase adds schema.** One Alembic revision creates `catalogue_items` and
+  `team_settings`. It is purely additive — no changes to existing tables — so it is safe
+  to apply before the code that reads them is deployed, which is what expand/contract
+  asks for. Applied, reversed and re-applied against Postgres before committing.
+- **Run `alembic upgrade head` as part of the release.** The API pipeline does this as a
+  Cloud Run Job, so a normal `gcloud builds submit` covers it — but if you deploy the
+  image any other way, the settings screen will 500 until the migration runs.
+- No new environment variables or secrets.
+- The notification toggles now genuinely gate mail. In the legacy app they lived in
+  `localStorage` and gated nothing, because the emails are sent server-side and the
+  browser was never consulted. §3.7 has the check that proves it.
+- Access attempts by removed users are deliberately **not** switchable — that is a
+  security signal, not a routine update.
 
 ### Phase 7 — calendar and meetings
 - §3.6 added; attachments moved to §3.7.

@@ -107,6 +107,9 @@ class SentNotification:
     template: str
     context: dict[str, Any]
     recipient: str | None = None
+    #: The notification-settings key this message is gated on, if any. Recorded rather
+    #: than acted on — see `fake_admins`.
+    pref: str | None = None
 
 
 @dataclass
@@ -156,8 +159,13 @@ def notifications(monkeypatch) -> NotificationRecorder:  # type: ignore[no-untyp
 
     recorder = NotificationRecorder()
 
-    async def fake_admins(subject, template, context, *, exclude_id=None):  # type: ignore[no-untyped-def]
-        recorder.sent.append(SentNotification("admins", subject, template, dict(context)))
+    async def fake_admins(subject, template, context, *, exclude_id=None, pref=None):  # type: ignore[no-untyped-def]
+        # `pref` is accepted and recorded but NOT acted on. Re-implementing the gate
+        # here would only test the fake; the real gate lives in `notify_admins` and is
+        # exercised against it directly in `test_settings_api`.
+        recorder.sent.append(
+            SentNotification("admins", subject, template, dict(context), pref=pref)
+        )
 
     async def fake_one(recipient, subject, template, context, *, attachments=None):  # type: ignore[no-untyped-def]
         recorder.sent.append(SentNotification("one", subject, template, dict(context), recipient))

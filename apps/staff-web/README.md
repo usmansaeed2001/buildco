@@ -161,19 +161,24 @@ spreading a fetched object into a `PATCH` sends `id` and `created_at` and earns 
 
 ---
 
-## Settings are stored in this browser
+## Settings are shared by the team
 
 The Settings screen — the universal rate list, custom units, custom categories, and
-notification toggles — writes to `localStorage`. There is no table or endpoint for any
-of it, in this backend or the previous one.
+notification toggles — is stored server-side in `catalogue_items` and `team_settings`,
+and read through `api/queries/settings.ts`.
 
-So it is **per-browser and per-device**: it does not sync between machines, is not
-shared with the team, and is lost when site data is cleared. That matches the legacy
-behaviour exactly, and it is a deliberate deferral rather than an oversight.
+This is a deliberate change from the legacy app, which kept all of it in
+`localStorage`. That made the "universal" rate list neither universal nor visible to
+anyone else: two estimators on the same job saw different prices, and clearing site
+data lost the lot. The notification toggles were worse — they gated nothing at all,
+because the emails are sent server-side and the browser was never consulted.
 
-Everything is isolated in `src/lib/localSettings.ts`, so moving it server-side later is
-a contained change: add the tables and endpoints, then swap that module's
-implementation.
+Reads are open to any authenticated user, because the estimate editor needs the
+catalogue and the custom units to render a line. Writes are elevated: one person
+changing a rate changes what everyone quotes.
+
+One thing is still per-browser, and should be: which estimates you have already seen,
+which drives the unread dots on the list. That is genuinely per-person-per-device.
 
 ---
 
