@@ -491,28 +491,130 @@ describe("EstimateEditorPage", () => {
     });
   });
 
+  describe("the rate list", () => {
+    beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+    afterEach(() => vi.useRealTimers());
+
+    function serveCatalogue() {
+      server.use(
+        http.get(url("/catalogue-items"), () =>
+          HttpResponse.json([
+            {
+              id: "rate-1",
+              name: "Baseboard",
+              category: "trim",
+              unit: "LF",
+              unit_cost: "3.75",
+              notes: "",
+              created_by: null,
+              created_at: "2026-02-01T09:00:00Z",
+              updated_at: "2026-02-01T09:00:00Z",
+            },
+          ]),
+        ),
+      );
+    }
+
+    it("adds a priced line from the rate list", async () => {
+      serveEstimate(estimateWith());
+      serveCatalogue();
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "From rate list" }));
+      await user.click(await screen.findByRole("button", { name: /Baseboard/ }));
+
+      expect(screen.getByLabelText("Name for Baseboard")).toHaveValue("Baseboard");
+      expect(screen.getByLabelText("Unit cost for Baseboard")).toHaveValue("3.75");
+      expect(screen.getByLabelText("Quantity for Baseboard")).toHaveValue("1");
+    });
+
+    it("copies the values rather than referencing the rate", async () => {
+      // An estimate stores the price it was built with. Changing a rate later must
+      // never rewrite a quote that has already gone out.
+      const patches = serveEstimate(estimateWith());
+      serveCatalogue();
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "From rate list" }));
+      await user.click(await screen.findByRole("button", { name: /Baseboard/ }));
+      await vi.advanceTimersByTimeAsync(1200);
+      await waitFor(() => expect(patches).toHaveLength(1));
+
+      const rooms = patches[0]!.rooms as { items: Record<string, unknown>[] }[];
+      const added = rooms[0]!.items[1]!;
+      expect(added).toMatchObject({
+        name: "Baseboard",
+        unitCost: "3.75",
+        catalogueId: "rate-1",
+        isCustom: false,
+      });
+    });
+
+    it("says where to add rates when the list is empty", async () => {
+      serveEstimate(estimateWith());
+      server.use(http.get(url("/catalogue-items"), () => HttpResponse.json([])));
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "From rate list" }));
+
+      expect(await screen.findByText("The rate list is empty")).toBeVisible();
+      expect(screen.getByText(/can add rates in Settings/)).toBeVisible();
+    });
+
+    it("offers the team's custom units alongside the built-in ones", async () => {
+      serveEstimate(estimateWith());
+      server.use(
+        http.get(url("/settings"), () =>
+          HttpResponse.json({
+            custom_units: ["Roll"],
+            custom_categories: ["Roofing"],
+            notification_prefs: {},
+            updated_at: "2026-02-01T09:00:00Z",
+            updated_by: null,
+          }),
+        ),
+      );
+      renderEditor();
+      await waitForEditor();
+
+      const units = within(screen.getByLabelText("Unit for Drywall"))
+        .getAllByRole("option")
+        .map((option) => option.textContent);
+      expect(units).toContain("Roll");
+      expect(units).toContain("SF");
+    });
+  });
+
   describe("legacy documents", () => {
-    it("warns when a stored category will be rewritten on save", async () => {
-      serveEstimate(
+    beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+    afterEach(() => vi.useRealTimers());
+
+    it("keeps a legacy category rather than rewriting it", async () => {
+      // This used to coerce to `other` and warn, because the API's enum rejected
+      // anything else. `LineItem.category` is a bounded string now, so someone's
+      // classification survives a save instead of being silently destroyed.
+      const patches = serveEstimate(
         estimateWith({
           rooms: [
             { name: "Kitchen", items: [{ name: "Outlet", category: "electrical" }] },
           ] as unknown as EstimateOut["rooms"],
         }),
       );
-      renderEditor();
+      const { user } = renderEditor();
       await waitForEditor();
 
-      expect(screen.getByText(/no longer supports/)).toBeVisible();
-      expect(screen.getByLabelText("Category for Outlet")).toHaveValue("other");
-    });
+      expect(screen.getByLabelText("Category for Outlet")).toHaveValue("electrical");
 
-    it("says nothing when every category is supported", async () => {
-      serveEstimate(estimateWith());
-      renderEditor();
-      await waitForEditor();
+      await user.clear(screen.getByLabelText("Quantity for Outlet"));
+      await user.type(screen.getByLabelText("Quantity for Outlet"), "2");
+      await vi.advanceTimersByTimeAsync(1200);
+      await waitFor(() => expect(patches).toHaveLength(1));
 
-      expect(screen.queryByText(/no longer supports/)).not.toBeInTheDocument();
+      const rooms = patches[0]!.rooms as { items: { category: string }[] }[];
+      expect(rooms[0]!.items[0]!.category).toBe("electrical");
     });
   });
 

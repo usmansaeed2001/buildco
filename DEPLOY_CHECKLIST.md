@@ -265,7 +265,20 @@ app and must not be paraphrased — someone has agreed to those exact sentences.
 - [ ] Turn off "Member removed", then remove someone. **No email arrives.** Turn it back
       on and repeat: the email arrives. The legacy toggles gated nothing at all
 
-### 3.8 Attachments *(needs §1.2 released first)*
+### 3.8 The parity sweep's own additions
+
+- [ ] Add a rate in Settings, then in an estimate click **From rate list** — it is
+      there, priced. Change the rate afterwards: the line you already added keeps its
+      old price
+- [ ] Add a custom unit in Settings; it appears in the estimate editor's unit dropdown
+      and **saves** (this used to be a 422 — see the note below)
+- [ ] Open an estimate migrated from the legacy app that uses an `electrical` or
+      `plumbing` category. Edit something else and save. **The category is unchanged.**
+      It used to be rewritten to `other` on every save
+- [ ] With two statuses populated, look at one: the other's chip carries a red dot.
+      Click it; the dot clears and stays cleared
+
+### 3.9 Attachments *(needs §1.2 released first)*
 
 - [ ] Upload a photo to a line item; the thumbnail appears
 - [ ] Reload; the thumbnail still resolves — this is the part §1.2 breaks silently
@@ -323,6 +336,24 @@ editing `cloudbuild.yaml` will not do it.
 ## 7. Change log for this file
 
 Newest first. Each phase appends what it added and what it now needs from you.
+
+### Phase 9 — the parity sweep
+- §3.8 added; attachments moved to §3.9.
+- **A contract change, and the reason for it.** `LineItem.category` and `.unit` were
+  enums; they are now bounded strings. Phase 8 let a team define its own units and
+  categories, and the enum meant they could be defined but never used — picking one was
+  a 422 for the whole estimate. The same enum forced legacy `electrical`/`plumbing` rows
+  to be rewritten to `other` on every save, silently destroying a classification
+  someone had chosen. Recorded as deliberate change #13 in `apps/api/README.md`, with a
+  test naming it.
+- **No migration.** `rooms` is JSONB and always was; only the validation changed. So
+  this needs no schema step, and no existing data moves.
+- The estimates list now fetches once and filters in the browser, because the unread
+  dots need to know what is in the *other* statuses. Capped at the API's own ceiling of
+  200; beyond that both the list and the dots would be computed from a partial set.
+- Everything else in the prototype inventory was already built. What remains open is
+  infrastructure, not features: §1.1–§1.3 above and `BACKLOG.md` §12 (no end-to-end
+  coverage) and §14 (attachments keyed by position).
 
 ### Phase 8 — team, profile and settings
 - §3.7 added; attachments moved to §3.8.

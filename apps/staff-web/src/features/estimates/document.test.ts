@@ -3,7 +3,7 @@ import {
   LIMITS,
   UNTITLED_ITEM,
   UNTITLED_ROOM,
-  hasUnsupportedCategory,
+  isBuiltInCategory,
   isBlankLineItem,
   newLineItem,
   newRoom,
@@ -82,23 +82,32 @@ describe("normalisation", () => {
     expect(normaliseCategory("flooring")).toBe("flooring");
   });
 
-  it("coerces a legacy category the API would reject", () => {
-    // Without this the whole estimate 422s on every save, not just this row.
-    expect(normaliseCategory("electrical")).toBe("other");
-    expect(normaliseCategory("plumbing")).toBe("other");
+  it("keeps a legacy category rather than rewriting it", () => {
+    // This used to coerce to `other`, because the API's enum rejected anything else.
+    // `LineItem.category` is now a bounded string, so someone's classification
+    // survives a save instead of being silently destroyed.
+    expect(normaliseCategory("electrical")).toBe("electrical");
+    expect(normaliseCategory("plumbing")).toBe("plumbing");
+  });
+
+  it("keeps a team's own category and unit", () => {
+    expect(normaliseCategory("Roofing")).toBe("Roofing");
+    expect(normaliseUnit("Roll")).toBe("Roll");
+  });
+
+  it("falls back to a default only for a blank or missing value", () => {
     expect(normaliseCategory(undefined)).toBe("other");
+    expect(normaliseCategory("   ")).toBe("other");
+    expect(normaliseUnit("")).toBe("LF");
   });
 
-  it("coerces an unknown unit to the default", () => {
-    expect(normaliseUnit("SF")).toBe("SF");
-    expect(normaliseUnit("furlong")).toBe("LF");
+  it("still bounds the length, since the API does", () => {
+    expect(normaliseUnit("x".repeat(80))).toHaveLength(50);
   });
 
-  it("reports which stored rows normalisation would alter", () => {
-    expect(hasUnsupportedCategory({ category: "electrical" })).toBe(true);
-    expect(hasUnsupportedCategory({ category: "drywall" })).toBe(false);
-    // A row with no category at all is not a change worth warning about.
-    expect(hasUnsupportedCategory({})).toBe(false);
+  it("knows which values are built in, for grouping the dropdown", () => {
+    expect(isBuiltInCategory("drywall")).toBe(true);
+    expect(isBuiltInCategory("Roofing")).toBe(false);
   });
 });
 
@@ -192,9 +201,9 @@ describe("toWireRooms", () => {
     expect(toWireRooms([{ name: "R", items: [item] }])[0]!.items[0]!.quantity).toBe("1");
   });
 
-  it("sends a rejected category as other, so one legacy row cannot lock the estimate", () => {
-    const item = { ...newLineItem(), name: "Outlet", category: "electrical" as never };
-    expect(toWireRooms([{ name: "R", items: [item] }])[0]!.items[0]!.category).toBe("other");
+  it("sends a legacy category through untouched", () => {
+    const item = { ...newLineItem(), name: "Outlet", category: "electrical" };
+    expect(toWireRooms([{ name: "R", items: [item] }])[0]!.items[0]!.category).toBe("electrical");
   });
 
   it("round-trips a document read from storage", () => {

@@ -152,6 +152,13 @@ case-for-case from `apps/api/tests/unit/`. **When the Python changes, change bot
 
 Two things that will bite if you do not know them:
 
+**Line-item `category` and `unit` are free text, not enums.** `ITEM_CATEGORIES` and
+`ITEM_UNITS` are what the dropdowns *offer*; the API accepts any bounded string. That is
+what lets a team define its own units in Settings and what stops a legacy `electrical`
+row being rewritten to `other` on every save. `withCurrent` in `LineItemsTable` keeps
+whatever a row already holds in its dropdown, so rendering a row never silently changes
+its value.
+
 **Every money value is a string.** `Decimal` serialises to JSON as `"1234.56"`, so
 `totals.total`, `amount`, `total_budget`, `quantity`, and `unit_cost` are all
 `string`. Route them through `domain/money.ts`; never `Number()` two and add them.
@@ -178,7 +185,11 @@ catalogue and the custom units to render a line. Writes are elevated: one person
 changing a rate changes what everyone quotes.
 
 One thing is still per-browser, and should be: which estimates you have already seen,
-which drives the unread dots on the list. That is genuinely per-person-per-device.
+which drives the unread dots on the estimates list. That is genuinely
+per-person-per-device — syncing it would mean a colleague opening an estimate clears
+your dot. It lives in `src/lib/seen.ts`, is capped so the key cannot grow without
+limit, and guards every `localStorage` access: it throws in Safari private mode and
+wherever a browser is set to block site data.
 
 ---
 

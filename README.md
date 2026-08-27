@@ -178,5 +178,5 @@ hotfix.
 | Cloud Run deploy | **Live.** `buildco-api` in `us-central1`, backed by Cloud SQL `buildco-db` (Postgres 16), secrets in Secret Manager, migrations run as a Cloud Run Job. Provisioning runbook: `apps/api/docs/DEPLOY_CLOUD_RUN.md`. |
 | CI/CD | Pipelines written and exercised (`apps/*/cloudbuild.yaml`), but **no triggers** — the repo is on the client's account and cannot be connected to Cloud Build. Releases are manual: [`RELEASE.md`](RELEASE.md). |
 | `staff-web` foundation | Vite + React + TS + Tailwind. Typed API client generated from OpenAPI, Firebase Auth wired to `POST /auth/session`, routing and guards, design system. Money and permission rules ported from the backend with their tests. |
-| `staff-web` screens | Auth, launcher, and the estimates list are built. Estimate editor, projects, meetings, team, settings, and the public review page are not. |
+| `staff-web` screens | **Complete.** Auth, launcher, estimates list and editor, attachments, AI note parsing with dictation, the PDF report, the public review page, projects, closing forms, the calendar, team, profile and settings. 535 frontend tests. |
 | Firebase Hosting | **Live** at <https://buildco-production-505918.web.app> — SPA fallback plus an `/api/**` rewrite to Cloud Run, so the frontend calls same-origin `/api/v1` in every environment and there is no CORS in production. |

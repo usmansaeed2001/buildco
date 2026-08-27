@@ -14,7 +14,7 @@ import { Button } from "@/components/Button";
 import { Input, Select, Textarea } from "@/components/form";
 import { Table, TableWrap, TBody, Td, TFoot, Th, THead, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/feedback";
-import { categoryColor, ITEM_CATEGORIES, ITEM_UNITS } from "@/domain/enums";
+import { categoryColor } from "@/domain/enums";
 import { formatMoney, lineTotal } from "@/domain/money";
 import { roomTotal } from "@/domain/estimateTotals";
 import type { AttachmentOut } from "@/api/types";
@@ -32,8 +32,11 @@ export function LineItemsTable({
   roomIndex,
   estimateId,
   attachments,
+  units,
+  categories,
   readOnly,
   onAddItem,
+  onAddFromCatalogue,
   onUpdateItem,
   onDeleteItem,
 }: {
@@ -42,8 +45,12 @@ export function LineItemsTable({
   roomIndex: number;
   estimateId: string;
   attachments: AttachmentOut[];
+  /** Built-ins plus whatever the team added in Settings. */
+  units: string[];
+  categories: string[];
   readOnly: boolean;
   onAddItem: () => void;
+  onAddFromCatalogue: () => void;
   onUpdateItem: UpdateItem;
   onDeleteItem: (index: number) => void;
 }) {
@@ -77,9 +84,14 @@ export function LineItemsTable({
             ? {}
             : {
                 action: (
-                  <Button variant="primary" size="sm" onClick={onAddItem}>
-                    + Add item
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="primary" size="sm" onClick={onAddItem}>
+                      + Add item
+                    </Button>
+                    <Button size="sm" onClick={onAddFromCatalogue}>
+                      From rate list
+                    </Button>
+                  </div>
                 ),
               })}
         />
@@ -116,6 +128,8 @@ export function LineItemsTable({
                 attachments={attachments.filter(
                   (a) => a.room_index === roomIndex && a.item_index === index,
                 )}
+                units={units}
+                categories={categories}
                 readOnly={readOnly}
                 notesOpen={openNotes.has(index)}
                 filesOpen={openFiles.has(index)}
@@ -142,9 +156,12 @@ export function LineItemsTable({
       </TableWrap>
 
       {!readOnly && (
-        <div>
+        <div className="flex gap-2">
           <Button size="sm" onClick={onAddItem}>
             + Add item
+          </Button>
+          <Button size="sm" onClick={onAddFromCatalogue}>
+            From rate list
           </Button>
         </div>
       )}
@@ -158,6 +175,8 @@ function LineItemRows({
   estimateId,
   roomIndex,
   attachments,
+  units,
+  categories,
   readOnly,
   notesOpen,
   filesOpen,
@@ -171,6 +190,8 @@ function LineItemRows({
   estimateId: string;
   roomIndex: number;
   attachments: AttachmentOut[];
+  units: string[];
+  categories: string[];
   readOnly: boolean;
   notesOpen: boolean;
   filesOpen: boolean;
@@ -260,7 +281,7 @@ function LineItemRows({
                 onUpdate(index, "category", event.target.value as LineItemDoc["category"])
               }
             >
-              {ITEM_CATEGORIES.map((category) => (
+              {withCurrent(categories, item.category).map((category) => (
                 <option key={category} value={category}>
                   {category}
                 </option>
@@ -275,7 +296,7 @@ function LineItemRows({
             aria-label={`Unit for ${label}`}
             onChange={(event) => onUpdate(index, "unit", event.target.value as LineItemDoc["unit"])}
           >
-            {ITEM_UNITS.map((unit) => (
+            {withCurrent(units, item.unit).map((unit) => (
               <option key={unit} value={unit}>
                 {unit}
               </option>
@@ -384,6 +405,18 @@ function NotesRow({ children }: { children: ReactNode }) {
       </Td>
     </Tr>
   );
+}
+
+/**
+ * The offered values, plus whatever this row already holds.
+ *
+ * A line written by the legacy app may carry `electrical`, and a line priced from a
+ * rate list may carry a unit the team has since deleted from Settings. Omitting it
+ * would make the `<select>` fall back to its first option and silently rewrite the
+ * value the moment the row rendered.
+ */
+function withCurrent(offered: string[], current: string): string[] {
+  return offered.includes(current) ? offered : [current, ...offered];
 }
 
 function CategoryDot({ category }: { category: string }) {

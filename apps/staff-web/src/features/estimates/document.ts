@@ -19,8 +19,11 @@ import type { StoredLineItem, StoredRoom } from "@/domain/estimateTotals";
 /** A line item as the editor holds it: every field present, nothing optional. */
 export interface LineItemDoc {
   name: string;
-  category: ItemCategory;
-  unit: ItemUnit;
+  /** Free text, not `ItemCategory`. A team can define its own categories in Settings,
+   *  and legacy documents contain values the enum never had. The enums are what the UI
+   *  *offers*; the API accepts any bounded string. */
+  category: string;
+  unit: string;
   /** Kept as the raw string the user typed, so "1." and "0.50" survive mid-edit. */
   quantity: string;
   unitCost: string;
@@ -43,8 +46,8 @@ export interface EstimateDetails {
   notes: string;
 }
 
-export const DEFAULT_CATEGORY: ItemCategory = "other";
-export const DEFAULT_UNIT: ItemUnit = "LF";
+export const DEFAULT_CATEGORY: string = "other";
+export const DEFAULT_UNIT: string = "LF";
 
 function isCategory(value: unknown): value is ItemCategory {
   return ITEM_CATEGORIES.includes(value as ItemCategory);
@@ -55,29 +58,34 @@ function isUnit(value: unknown): value is ItemUnit {
 }
 
 /**
- * A category the API will accept.
+ * A category to store.
  *
- * Legacy documents contain `electrical` and `plumbing`, which `ItemCategory` does not
- * include — `domain/enums.ts` keeps swatches for them so stored rows still render in
- * their colour. But they cannot be *written* back, and because `rooms` is sent as a
- * whole array, one such row would make the estimate permanently unsaveable: every edit
- * anywhere in it would 422.
+ * No longer coerced to `other`. The API's `LineItem.category` is a bounded string
+ * rather than the enum, precisely so that a team's own categories are usable and so
+ * that legacy values (`electrical`, `plumbing`) survive a save. Rewriting them was
+ * silently destroying a classification someone had chosen.
  *
- * Coercing to `other` loses information, which is why the editor warns when it happens
- * rather than doing it silently. The alternative — an estimate nobody can edit — is
- * worse.
+ * Empty falls back to the default, because the field cannot be blank on screen.
  */
-export function normaliseCategory(value: unknown): ItemCategory {
-  return isCategory(value) ? value : DEFAULT_CATEGORY;
+export function normaliseCategory(value: unknown): string {
+  if (typeof value !== "string") return DEFAULT_CATEGORY;
+  const trimmed = value.trim();
+  return trimmed === "" ? DEFAULT_CATEGORY : trimmed.slice(0, LIMITS.category);
 }
 
-export function normaliseUnit(value: unknown): ItemUnit {
-  return isUnit(value) ? value : DEFAULT_UNIT;
+export function normaliseUnit(value: unknown): string {
+  if (typeof value !== "string") return DEFAULT_UNIT;
+  const trimmed = value.trim();
+  return trimmed === "" ? DEFAULT_UNIT : trimmed.slice(0, LIMITS.unit);
 }
 
-/** Whether a stored row would be altered by normalisation — what the warning keys off. */
-export function hasUnsupportedCategory(item: StoredLineItem): boolean {
-  return item.category !== undefined && !isCategory(item.category);
+/** Whether a value is one of the built-ins the UI offers by default. */
+export function isBuiltInCategory(value: string): boolean {
+  return isCategory(value);
+}
+
+export function isBuiltInUnit(value: string): boolean {
+  return isUnit(value);
 }
 
 // ── Reading ─────────────────────────────────────────────────────────────────
@@ -135,8 +143,8 @@ function numericText(value: unknown): string {
 
 export interface WireLineItem {
   name: string;
-  category: ItemCategory;
-  unit: ItemUnit;
+  category: string;
+  unit: string;
   quantity: string;
   unitCost: string;
   isCustom: boolean;
@@ -154,6 +162,8 @@ export interface WireRoom {
 export const LIMITS = {
   roomName: 200,
   itemName: 300,
+  category: 100,
+  unit: 50,
   notes: 2000,
   catalogueId: 100,
 } as const;

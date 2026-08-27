@@ -62,7 +62,19 @@ async def test_unknown_fields_are_rejected_rather_than_ignored(owner_client):
     assert response.json()["error"]["code"] == "validation_failed"
 
 
-async def test_an_invalid_line_item_category_is_rejected(owner_client):
+async def test_a_line_item_category_outside_the_enum_is_accepted(owner_client):
+    """Deliberately changed: this used to be a 422.
+
+    ``ItemCategory`` and ``ItemUnit`` are now what the UI *offers*, not what the column
+    *permits*. Two things forced it. A team can define its own categories and units in
+    Settings, and a value you can define but not use is not a setting. And documents
+    written by the legacy app already contain ``electrical`` and ``plumbing``, so under
+    the enum the only way to keep such an estimate saveable was to rewrite those rows to
+    ``other`` on every save — silently destroying someone's classification.
+
+    Nothing computes on either field: totals use ``quantity * unitCost`` and the
+    category only picks a swatch colour. Length is still bounded.
+    """
     response = await owner_client.post(
         "/api/v1/estimates",
         json={
@@ -71,7 +83,8 @@ async def test_an_invalid_line_item_category_is_rejected(owner_client):
         },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 201
+    assert response.json()["rooms"][0]["items"][0]["category"] == "invented"
 
 
 # ── Visibility ────────────────────────────────────────────────────────────────
@@ -251,3 +264,57 @@ async def test_filtering_by_status(owner_client):
     results = (await owner_client.get("/api/v1/estimates?status=archived")).json()
 
     assert results["total"] == 1
+
+
+# ── Custom units and categories ───────────────────────────────────────────────
+
+
+async def test_a_custom_unit_can_be_used_on_a_line(owner_client):
+    """A team can define its own units in Settings. A value you can define but not use
+    is not a setting — under the old enum, choosing "Roll" was a 422 for the whole
+    estimate."""
+    estimate = (await owner_client.post("/api/v1/estimates", json={})).json()
+
+    response = await owner_client.patch(
+        f"/api/v1/estimates/{estimate['id']}",
+        json={
+            "rooms": [
+                {"name": "Store", "items": [{"name": "Wallpaper", "unit": "Roll", "quantity": "2"}]}
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["rooms"][0]["items"][0]["unit"] == "Roll"
+
+
+async def test_a_legacy_category_survives_a_save_unchanged(owner_client):
+    """Documents written by the legacy app contain categories the enums never had.
+
+    Under the enum the only way to keep such an estimate saveable was to rewrite those
+    rows to ``other`` on every save, silently destroying the classification someone
+    chose.
+    """
+    estimate = (await owner_client.post("/api/v1/estimates", json={})).json()
+
+    response = await owner_client.patch(
+        f"/api/v1/estimates/{estimate['id']}",
+        json={
+            "rooms": [{"name": "Kitchen", "items": [{"name": "Outlet", "category": "electrical"}]}]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["rooms"][0]["items"][0]["category"] == "electrical"
+
+
+async def test_an_absurdly_long_unit_is_still_rejected(owner_client):
+    """Free text, but not unbounded."""
+    estimate = (await owner_client.post("/api/v1/estimates", json={})).json()
+
+    response = await owner_client.patch(
+        f"/api/v1/estimates/{estimate['id']}",
+        json={"rooms": [{"name": "R", "items": [{"name": "X", "unit": "x" * 60}]}]},
+    )
+
+    assert response.status_code == 422
