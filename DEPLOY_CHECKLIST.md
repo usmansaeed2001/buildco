@@ -55,14 +55,24 @@ gcloud run services update buildco-api \
 
 ### 1.2 Signed Cloud Storage URLs fail on Cloud Run
 
-**Status: fixed in code in the attachments phase; still needs a release to take effect.**
+**Status: fixed in code. Needs an API release to take effect, then verifying.**
 
-See [`BACKLOG.md`](BACKLOG.md) §2 for the full diagnosis. Until the API is released with
-the fix, attachment uploads return 500 and downloads come back with a `null` URL and no
-error anywhere.
+`generate_signed_url` had no signing identity, so on Cloud Run — where the credentials
+carry a bearer token and no private key — uploads returned 500 and downloads came back
+with a `null` URL and **no error anywhere**. `storage._signing_kwargs()` now routes
+signing through the IAM `signBlob` API when the credentials cannot sign locally.
+[`BACKLOG.md`](BACKLOG.md) §2 has the diagnosis.
+
+This one cannot be confirmed from a test suite — it depends on what the metadata server
+hands the process, which only exists on Cloud Run.
 
 - [ ] API released with the fix
-- [ ] Upload verified on Cloud Run: URL returned, `PUT` succeeds, download resolves
+- [ ] Upload a photo in production: the thumbnail appears
+- [ ] **Reload the page.** The thumbnail still resolves — this is the half that used to
+      fail silently
+- [ ] If it does not: confirm `roles/iam.serviceAccountTokenCreator` is bound **on the
+      service account resource itself**, not just project-wide. The role is necessary
+      but is not sufficient on its own, and the runbook used to imply otherwise
 
 ### 1.3 Google sign-in shows an unverified-app warning
 
@@ -109,7 +119,12 @@ curl -s "https://buildco-production-505918.web.app/api/v1/auth/status?email=you@
 
 Check `/readyz` against the **Cloud Run URL**, not the Hosting origin — it sits outside
 `/api/**`, so Hosting serves `index.html` and `curl -sf` passes whether the database is
-reachable or not. `/healthz` always 404s; Cloud Run reserves that path.
+reachable or not.
+
+`/healthz` always 404s: Cloud Run's front end reserves that exact path and the request
+never reaches the container. **Point uptime checks at `/livez`**, which is the same
+probe under a path that is not intercepted. A check aimed at `/healthz` reports a
+perfectly healthy service as down.
 
 ---
 
@@ -146,12 +161,13 @@ Run these against production after a release, or locally before merging somethin
 - [ ] Request changes on a different estimate; the note reaches the submitter and shows
       in the editor under "View changes requested"
 
-### 3.3 Attachments *(once the phase lands and §1.2 is released)*
+### 3.3 Attachments *(needs §1.2 released first)*
 
 - [ ] Upload a photo to a line item; the thumbnail appears
-- [ ] Reload; the thumbnail still resolves (this is the part §1.2 breaks silently)
-- [ ] Upload a video; it plays
-- [ ] Delete an attachment
+- [ ] Reload; the thumbnail still resolves — this is the part §1.2 breaks silently
+- [ ] Upload a video; it opens and plays
+- [ ] Delete an attachment; it disappears and stays gone after a reload
+- [ ] Drag a file onto the drop zone rather than using the picker
 
 ---
 
@@ -203,9 +219,15 @@ editing `cloudbuild.yaml` will not do it.
 
 Newest first. Each phase appends what it added and what it now needs from you.
 
-### Phase 3 — attachments *(in progress)*
-- §1.2 moves from "broken, unfixed" to "fixed in code, needs a release".
-- §3.3 added.
+### Phase 3 — attachments
+- §1.2 moves from "broken, unfixed" to "fixed in code, needs a release and
+  **production verification** — it cannot be proven from a test suite, because it
+  depends on credentials that only exist on Cloud Run".
+- §3.3 filled in.
+- `/livez` added; §2 and §5 now point uptime checks at it rather than `/healthz`.
+- New known limitation, `BACKLOG.md` §14: attachments are keyed by *position*, so
+  deleting or reordering a line item leaves its photos pointing at whatever takes that
+  slot. Worth knowing before anyone relies on photo evidence for a claim.
 
 ### Phase 2 — the approval loop
 - §1.1 added: Resend is configured locally but not in production.

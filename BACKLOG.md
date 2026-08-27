@@ -49,41 +49,28 @@ Two unblocking paths:
       does not
 - [ ] `RELEASE.md` updated to describe the automatic path
 
-## 2. Signed GCS URLs fail on Cloud Run — attachments are unusable
+## 2. ~~Signed GCS URLs fail on Cloud Run~~ — fixed in code, needs a release
 
-**Severity: high.** Confirmed broken in production, not theoretical.
+`generate_signed_url` was called with no signing identity, so on Cloud Run — where ADC
+carries only a bearer token and no private key — uploads raised
+`AttributeError: you need a private key to sign credentials` as a 500, and downloads
+caught it, logged `storage_sign_failed`, and returned `null`. That asymmetry is why it
+hid: attachments rendered with no URL and no error anywhere.
 
-`POST /api/v1/estimates/{id}/attachments/upload-url` returns 500:
+`storage._signing_kwargs()` now resolves ADC once, and when the credentials cannot sign
+locally it passes `service_account_email` and `access_token` so the library routes
+signing through the IAM `signBlob` API. Credentials that *do* carry a key keep the
+offline path, so local development gains no IAM round trip per signature.
 
-```
-AttributeError: you need a private key to sign credentials. the credentials you are
-currently using <class 'google.auth.compute_engine.credentials.Credentials'> just
-contains a token.
-```
+Worth recording, because the runbook said otherwise: holding
+`roles/iam.serviceAccountTokenCreator` is **necessary but not sufficient**. Without
+those two arguments the library never calls `signBlob` at all.
+`docs/DEPLOY_CLOUD_RUN.md` §3 has been corrected.
 
-`app/services/integrations/storage.py:117` calls `blob.generate_signed_url(...)` with no
-signing identity. That works locally, where `FIREBASE_CREDENTIALS_FILE` points at a
-service-account JSON containing a private key. On Cloud Run the credentials come from the
-metadata server and carry only a bearer token, so the library has nothing to sign with.
-
-`roles/iam.serviceAccountTokenCreator` **is** bound on the service account (correctly, on
-the SA resource itself) — but the role alone is not enough. `DEPLOY_CLOUD_RUN.md` §3
-implies it is, and that is wrong: the code has to explicitly route signing through the
-IAM `signBlob` API by passing both `service_account_email` and `access_token` to
-`generate_signed_url`.
-
-Fix in `_sign()` (and the matching one in `create_download_url`): resolve ADC, refresh it,
-and pass the identity through — falling back to the current path when the credentials do
-carry a private key, so local development keeps working.
-
-Note the two failure modes differ, which is why this hid: uploads raise a 500, but
-`create_download_url` catches, logs `storage_sign_failed`, and returns `null` — so
-existing attachments would render with no URL and no error anywhere.
-
-- [ ] `_sign()` handles both credential shapes
-- [ ] Verified on Cloud Run: upload URL returned, PUT succeeds, download URL resolves
-- [ ] Still works locally against the service-account JSON
-- [ ] Correct the claim in `DEPLOY_CLOUD_RUN.md` §3
+- [x] `_signing_kwargs()` handles both credential shapes, with unit tests per shape
+- [x] The claim in `DEPLOY_CLOUD_RUN.md` §3 corrected
+- [ ] **Verified on Cloud Run after a release**: upload URL returned, `PUT` succeeds,
+      download URL resolves — see `DEPLOY_CHECKLIST.md` §1.2
 
 ## 3. ~~`/review/{token}` is not routed~~ — done
 
@@ -139,18 +126,15 @@ Real fix is either dropping the Calendar scope from sign-in and requesting it
 incrementally when meetings are built, or submitting for OAuth verification (privacy
 policy, verified domain, demo video, multi-week review).
 
-## 6. `/healthz` is unreachable on Cloud Run
+## 6. ~~`/healthz` is unreachable on Cloud Run~~ — done
 
-Cloud Run's front end reserves that exact path. The request never reaches the container:
-the 404 carries no `x-request-id` and no `server: Google Frontend`, unlike every other
-response. `/healthz2` reaches the app fine, so it is that specific path.
+Cloud Run's front end reserves that exact path; the request never reaches the container,
+and the 404 carries no `x-request-id` and no `server: Google Frontend` unlike every
+other response.
 
-Nothing is broken — Cloud Run uses a TCP startup probe, and `/readyz` works and is
-stronger anyway since it actually touches the database. But `DEPLOY_CLOUD_RUN.md` §9's
-first verification step will always fail, and any uptime check pointed at `/healthz`
-will report the service down while it is healthy.
-
-Suggested: add a `/livez` alias in `app/routers/health.py` and correct §9.
+`/livez` is now an alias for the same probe under a path that is not intercepted, and
+`DEPLOY_CLOUD_RUN.md` §9 points at it. Aim uptime checks at `/livez`; one aimed at
+`/healthz` reports a healthy service as down.
 
 ## 7. `staff-web` is mostly placeholders
 
@@ -268,3 +252,18 @@ Picking it back up:
   broken ADC logs `firebase_unavailable_using_fake` and serves with authentication off in
   all but name. If a staging service is ever stood up, check its logs for that event
   before pointing anything real at it.
+
+## 14. Attachments are addressed by position, not by identity
+
+`attachments.room_index` and `attachments.item_index` are plain integers, carried over
+from the legacy scheme so objects copied from Supabase stay addressable by the
+`storage_path` values already in the database.
+
+The consequence: **deleting or reordering a room or a line item does not move its
+attachments.** A photo attached to room 0 item 2 will appear under whatever ends up at
+that position. Nothing in the editor re-indexes them, deliberately — quietly rewriting
+the indices on the client would make the mismatch harder to notice, not less likely.
+
+Doing it properly means a real foreign key from `attachments` to a stable line-item id,
+which means giving line items ids in the `rooms` JSONB document, a migration, and a
+backfill. Worth doing before anyone relies on photo evidence for a claim.

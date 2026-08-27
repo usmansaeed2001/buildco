@@ -17,6 +17,8 @@ import { EmptyState } from "@/components/feedback";
 import { categoryColor, ITEM_CATEGORIES, ITEM_UNITS } from "@/domain/enums";
 import { formatMoney, lineTotal } from "@/domain/money";
 import { roomTotal } from "@/domain/estimateTotals";
+import type { AttachmentOut } from "@/api/types";
+import { LineItemAttachments } from "./LineItemAttachments";
 import type { LineItemDoc, RoomDoc } from "./document";
 
 export type UpdateItem = <K extends keyof LineItemDoc>(
@@ -27,29 +29,43 @@ export type UpdateItem = <K extends keyof LineItemDoc>(
 
 export function LineItemsTable({
   room,
+  roomIndex,
+  estimateId,
+  attachments,
   readOnly,
   onAddItem,
   onUpdateItem,
   onDeleteItem,
 }: {
   room: RoomDoc;
+  /** Attachments are keyed by position, so the row needs to know where it sits. */
+  roomIndex: number;
+  estimateId: string;
+  attachments: AttachmentOut[];
   readOnly: boolean;
   onAddItem: () => void;
   onUpdateItem: UpdateItem;
   onDeleteItem: (index: number) => void;
 }) {
-  // Which rows have their notes field open. Presentational only, so it is not part of
-  // the document and never triggers a save.
+  // Which rows have their notes or attachments panel open. Presentational only, so
+  // neither is part of the document and neither triggers a save.
   const [openNotes, setOpenNotes] = useState<ReadonlySet<number>>(new Set());
+  const [openFiles, setOpenFiles] = useState<ReadonlySet<number>>(new Set());
 
-  function toggleNotes(index: number) {
-    setOpenNotes((current) => {
-      const next = new Set(current);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
+  function toggle(
+    setter: typeof setOpenNotes,
+  ): (index: number) => void {
+    return (index) =>
+      setter((current) => {
+        const next = new Set(current);
+        if (next.has(index)) next.delete(index);
+        else next.add(index);
+        return next;
+      });
   }
+
+  const toggleNotes = toggle(setOpenNotes);
+  const toggleFiles = toggle(setOpenFiles);
 
   if (room.items.length === 0) {
     return (
@@ -95,9 +111,16 @@ export function LineItemsTable({
                 key={index}
                 item={item}
                 index={index}
+                estimateId={estimateId}
+                roomIndex={roomIndex}
+                attachments={attachments.filter(
+                  (a) => a.room_index === roomIndex && a.item_index === index,
+                )}
                 readOnly={readOnly}
                 notesOpen={openNotes.has(index)}
+                filesOpen={openFiles.has(index)}
                 onToggleNotes={() => toggleNotes(index)}
+                onToggleFiles={() => toggleFiles(index)}
                 onUpdate={onUpdateItem}
                 onDelete={() => onDeleteItem(index)}
               />
@@ -132,22 +155,64 @@ export function LineItemsTable({
 function LineItemRows({
   item,
   index,
+  estimateId,
+  roomIndex,
+  attachments,
   readOnly,
   notesOpen,
+  filesOpen,
   onToggleNotes,
+  onToggleFiles,
   onUpdate,
   onDelete,
 }: {
   item: LineItemDoc;
   index: number;
+  estimateId: string;
+  roomIndex: number;
+  attachments: AttachmentOut[];
   readOnly: boolean;
   notesOpen: boolean;
+  filesOpen: boolean;
   onToggleNotes: () => void;
+  onToggleFiles: () => void;
   onUpdate: UpdateItem;
   onDelete: () => void;
 }) {
   const label = item.name || `line ${index + 1}`;
   const hasNotes = item.notes.trim().length > 0;
+  const fileCount = attachments.length;
+
+  const filesPanel = filesOpen && (
+    <NotesRow>
+      <LineItemAttachments
+        estimateId={estimateId}
+        roomIndex={roomIndex}
+        itemIndex={index}
+        attachments={attachments}
+        readOnly={readOnly}
+        label={label}
+      />
+    </NotesRow>
+  );
+
+  const filesButton = (
+    <button
+      type="button"
+      onClick={onToggleFiles}
+      aria-expanded={filesOpen}
+      aria-label={`${filesOpen ? "Hide" : "Show"} attachments for ${label}${
+        fileCount ? ` (${fileCount})` : ""
+      }`}
+      className={
+        fileCount
+          ? "rounded p-1 text-xs text-brand-600 hover:bg-brand-50"
+          : "rounded p-1 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+      }
+    >
+      &#128206;{fileCount > 0 && <span className="ml-0.5 tnum">{fileCount}</span>}
+    </button>
+  );
 
   if (readOnly) {
     return (
@@ -163,9 +228,12 @@ function LineItemRows({
           <Td numeric className="font-medium">
             {formatMoney(lineTotal(item.quantity, item.unitCost))}
           </Td>
-          <Td />
+          <Td>
+            <div className="flex justify-end">{fileCount > 0 && filesButton}</div>
+          </Td>
         </Tr>
         {hasNotes && <NotesRow>{item.notes}</NotesRow>}
+        {filesPanel}
       </>
     );
   }
@@ -250,6 +318,7 @@ function LineItemRows({
             >
               &#9998;
             </button>
+            {filesButton}
             <button
               type="button"
               onClick={onDelete}
@@ -273,6 +342,8 @@ function LineItemRows({
           />
         </NotesRow>
       )}
+
+      {filesPanel}
     </>
   );
 }

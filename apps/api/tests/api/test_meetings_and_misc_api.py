@@ -215,6 +215,17 @@ async def test_readiness_reports_the_database(owner_client):
     assert body == {"status": "ready", "database": "up"}
 
 
+async def test_livez_is_an_alias_reachable_on_cloud_run(owner_client):
+    """Cloud Run's front end reserves ``/healthz``, so the request never reaches the
+    container and an uptime check aimed there reports a healthy service as down.
+    ``/livez`` is the same probe under a path that is not intercepted."""
+    healthz = (await owner_client.get("/healthz")).json()
+    livez = (await owner_client.get("/livez")).json()
+
+    assert livez == healthz
+    assert livez["status"] == "ok"
+
+
 # ── AI ────────────────────────────────────────────────────────────────────────
 
 
