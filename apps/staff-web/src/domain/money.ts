@@ -79,6 +79,21 @@ export function toMoneyString(value: MoneyInput): string {
   return roundMoney(toDecimal(value)).toFixed(2);
 }
 
+/**
+ * Serialise a quantity for the wire.
+ *
+ * Four decimal places, not two. `LineItem.quantity` and `LineItem.unitCost` are both
+ * `Decimal` but they are not the same shape: the API's generated pattern allows
+ * `\d{0,4}` after the point for a quantity and `\d{0,2}` for a cost. Sending a
+ * quantity through `toMoneyString` would round 0.125 of a square to 0.13 — a silent
+ * change to the number the user typed, and a wrong line total to go with it.
+ */
+export function toQuantityString(value: MoneyInput): string {
+  // `toFixed` rather than `toString`, because `toString` yields exponential notation
+  // for very small or very large values ("1e-7"), which the API's pattern rejects.
+  return toDecimal(value).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed();
+}
+
 /** Percentage of `part` against `whole`, clamped to 0–100 for progress bars.
  *  A zero or missing budget yields 0 rather than NaN. */
 export function percentOf(part: MoneyInput, whole: MoneyInput): number {
