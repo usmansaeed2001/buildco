@@ -544,6 +544,121 @@ describe("EstimateEditorPage", () => {
     });
   });
 
+  describe("submitting for review", () => {
+    it("offers the button on an active estimate and sends the recipient", async () => {
+      serveEstimate(estimateWith());
+      const bodies: Record<string, unknown>[] = [];
+      server.use(
+        http.post(url("/estimates/:id/submit"), async ({ request }) => {
+          bodies.push((await request.json()) as Record<string, unknown>);
+          return HttpResponse.json({
+            estimate: estimateWith({ status: "submitted" }),
+            review_url: "http://localhost:5173/review/tok-1",
+          });
+        }),
+      );
+
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "Send for approval" }));
+      await user.type(screen.getByLabelText(/Reviewer email/), "adjuster@carrier.com");
+      await user.type(screen.getByLabelText(/Reviewer name/), "Alex Adjuster");
+      await user.click(screen.getAllByRole("button", { name: "Send for approval" })[1]!);
+
+      await waitFor(() => expect(bodies).toHaveLength(1));
+      expect(bodies[0]).toEqual({
+        recipient_email: "adjuster@carrier.com",
+        recipient_name: "Alex Adjuster",
+      });
+    });
+
+    it("omits the optional name rather than sending an empty string", async () => {
+      serveEstimate(estimateWith());
+      const bodies: Record<string, unknown>[] = [];
+      server.use(
+        http.post(url("/estimates/:id/submit"), async ({ request }) => {
+          bodies.push((await request.json()) as Record<string, unknown>);
+          return HttpResponse.json({
+            estimate: estimateWith({ status: "submitted" }),
+            review_url: "http://localhost:5173/review/tok-1",
+          });
+        }),
+      );
+
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "Send for approval" }));
+      await user.type(screen.getByLabelText(/Reviewer email/), "adjuster@carrier.com");
+      await user.click(screen.getAllByRole("button", { name: "Send for approval" })[1]!);
+
+      await waitFor(() => expect(bodies).toHaveLength(1));
+      expect(bodies[0]).toEqual({ recipient_email: "adjuster@carrier.com" });
+    });
+
+    it("will not send without an address", async () => {
+      serveEstimate(estimateWith());
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "Send for approval" }));
+
+      const send = screen.getAllByRole("button", { name: "Send for approval" })[1]!;
+      expect(send).toBeDisabled();
+      await user.type(screen.getByLabelText(/Reviewer email/), "not-an-address");
+      expect(send).toBeDisabled();
+    });
+
+    it("keeps a rejected submission on screen with the address still editable", async () => {
+      serveEstimate(estimateWith());
+      server.use(
+        http.post(url("/estimates/:id/submit"), () =>
+          apiError(409, "conflict", "This estimate is already awaiting a decision."),
+        ),
+      );
+
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "Send for approval" }));
+      await user.type(screen.getByLabelText(/Reviewer email/), "adjuster@carrier.com");
+      await user.click(screen.getAllByRole("button", { name: "Send for approval" })[1]!);
+
+      expect(
+        await screen.findByText("This estimate is already awaiting a decision."),
+      ).toBeVisible();
+      expect(screen.getByLabelText(/Reviewer email/)).toHaveValue("adjuster@carrier.com");
+    });
+
+    it("does not offer submission while a decision is outstanding", async () => {
+      // Resubmitting from `submitted` is a 409 by design — a second token would
+      // silently orphan the first reviewer's link, which the legacy backend did.
+      serveEstimate(estimateWith({ status: "submitted" }));
+      renderEditor();
+      await waitForEditor();
+
+      expect(screen.queryByRole("button", { name: "Send for approval" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Recall" })).toBeVisible();
+    });
+
+    it("offers submission again once changes were requested", async () => {
+      serveEstimate(estimateWith({ status: "changes_requested" }));
+      renderEditor();
+      await waitForEditor();
+
+      expect(screen.getByRole("button", { name: "Send for approval" })).toBeVisible();
+    });
+
+    it("does not offer submission on a trashed estimate", async () => {
+      serveEstimate(estimateWith({ deleted_at: "2026-02-10T09:00:00Z" }));
+      renderEditor();
+      await waitForEditor();
+
+      expect(screen.queryByRole("button", { name: "Send for approval" })).not.toBeInTheDocument();
+    });
+  });
+
   describe("CSV export", () => {
     it("downloads a file named after the claim id", async () => {
       serveEstimate(estimateWith());

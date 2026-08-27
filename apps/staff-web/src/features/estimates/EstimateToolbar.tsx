@@ -12,7 +12,12 @@
 import { Button } from "@/components/Button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useState } from "react";
-import { availableTransitions, canSoftDelete } from "@/domain/estimateRules";
+import {
+  availableTransitions,
+  canBeSubmitted,
+  canSoftDelete,
+  canSubmitForReview,
+} from "@/domain/estimateRules";
 import type { ActorSnapshot, EstimateSnapshot, TransitionAction } from "@/domain/estimateRules";
 
 export function EstimateToolbar({
@@ -22,6 +27,7 @@ export function EstimateToolbar({
   onTransition,
   onDelete,
   onExportCsv,
+  onSubmitForReview,
 }: {
   actor: ActorSnapshot;
   snapshot: EstimateSnapshot;
@@ -30,12 +36,26 @@ export function EstimateToolbar({
   onTransition: (action: TransitionAction) => void;
   onDelete: () => void;
   onExportCsv: () => void;
+  onSubmitForReview: () => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const transitions = availableTransitions(actor, snapshot);
 
+  // Two separate questions, both mirrored from the backend: may this person submit, and
+  // may an estimate in this status be submitted at all. `submitted` is excluded by the
+  // second — resubmitting while a decision is outstanding is a 409, deliberately, so
+  // that a second token cannot silently orphan the first reviewer's link.
+  const canSubmit =
+    !snapshot.isTrashed && canSubmitForReview(actor, snapshot) && canBeSubmitted(snapshot);
+
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {canSubmit && (
+        <Button size="sm" variant="primary" onClick={onSubmitForReview}>
+          Send for approval
+        </Button>
+      )}
+
       <Button size="sm" onClick={onExportCsv}>
         Export CSV
       </Button>
