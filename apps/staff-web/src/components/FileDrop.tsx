@@ -9,7 +9,7 @@
  * click handler: that is what makes it keyboard-reachable and announced as "Add photo,
  * button" without any ARIA at all.
  */
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 export function FileDrop({
@@ -29,6 +29,7 @@ export function FileDrop({
   hint?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const hintId = useId();
   const [over, setOver] = useState(false);
 
   function emit(list: FileList | null) {
@@ -65,6 +66,11 @@ export function FileDrop({
         ref={input}
         type="file"
         className="sr-only"
+        // The label element wraps both the label text and the hint, so without an
+        // explicit name the control announces as "Add a photo Drag one here, or click
+        // to choose". The hint belongs in the description, not the name.
+        aria-label={label}
+        {...(hint ? { "aria-describedby": hintId } : {})}
         disabled={disabled}
         multiple={multiple}
         {...(accept ? { accept } : {})}
@@ -76,7 +82,11 @@ export function FileDrop({
         }}
       />
       <span className="text-sm font-medium">{label}</span>
-      {hint && <span className="text-xs text-gray-500">{hint}</span>}
+      {hint && (
+        <span id={hintId} className="text-xs text-gray-500">
+          {hint}
+        </span>
+      )}
     </label>
   );
 }

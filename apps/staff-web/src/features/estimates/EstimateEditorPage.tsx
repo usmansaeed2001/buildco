@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError } from "@/api/client";
 import type { EstimateOut } from "@/api/types";
+import { useAttachments } from "@/api/queries/attachments";
 import {
   useEstimate,
   useEstimateTransition,
@@ -96,6 +97,10 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
     notes: estimate.notes,
   }));
   const document = useEstimateDocument(useMemo(() => readRooms(estimate.rooms), [estimate.rooms]));
+
+  // Fetched once for the whole estimate rather than per row: the list is small, and a
+  // request per line item would be dozens of round trips for one screen.
+  const { data: attachments } = useAttachments(estimate.id);
 
   const updateEstimate = useUpdateEstimate(estimate.id);
   const transition = useEstimateTransition(estimate.id);
@@ -315,6 +320,9 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
           {document.activeRoom ? (
             <LineItemsTable
               room={document.activeRoom}
+              roomIndex={document.activeIndex ?? 0}
+              estimateId={estimate.id}
+              attachments={attachments ?? []}
               readOnly={!editable}
               onAddItem={document.addItem}
               onUpdateItem={document.updateItem}

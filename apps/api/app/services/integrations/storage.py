@@ -19,6 +19,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import timedelta
+from functools import lru_cache
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
@@ -58,6 +59,75 @@ def _client() -> Any:
     except ImportError as exc:  # pragma: no cover - dependency is declared
         raise IntegrationUnavailable("google-cloud-storage is not installed.") from exc
     return storage.Client()
+
+
+CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+
+
+@lru_cache(maxsize=1)
+def _adc() -> Any:
+    """Application Default Credentials, resolved once.
+
+    Cached because ``google.auth.default()`` re-reads the environment and, on Cloud
+    Run, talks to the metadata server. The returned object refreshes its own token in
+    place, so caching it does not pin an expired one.
+    """
+    import google.auth
+
+    credentials, _ = google.auth.default(scopes=[CLOUD_PLATFORM_SCOPE])
+    return credentials
+
+
+def reset_signing_credentials() -> None:
+    """Drop the cached credentials. For tests, and for a credential swap at runtime."""
+    _adc.cache_clear()
+
+
+def _signing_kwargs() -> dict[str, str]:
+    """The extra arguments ``generate_signed_url`` needs when ADC cannot sign locally.
+
+    Signing a V4 URL requires an RSA private key. Where does the key come from?
+
+    * **Locally**, ``FIREBASE_CREDENTIALS_FILE`` points at a service-account JSON that
+      contains one, so ``google-cloud-storage`` signs offline and needs nothing here.
+    * **On Cloud Run**, credentials come from the metadata server and carry *only* a
+      bearer token. There is no key to sign with, and the library raises::
+
+          AttributeError: you need a private key to sign credentials. the credentials
+          you are currently using <class
+          'google.auth.compute_engine.credentials.Credentials'> just contains a token.
+
+      The fix is to route signing through the IAM ``signBlob`` API, which the library
+      does when given both ``service_account_email`` and ``access_token``.
+
+    ``roles/iam.serviceAccountTokenCreator`` on the service account is necessary but
+    **not sufficient** — without these arguments the library never calls ``signBlob``
+    at all. ``DEPLOY_CLOUD_RUN.md`` §3 used to imply the role alone was enough.
+
+    Returning ``{}`` for key-bearing credentials keeps local development on the offline
+    path, which needs no IAM round trip per signature.
+    """
+    credentials = _adc()
+
+    # Service-account credentials expose a `signer`; metadata-server ones do not.
+    if getattr(credentials, "signer", None) is not None:
+        return {}
+
+    import google.auth.transport.requests
+
+    if not credentials.valid:
+        credentials.refresh(google.auth.transport.requests.Request())
+
+    email = getattr(credentials, "service_account_email", None)
+    # The metadata server reports the literal string "default" until a refresh has
+    # resolved the real address. Signing with that would fail with a confusing 403.
+    if not email or email == "default":
+        raise IntegrationUnavailable(
+            "Cannot sign a storage URL: the runtime credentials carry no private key "
+            "and no service-account email could be resolved to sign through IAM.",
+        )
+
+    return {"service_account_email": email, "access_token": credentials.token}
 
 
 def _extension(file_name: str) -> str:
@@ -119,6 +189,7 @@ async def create_upload_url(kind: BucketKind, storage_path: str, content_type: s
             expiration=timedelta(seconds=ttl),
             method="PUT",
             content_type=content_type,
+            **_signing_kwargs(),
         )
         return url
 
@@ -150,7 +221,10 @@ async def create_download_url(kind: BucketKind, storage_path: str) -> str | None
     def _sign() -> str:
         blob = _client().bucket(bucket_name).blob(storage_path)
         url: str = blob.generate_signed_url(
-            version="v4", expiration=timedelta(seconds=ttl), method="GET"
+            version="v4",
+            expiration=timedelta(seconds=ttl),
+            method="GET",
+            **_signing_kwargs(),
         )
         return url
 

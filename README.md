@@ -54,9 +54,12 @@ identical on every machine and Docker is the only prerequisite. Data persists in
 named volume across `docker compose down` — see
 [`apps/api/docs/DATABASE.md`](apps/api/docs/DATABASE.md).
 
-Deploying? Read [`RELEASE.md`](RELEASE.md) first — releases are manual, and a merge
-to `production` ships nothing on its own. Known gaps live in
-[`BACKLOG.md`](BACKLOG.md).
+Deploying? Read [`DEPLOY_CHECKLIST.md`](DEPLOY_CHECKLIST.md) first — it is the list of
+everything that needs a person: blockers that make a feature fail silently in
+production, the config that must be set by hand, and the walkthrough that stands in for
+an automated end-to-end suite. Then [`RELEASE.md`](RELEASE.md) for the procedure itself;
+releases are manual, and a merge to `production` ships nothing on its own. Known gaps in
+the system live in [`BACKLOG.md`](BACKLOG.md).
 
 Read [`apps/api/README.md`](apps/api/README.md) for the endpoint reference and
 [`apps/api/DEVELOPMENT_GUIDELINES.md`](apps/api/DEVELOPMENT_GUIDELINES.md) before
