@@ -46,6 +46,7 @@ export const handlers = [
   // unhandled request.
   http.get(url("/estimates/:id"), () => HttpResponse.json(makeEstimate())),
   http.get(url("/projects"), () => HttpResponse.json(makeProjectPage([]))),
+  http.get(url("/meetings"), () => HttpResponse.json([])),
   http.get(url("/projects/:id"), () =>
     HttpResponse.json({ project: makeProject(), milestones: [], supplements: [], activity: [] }),
   ),

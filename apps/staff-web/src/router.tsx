@@ -22,6 +22,7 @@ import { EstimateEditorPage } from "@/features/estimates/EstimateEditorPage";
 import { ReviewPage } from "@/features/review/ReviewPage";
 import { ProjectsListPage } from "@/features/projects/ProjectsListPage";
 import { ProjectDetailPage } from "@/features/projects/ProjectDetailPage";
+import { CalendarPage } from "@/features/calendar/CalendarPage";
 
 export const router = createBrowserRouter([
   // ── Public ────────────────────────────────────────────────────────────────
@@ -55,7 +56,7 @@ export const router = createBrowserRouter([
           { path: "/estimates/:estimateId", element: <EstimateEditorPage /> },
           { path: "/projects", element: <ProjectsListPage /> },
           { path: "/projects/:projectId", element: <ProjectDetailPage /> },
-          { path: "/calendar", element: <Pending title="Calendar" /> },
+          { path: "/calendar", element: <CalendarPage /> },
           { path: "/profile", element: <Pending title="Profile" /> },
           { path: "/settings", element: <Pending title="Settings" /> },
 

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.errors import NotFound
+from app.errors import NotFound, ValidationFailed
 from app.logging import get_logger
 from app.models.meeting import Meeting, MeetingAttendee
 from app.models.profile import Profile
@@ -40,6 +40,21 @@ async def _resolve_attendees(session: AsyncSession, attendee_ids: list[uuid.UUID
         return []
     rows = await session.scalars(select(Profile).where(Profile.id.in_(attendee_ids)))
     return list(rows)
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Make a datetime comparable regardless of where it came from.
+
+    Columns are ``DateTime(timezone=True)``, so Postgres hands back an aware value —
+    but SQLite, which the test suite runs on by default, has no timezone type and
+    returns a naive one. Comparing the two raises ``TypeError: can't compare
+    offset-naive and offset-aware datetimes``, so a check written against Postgres
+    behaviour crashes under SQLite and vice versa.
+
+    Everything is stored as UTC (``datetime.now(UTC)`` throughout), so attaching UTC to
+    a naive value recovers the instant rather than guessing at one.
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _ics_uid(meeting_id: uuid.UUID) -> str:
@@ -213,6 +228,16 @@ async def update_meeting(
     """
     invite_worthy = {"start_time", "end_time", "location", "title"}
     changed_fields = {field for field, value in changes.items() if getattr(meeting, field) != value}
+
+    # ``MeetingCreate`` validates this in the schema, but ``MeetingUpdate`` cannot: it is
+    # a partial, so a request carrying only ``end_time`` has nothing to compare against
+    # until the stored ``start_time`` is in hand. Without this, patching one end alone
+    # stores a meeting that finishes before it begins — which then renders as a negative
+    # duration and produces an ICS that Outlook rejects outright.
+    start = _as_utc(changes.get("start_time", meeting.start_time))
+    end = _as_utc(changes.get("end_time", meeting.end_time))
+    if end <= start:
+        raise ValidationFailed("end_time must be after start_time")
 
     for field, value in changes.items():
         setattr(meeting, field, value)
