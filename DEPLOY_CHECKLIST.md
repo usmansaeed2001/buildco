@@ -223,7 +223,29 @@ app and must not be paraphrased — someone has agreed to those exact sentences.
 - [ ] Submit it. The work status becomes **Completed**, and the project closes (or moves
       to awaiting payment if a milestone is unpaid)
 
-### 3.6 Attachments *(needs §1.2 released first)*
+### 3.6 Calendar and meetings
+
+- [ ] The month grid shows six weeks and does not change height as you page
+- [ ] **Create a meeting at 6pm.** It appears on *that* day, not the next one. This is
+      the timezone check — UTC bucketing puts an evening meeting in the Americas on
+      tomorrow
+- [ ] Reload. It is still on the same day at the same time
+- [ ] Click a day → the day view opens; the URL carries the date, so it can be shared
+- [ ] Invite someone. **They receive an ICS invite** (this needs §1.1)
+- [ ] Change only the colour. **No new invite is sent** — the backend re-invites only on
+      a material change, and re-inviting for a recolour is what trained people to ignore
+      the legacy invites
+- [ ] Move the time. An invite *is* re-sent
+- [ ] Cancel it. Attendees receive a cancellation
+- [ ] Sign in as a **member**: they see the whole shared calendar but cannot create,
+      edit or cancel
+
+> **Google Meet links need §1.3.** Without a Google sign-in carrying the
+> `calendar.events` scope, meetings are created with no Meet link — which is normal, not
+> a failure, and the form says so. In Testing mode the refresh token expires after
+> **7 days**, so this will stop working periodically until the OAuth app is verified.
+
+### 3.7 Attachments *(needs §1.2 released first)*
 
 - [ ] Upload a photo to a line item; the thumbnail appears
 - [ ] Reload; the thumbnail still resolves — this is the part §1.2 breaks silently
@@ -280,6 +302,19 @@ editing `cloudbuild.yaml` will not do it.
 ## 7. Change log for this file
 
 Newest first. Each phase appends what it added and what it now needs from you.
+
+### Phase 7 — calendar and meetings
+- §3.6 added; attachments moved to §3.7.
+- **A backend bug was found and fixed here.** `MeetingUpdate` is a partial, so unlike
+  `MeetingCreate` its schema cannot check that the end is after the start — a `PATCH`
+  carrying only `end_time` had nothing to compare against and stored a meeting that
+  finished before it began, which renders as a negative duration and produces an ICS
+  Outlook rejects. `meeting_service.update_meeting` now checks the resulting range.
+- Writing that check surfaced a second hazard worth knowing about generally: **SQLite
+  returns naive datetimes where Postgres returns aware ones**, so any comparison between
+  a stored datetime and an incoming one crashes on one of the two. `_as_utc` normalises.
+  The suite was run against both.
+- Nothing new is required of you beyond §3.6.
 
 ### Phase 6 — closing forms
 - §3.5 added; attachments moved to §3.6.

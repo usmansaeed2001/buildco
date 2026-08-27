@@ -136,6 +136,36 @@ async def test_moving_a_meeting_does_re_invite(owner_client, member, notificatio
     assert any(member.email in (s.recipient or "") for s in notifications.sent)
 
 
+async def test_a_partial_update_cannot_invert_the_time_range(owner_client):
+    """``MeetingUpdate`` is a partial, so the schema cannot check this on its own.
+
+    A request carrying only ``end_time`` has nothing to compare against until the
+    stored ``start_time`` is in hand. Without the service check it stores a meeting that
+    finishes before it begins, which renders as a negative duration and produces an ICS
+    Outlook rejects.
+    """
+    meeting = await make_meeting(owner_client)
+
+    response = await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}",
+        json={"end_time": (START - timedelta(hours=1)).isoformat()},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+async def test_a_partial_update_may_move_one_end_within_the_range(owner_client):
+    meeting = await make_meeting(owner_client)
+
+    response = await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}",
+        json={"end_time": (END + timedelta(hours=1)).isoformat()},
+    )
+
+    assert response.status_code == 200
+
+
 async def test_cancelling_a_meeting_notifies_attendees(owner_client, member, notifications):
     meeting = await make_meeting(owner_client, attendee_ids=[str(member.id)])
     notifications.sent.clear()
