@@ -18,8 +18,36 @@ export interface paths {
          *     Deliberately touches nothing external. A liveness probe that depends on the
          *     database will restart a perfectly healthy container during a database blip, which
          *     turns a brief outage into a crash loop.
+         *
+         *     **Unreachable on Cloud Run.** Its front end reserves this exact path and the
+         *     request never arrives — the 404 carries no ``x-request-id`` and no
+         *     ``server: Google Frontend``, unlike every other response. Use ``/livez`` there.
          */
         get: operations["liveness_healthz_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/livez": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Liveness Alias
+         * @description ``/healthz`` under a path Cloud Run does not intercept.
+         *
+         *     Point uptime checks here. One aimed at ``/healthz`` reports the service down while
+         *     it is perfectly healthy, because the request is answered by Google's front end
+         *     rather than by this process.
+         */
+        get: operations["liveness_alias_livez_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -719,6 +747,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/closing-forms/{form_number}/photo-upload-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Closing Form Photo Url
+         * @description Get a signed URL to PUT a closing-form photo straight to storage.
+         *
+         *     Put the returned ``storage_path`` in the form's ``material_photo_path`` when
+         *     submitting. Send ``required_headers`` verbatim on the PUT.
+         */
+        post: operations["create_closing_form_photo_url_api_v1_projects__project_id__closing_forms__form_number__photo_upload_url_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/closing-forms/{form_number}": {
         parameters: {
             query?: never;
@@ -914,6 +965,81 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Team Settings
+         * @description The team's shared settings. Created on first read.
+         */
+        get: operations["get_team_settings_api_v1_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Team Settings
+         * @description Update the shared settings.
+         *
+         *     ``notification_prefs`` is merged, not replaced — the client sends the switch that
+         *     moved. The other two lists replace their stored value wholesale.
+         */
+        patch: operations["update_team_settings_api_v1_settings_patch"];
+        trace?: never;
+    };
+    "/api/v1/catalogue-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Catalogue Items
+         * @description The universal rate list, ordered by category then name.
+         */
+        get: operations["list_catalogue_items_api_v1_catalogue_items_get"];
+        put?: never;
+        /**
+         * Create Catalogue Item
+         * @description Add a rate.
+         */
+        post: operations["create_catalogue_item_api_v1_catalogue_items_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalogue-items/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Catalogue Item
+         * @description Remove a rate. Lines already quoted from it keep their prices.
+         */
+        delete: operations["delete_catalogue_item_api_v1_catalogue_items__item_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Catalogue Item
+         * @description Change a rate. Estimates already priced from it are untouched.
+         */
+        patch: operations["update_catalogue_item_api_v1_catalogue_items__item_id__patch"];
         trace?: never;
     };
 }
@@ -1123,6 +1249,87 @@ export interface components {
         };
         /** AvatarUploadRequest */
         AvatarUploadRequest: {
+            /** File Name */
+            file_name: string;
+            /** Content Type */
+            content_type: string;
+        };
+        /** CatalogueItemCreate */
+        CatalogueItemCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Category
+             * @default
+             */
+            category: string;
+            /**
+             * Unit
+             * @default
+             */
+            unit: string;
+            /**
+             * Unit Cost
+             * @default 0
+             */
+            unit_cost: number | string;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+        };
+        /** CatalogueItemOut */
+        CatalogueItemOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Category */
+            category: string;
+            /** Unit */
+            unit: string;
+            /** Unit Cost */
+            unit_cost: string;
+            /** Notes */
+            notes: string;
+            /** Created By */
+            created_by?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** CatalogueItemUpdate */
+        CatalogueItemUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Category */
+            category?: string | null;
+            /** Unit */
+            unit?: string | null;
+            /** Unit Cost */
+            unit_cost?: number | string | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /**
+         * ClosingFormPhotoUploadRequest
+         * @description Step 1 of the Material Sign-Off photo upload.
+         *
+         *     The returned ``storage_path`` is what belongs in the form's ``material_photo_path``
+         *     field when the form is submitted.
+         */
+        ClosingFormPhotoUploadRequest: {
             /** File Name */
             file_name: string;
             /** Content Type */
@@ -2025,6 +2232,38 @@ export interface components {
             linked_at: string;
             estimate?: components["schemas"]["LinkedEstimate"] | null;
         };
+        /** TeamSettingsOut */
+        TeamSettingsOut: {
+            /** Custom Units */
+            custom_units?: string[];
+            /** Custom Categories */
+            custom_categories?: string[];
+            /** Notification Prefs */
+            notification_prefs?: {
+                [key: string]: boolean;
+            };
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Updated By */
+            updated_by?: string | null;
+        };
+        /**
+         * TeamSettingsUpdate
+         * @description Partial update. Every field replaces its stored value wholesale.
+         */
+        TeamSettingsUpdate: {
+            /** Custom Units */
+            custom_units?: string[] | null;
+            /** Custom Categories */
+            custom_categories?: string[] | null;
+            /** Notification Prefs */
+            notification_prefs?: {
+                [key: string]: boolean;
+            } | null;
+        };
         /** TransitionRequest */
         TransitionRequest: {
             /**
@@ -2133,6 +2372,26 @@ export interface components {
 export type $defs = Record<string, never>;
 export interface operations {
     liveness_healthz_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthOut"];
+                };
+            };
+        };
+    };
+    liveness_alias_livez_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -3560,6 +3819,44 @@ export interface operations {
             };
         };
     };
+    create_closing_form_photo_url_api_v1_projects__project_id__closing_forms__form_number__photo_upload_url_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                form_number: number;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClosingFormPhotoUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadUrlOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     submit_closing_form_api_v1_projects__project_id__closing_forms__form_number__put: {
         parameters: {
             query?: never;
@@ -3930,6 +4227,208 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParsedEstimate"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_team_settings_api_v1_settings_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_team_settings_api_v1_settings_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_catalogue_items_api_v1_catalogue_items_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogueItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_catalogue_item_api_v1_catalogue_items_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CatalogueItemCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogueItemOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_catalogue_item_api_v1_catalogue_items__item_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ack"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_catalogue_item_api_v1_catalogue_items__item_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CatalogueItemUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogueItemOut"];
                 };
             };
             /** @description Validation Error */

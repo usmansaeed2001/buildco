@@ -170,6 +170,7 @@ async def transition_estimate(
                 ],
             },
             exclude_id=user.id,
+            pref="estimate_locked",
         )
 
     return _to_out(estimate)

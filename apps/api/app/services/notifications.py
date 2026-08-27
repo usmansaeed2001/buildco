@@ -22,6 +22,7 @@ from app.db import get_session_factory
 from app.logging import get_logger
 from app.models.enums import ELEVATED_ROLES, UserStatus
 from app.models.profile import Profile
+from app.services import settings_service
 from app.services.integrations import email as email_integration
 from app.services.integrations.email import EmailAttachment
 
@@ -54,14 +55,28 @@ async def notify_admins(
     context: dict[str, object],
     *,
     exclude_id: uuid.UUID | None = None,
+    pref: str | None = None,
 ) -> None:
     """Email every active owner and admin.
 
     Opens its own session. Background tasks run after the request's session has been
     committed and closed, so they cannot borrow it.
+
+    ``pref`` names a key in the team's notification settings. When the team has switched
+    it off, nothing is sent. Omitting it means the message is not optional — an access
+    attempt by a removed user is a security signal, not a routine update, and must not
+    be silenceable from a settings screen.
+
+    The check fails **open**: if settings cannot be read, the email goes out. A
+    notification nobody wanted is a minor annoyance; one that silently stopped because
+    of a database hiccup is discovered weeks later when someone asks why nobody was
+    told.
     """
     try:
         async with get_session_factory()() as session:
+            if pref is not None and not await settings_service.notifications_enabled(session, pref):
+                log.info("notify_admins_suppressed", subject=subject, pref=pref)
+                return
             recipients = await admin_recipients(session, exclude_id=exclude_id)
         if not recipients:
             log.info("notify_admins_no_recipients", subject=subject)

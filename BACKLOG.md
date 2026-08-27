@@ -136,13 +136,13 @@ other response.
 `DEPLOY_CLOUD_RUN.md` §9 points at it. Aim uptime checks at `/livez`; one aimed at
 `/healthz` reports a healthy service as down.
 
-## 7. `staff-web` is mostly placeholders
+## 7. ~~`staff-web` is mostly placeholders~~ — done
 
-Built: auth (login / signup / setup), the launcher, the estimates list. Rendering
-`<Pending>`: the estimate editor, `/projects`, `/calendar`, `/team`, `/settings`.
+Every route is built. The `<Pending>` component is gone from `src/router.tsx`, along
+with the last three placeholders (`/team`, `/profile`, `/settings`).
 
-This is the honest scope of the current beta — a tester can sign in and exercise
-estimates. Worth stating plainly to whoever tests it.
+What remains is the parity sweep — walking the prototype's feature inventory end to end
+and closing whatever it turns up.
 
 ## 8. OpenAPI docs are public on the Cloud Run origin
 

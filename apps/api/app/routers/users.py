@@ -76,6 +76,7 @@ async def establish_session(
                 ],
             },
             exclude_id=resolved.profile.id,
+            pref="member_joined",
         )
 
     return SessionOut(
@@ -209,6 +210,7 @@ async def ban_user(
             "rows": [("Email", target.email), ("Removed by", actor.display_name)],
         },
         exclude_id=actor.id,
+        pref="member_removed",
     )
     return UserOut.model_validate(target)
 

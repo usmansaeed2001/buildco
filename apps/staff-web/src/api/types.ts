@@ -73,6 +73,13 @@ export type MeetingCreate = Schemas["MeetingCreate"];
 export type MeetingUpdate = Schemas["MeetingUpdate"];
 export type AttendeeOut = Schemas["AttendeeOut"];
 
+// ── Settings and the rate catalogue ─────────────────────────────────────────
+export type TeamSettingsOut = Schemas["TeamSettingsOut"];
+export type TeamSettingsUpdate = Schemas["TeamSettingsUpdate"];
+export type CatalogueItemOut = Schemas["CatalogueItemOut"];
+export type CatalogueItemCreate = Schemas["CatalogueItemCreate"];
+export type CatalogueItemUpdate = Schemas["CatalogueItemUpdate"];
+
 // ── AI ──────────────────────────────────────────────────────────────────────
 export type ParseNotesRequest = Schemas["ParseNotesRequest"];
 export type ParsedEstimate = Schemas["ParsedEstimate"];

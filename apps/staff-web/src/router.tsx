@@ -23,6 +23,9 @@ import { ReviewPage } from "@/features/review/ReviewPage";
 import { ProjectsListPage } from "@/features/projects/ProjectsListPage";
 import { ProjectDetailPage } from "@/features/projects/ProjectDetailPage";
 import { CalendarPage } from "@/features/calendar/CalendarPage";
+import { TeamPage } from "@/features/team/TeamPage";
+import { ProfilePage } from "@/features/profile/ProfilePage";
+import { SettingsPage } from "@/features/settings/SettingsPage";
 
 export const router = createBrowserRouter([
   // ── Public ────────────────────────────────────────────────────────────────
@@ -50,19 +53,17 @@ export const router = createBrowserRouter([
         children: [
           { path: "/", element: <HomePage /> },
 
-          // Placeholders until each stage lands. Listed rather than omitted so the
-          // navigation is never a dead link.
           { path: "/estimates", element: <EstimatesListPage /> },
           { path: "/estimates/:estimateId", element: <EstimateEditorPage /> },
           { path: "/projects", element: <ProjectsListPage /> },
           { path: "/projects/:projectId", element: <ProjectDetailPage /> },
           { path: "/calendar", element: <CalendarPage /> },
-          { path: "/profile", element: <Pending title="Profile" /> },
-          { path: "/settings", element: <Pending title="Settings" /> },
+          { path: "/profile", element: <ProfilePage /> },
+          { path: "/settings", element: <SettingsPage /> },
 
           {
             element: <RequireElevated />,
-            children: [{ path: "/team", element: <Pending title="Team" /> }],
+            children: [{ path: "/team", element: <TeamPage /> }],
           },
         ],
       },
@@ -72,12 +73,3 @@ export const router = createBrowserRouter([
   { path: "/index.html", element: <Navigate to="/login" replace /> },
   { path: "*", element: <NotFoundPage /> },
 ]);
-
-function Pending({ title }: { title: string }) {
-  return (
-    <div className="rounded-card bg-surface px-6 py-16 text-center ring-1 ring-gray-200">
-      <p className="font-medium text-gray-900">{title}</p>
-      <p className="mt-1 text-sm text-gray-500">This screen is not built yet.</p>
-    </div>
-  );
-}

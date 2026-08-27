@@ -16,7 +16,19 @@ from app.config import get_settings
 from app.db import dispose_engine
 from app.errors import register_exception_handlers
 from app.logging import configure_logging, get_logger
-from app.routers import ai, attachments, estimates, health, meetings, projects, reviews, users
+from app.routers import (
+    ai,
+    attachments,
+    estimates,
+    health,
+    meetings,
+    projects,
+    reviews,
+    users,
+)
+from app.routers import (
+    settings as settings_router,
+)
 
 log = get_logger(__name__)
 
@@ -116,6 +128,7 @@ def create_app() -> FastAPI:
     app.include_router(meetings.router, prefix=prefix)
     app.include_router(reviews.router, prefix=prefix)
     app.include_router(ai.router, prefix=prefix)
+    app.include_router(settings_router.router, prefix=prefix)
 
     return app
 
