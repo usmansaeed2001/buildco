@@ -161,7 +161,28 @@ Run these against production after a release, or locally before merging somethin
 - [ ] Request changes on a different estimate; the note reaches the submitter and shows
       in the editor under "View changes requested"
 
-### 3.3 Attachments *(needs §1.2 released first)*
+### 3.3 Notes parsing, dictation and the report
+
+- [ ] **Parse notes** on an estimate: dictate or type "Kitchen — 200 square feet of
+      drywall at 2.50", parse, and confirm the preview shows a Kitchen room
+- [ ] Add it to an estimate that already has rooms; the existing ones survive
+- [ ] Undo takes the parse back
+- [ ] **Dictation is Chromium-only.** In Chrome or Edge the Dictate button appears; in
+      Firefox or Safari it is replaced by a line of text saying so. Check both — a mic
+      button that silently does nothing is worse than none
+- [ ] Dictate in Spanish with the ES toggle
+- [ ] **Report → Download PDF.** Open the file: the figures match the screen, and a long
+      estimate spans several pages with no trailing blank page
+- [ ] Try the parser with `GROQ_API_KEY` unset (or watch for a 503 in production): the
+      message should say the parser is unconfigured and that items can still be added by
+      hand — not show a raw error
+
+> `GROQ_MODEL` is the thing most likely to break this without warning. Groq retires
+> hosted models without aliasing the old id forward, and a retired id fails **every**
+> call with a 400 saying only that the model does not exist. Currently
+> `openai/gpt-oss-120b`. If parsing suddenly stops working everywhere, check this first.
+
+### 3.4 Attachments *(needs §1.2 released first)*
 
 - [ ] Upload a photo to a line item; the thumbnail appears
 - [ ] Reload; the thumbnail still resolves — this is the part §1.2 breaks silently
@@ -218,6 +239,16 @@ editing `cloudbuild.yaml` will not do it.
 ## 7. Change log for this file
 
 Newest first. Each phase appends what it added and what it now needs from you.
+
+### Phase 4 — notes parsing, dictation, PDF report
+- §3.3 added; attachments moved to §3.4.
+- `jspdf` and `html2canvas` are now real dependencies rather than CDN `<script>` tags
+  injected on first click. Both are dynamically imported, so they load only when a
+  report is opened — worth preserving, they are ~780 KB together.
+- **jspdf 2.x was rejected**: it depends on a DOMPurify with a critical advisory.
+  Pinned to `^4.2.1`, and `npm audit` reports 0 vulnerabilities.
+- Nothing new is required of you here, but `GROQ_MODEL` is called out in §3.3 as the
+  thing most likely to break parsing silently.
 
 ### Phase 3 — attachments
 - §1.2 moves from "broken, unfixed" to "fixed in code, needs a release and
