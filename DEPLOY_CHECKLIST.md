@@ -182,7 +182,27 @@ Run these against production after a release, or locally before merging somethin
 > call with a 400 saying only that the model does not exist. Currently
 > `openai/gpt-oss-120b`. If parsing suddenly stops working everywhere, check this first.
 
-### 3.4 Attachments *(needs §1.2 released first)*
+### 3.4 Projects
+
+- [ ] Create a project; it opens on its own page
+- [ ] Advance the work stepper. It responds immediately, and survives a reload
+- [ ] Put the project **on hold**, then resume it
+- [ ] Add two milestones. Mark both paid — with the work still in progress the project
+      stays **Active**
+- [ ] Set work status to **Completed**. The project becomes **Closed**, and the line
+      beside the badge says why
+- [ ] **Un-pay one milestone.** The project reopens to **Pending Payment**. This is the
+      one to check by hand: the legacy app only ever moved a project forward, so a
+      mistaken "paid" click closed it permanently
+- [ ] Link a supplement. It appears in the budget as revenue on top of the base budget
+- [ ] Edit Labor / Materials / Collected; the figures save on blur and the profit line
+      recomputes
+- [ ] Sign in as a **member assigned to the project**: they can advance work and pay
+      milestones, but cannot edit details, delete, change status, or delete a milestone
+- [ ] Sign in as a member **not** assigned: the project 404s rather than 403s, and the
+      list says they have no assigned projects
+
+### 3.5 Attachments *(needs §1.2 released first)*
 
 - [ ] Upload a photo to a line item; the thumbnail appears
 - [ ] Reload; the thumbnail still resolves — this is the part §1.2 breaks silently
@@ -239,6 +259,17 @@ editing `cloudbuild.yaml` will not do it.
 ## 7. Change log for this file
 
 Newest first. Each phase appends what it added and what it now needs from you.
+
+### Phase 5 — projects
+- §3.4 added; attachments moved to §3.5.
+- The project status derivation is now re-implemented in the frontend so the screen can
+  **explain** a status rather than only display it. It is not trusted as a source of
+  truth — the API still decides — and it is pinned against the Python engine's own
+  output: `apps/api/scripts/export_project_rules_matrix.py` generates all 336 cases and
+  the frontend suite asserts agreement on every one. **Regenerate that file whenever
+  `project_rules.evaluate` changes**, or the two will drift silently.
+- Nothing new is required of you, but §3.4's un-pay step is worth doing by hand: it is
+  the behaviour that differs most from the legacy app.
 
 ### Phase 4 — notes parsing, dictation, PDF report
 - §3.3 added; attachments moved to §3.4.

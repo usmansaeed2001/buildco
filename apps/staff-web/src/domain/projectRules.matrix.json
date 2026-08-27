@@ -1,0 +1,3026 @@
+[
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_sent",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_sent",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_sent",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_sent",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_sent",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_not_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_not_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_signed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_signed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "active"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "contract_signed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "contract_signed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "contract_signed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "start_date",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "start_date",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "active"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "start_date",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "start_date",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "start_date",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "in_progress",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "in_progress",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "active"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "in_progress",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "in_progress",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "in_progress",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "on_hold",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "on_hold",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "active"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "on_hold",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "on_hold",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "on_hold",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "active",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "pending_payment",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "closed"
+},
+{
+"workStatus": "completed",
+"status": "closed",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "pending_payment"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": false,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": false,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "none",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "all_paid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+},
+{
+"workStatus": "completed",
+"status": "cancelled",
+"hasClosingForm1": true,
+"hasClosingForm2": true,
+"milestones": "one_unpaid",
+"expectedWorkStatus": "completed",
+"expectedStatus": "cancelled"
+}
+]
