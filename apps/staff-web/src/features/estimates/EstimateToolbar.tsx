@@ -1,0 +1,86 @@
+/**
+ * Status actions for an estimate.
+ *
+ * Which buttons exist is decided by `domain/estimateRules.availableTransitions`, a port
+ * of the backend's own `TRANSITIONS` table — so the toolbar cannot offer an action the
+ * API would refuse. The legacy `renderEdActions` re-derived the same matrix inline with
+ * a chain of `if (status === ...)` and disagreed with the server in both directions:
+ * it hid Approve from admins and showed Lock to members.
+ *
+ * This gates affordances only. Every one of these is re-decided server-side.
+ */
+import { Button } from "@/components/Button";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { useState } from "react";
+import { availableTransitions, canSoftDelete } from "@/domain/estimateRules";
+import type { ActorSnapshot, EstimateSnapshot, TransitionAction } from "@/domain/estimateRules";
+
+export function EstimateToolbar({
+  actor,
+  snapshot,
+  busyAction,
+  onTransition,
+  onDelete,
+  onExportCsv,
+}: {
+  actor: ActorSnapshot;
+  snapshot: EstimateSnapshot;
+  /** The action currently in flight, so only its own button shows a spinner. */
+  busyAction: TransitionAction | "delete" | null;
+  onTransition: (action: TransitionAction) => void;
+  onDelete: () => void;
+  onExportCsv: () => void;
+}) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const transitions = availableTransitions(actor, snapshot);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button size="sm" onClick={onExportCsv}>
+        Export CSV
+      </Button>
+
+      {transitions.map((transition) => (
+        <Button
+          key={transition.action}
+          size="sm"
+          variant={transition.action === "admin_approve" ? "success" : "secondary"}
+          title={transition.description}
+          busy={busyAction === transition.action}
+          disabled={busyAction !== null && busyAction !== transition.action}
+          onClick={() => onTransition(transition.action)}
+        >
+          {transition.label}
+        </Button>
+      ))}
+
+      {canSoftDelete(actor, snapshot) && !snapshot.isTrashed && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="text-danger-600 hover:bg-danger-50"
+          onClick={() => setConfirmingDelete(true)}
+        >
+          Delete
+        </Button>
+      )}
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Move this estimate to the trash?"
+        confirmLabel="Move to trash"
+        busy={busyAction === "delete"}
+        onCancel={() => setConfirmingDelete(false)}
+        onConfirm={() => {
+          setConfirmingDelete(false);
+          onDelete();
+        }}
+      >
+        <p>
+          It leaves the active list but is not destroyed — an owner or admin can restore it
+          from the trash.
+        </p>
+      </ConfirmDialog>
+    </div>
+  );
+}
