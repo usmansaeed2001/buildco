@@ -75,10 +75,10 @@ app/
   deps.py            get_current_user, require_role, require_project_access
   errors.py          AppError hierarchy + the single error envelope
   logging.py         structlog JSON output
-  models/            10 tables
+  models/            12 tables
   schemas/           request/response models
   routers/           health, users, estimates, attachments, projects, meetings,
-                     reviews, ai
+                     reviews, ai, settings
   services/
     rules/           project_rules, estimate_rules, user_rules, estimate_totals
     integrations/    email, slack, storage, calendar, groq, firebase
@@ -186,6 +186,21 @@ Authenticated by the approval token in the URL. No session required.
 | POST | `/public/reviews/{token}/reject` |
 | POST | `/public/reviews/{token}/request-changes` |
 
+### Settings and the rate catalogue
+
+| Method | Path | Role | Notes |
+|---|---|---|---|
+| GET | `/settings` | any | Team-wide preferences. The row is created on first read, so this never 404s. |
+| PATCH | `/settings` | owner/admin | `notification_prefs` is **merged**; the two lists replace wholesale. |
+| GET | `/catalogue-items` | any | The universal rate list. Members need it to price a line. |
+| POST | `/catalogue-items` | owner/admin | |
+| PATCH | `/catalogue-items/{id}` | owner/admin | Estimates already priced from it are untouched. |
+| DELETE | `/catalogue-items/{id}` | owner/admin | |
+
+The three switchable notifications are `estimate_locked`, `member_joined` and
+`member_removed`. An unknown key is a 422 rather than a stored no-op. Access attempts by
+removed users are deliberately not switchable — a security signal, not a routine update.
+
 ### AI
 
 | Method | Path | Notes |
@@ -196,7 +211,7 @@ Authenticated by the approval token in the URL. No session required.
 
 ## Domain model
 
-Ten tables. `profiles.id` remains the internal user id (every FK points at it);
+Twelve tables. `profiles.id` remains the internal user id (every FK points at it);
 `firebase_uid` links a profile to its Firebase identity.
 
 ```
@@ -351,6 +366,16 @@ clean REST instead of frozen. Beyond the shape, these behaviours changed on purp
 12. **Money is `Decimal` end to end.** Totals were computed in floating point in both
     the browser and the review email, independently.
 
+13. **Line-item `category` and `unit` are bounded strings, not enums.** They were enums
+    at first, and that made two things impossible. A team can define its own units and
+    categories in Settings, and a value you can define but cannot use is not a setting —
+    picking "Roll" on a line was a 422 for the whole estimate. And documents written by
+    the legacy app contain `electrical` and `plumbing`, so the only way to keep such an
+    estimate saveable was to rewrite those rows to `other` on every save, silently
+    destroying a classification someone had chosen. Nothing computes on either field:
+    totals use `quantity * unitCost`, and the category only picks a swatch colour. The
+    enums remain what the UI *offers*.
+
 ---
 
 ## Migration notes
@@ -377,4 +402,4 @@ dropped, `profiles.id` preserved, `firebase_uid` added.
 | Cloud Storage | Adapter complete. Buckets not created, CORS not configured, objects not copied. |
 | Resend / Slack / Groq / Calendar | Adapters complete. Keys not supplied. |
 | Cloud Run deploy | `Dockerfile` ready. No service, no CI pipeline. |
-| Frontend | Not started (Phase 2). |
+| Frontend | Complete — every route in `apps/staff-web` is built. |

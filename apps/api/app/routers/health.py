@@ -42,9 +42,24 @@ async def liveness() -> HealthOut:
     Deliberately touches nothing external. A liveness probe that depends on the
     database will restart a perfectly healthy container during a database blip, which
     turns a brief outage into a crash loop.
+
+    **Unreachable on Cloud Run.** Its front end reserves this exact path and the
+    request never arrives — the 404 carries no ``x-request-id`` and no
+    ``server: Google Frontend``, unlike every other response. Use ``/livez`` there.
     """
     settings = get_settings()
     return HealthOut(status="ok", version=__version__, environment=settings.environment)
+
+
+@router.get("/livez", response_model=HealthOut)
+async def liveness_alias() -> HealthOut:
+    """``/healthz`` under a path Cloud Run does not intercept.
+
+    Point uptime checks here. One aimed at ``/healthz`` reports the service down while
+    it is perfectly healthy, because the request is answered by Google's front end
+    rather than by this process.
+    """
+    return await liveness()
 
 
 @router.get("/readyz", response_model=ReadinessOut)

@@ -81,7 +81,7 @@ Why each one:
 | `secretmanager.secretAccessor` | Reading the injected secrets |
 | `storage.objectAdmin` | Attachment and avatar objects |
 | `firebaseauth.admin` | Verifying ID tokens via ADC — see step 5 |
-| `serviceAccountTokenCreator` | **Signing GCS URLs.** Cloud Run's credentials carry no private key, so the client signs via the IAM `signBlob` API, which requires this role *on the service account itself*. This is the one that gets missed — and it fails quietly: `create_download_url` logs `storage_sign_failed` and returns `null`, so attachments render with no URL rather than erroring. Uploads do raise. |
+| `serviceAccountTokenCreator` | **Signing GCS URLs.** Cloud Run's credentials carry no private key, so the client signs via the IAM `signBlob` API, which requires this role *on the service account itself*. **Necessary but not sufficient** — the code must also pass `service_account_email` and `access_token` to `generate_signed_url`, or the library never calls `signBlob` at all and raises "you need a private key to sign credentials". `storage._signing_kwargs()` does that, and falls back to offline signing when the credentials do carry a key, so local development is unaffected. The failure is asymmetric and that is how it hid: uploads raise a 500, but `create_download_url` logs `storage_sign_failed` and returns `null`, so attachments render with no URL and no error anywhere. |
 
 - [ ] Service account created and all five roles bound
 
@@ -260,7 +260,7 @@ gcloud run deploy "$SERVICE" \
 ```bash
 export URL=$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')
 
-curl -sf "$URL/healthz"   # liveness: process is up
+curl -sf "$URL/livez"     # liveness: process is up
 curl -sf "$URL/readyz"    # readiness: database actually reachable
 curl -s  "$URL/api/v1/auth/status"
 ```
@@ -279,7 +279,8 @@ describing a user you are not means the Admin SDK fell through to the fake provi
 which at `ENVIRONMENT=production` should have been impossible, so check that the
 variable is actually set on the revision.
 
-- [ ] `/healthz` 200
+- [ ] `/livez` 200 — **not `/healthz`**, which Cloud Run's front end reserves; the
+      request never reaches the container and the 404 carries no `x-request-id`
 - [ ] `/readyz` 200 — database reachable
 - [ ] Real ID token returns the correct profile
 - [ ] An attachment download URL resolves (proves `serviceAccountTokenCreator`)

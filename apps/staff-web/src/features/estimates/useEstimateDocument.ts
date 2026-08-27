@@ -26,6 +26,8 @@ export interface EstimateDocument {
   deleteRoom: (index: number) => void;
 
   addItem: () => void;
+  /** Append a fully-formed line, e.g. one picked from the rate list. */
+  addPreparedItem: (item: LineItemDoc) => void;
   updateItem: <K extends keyof LineItemDoc>(
     itemIndex: number,
     field: K,
@@ -39,6 +41,14 @@ export interface EstimateDocument {
   canRedo: boolean;
   /** Replace the document and drop history. For a reload, not an edit. */
   reset: (rooms: RoomDoc[]) => void;
+  /**
+   * Merge in rooms from elsewhere — currently the AI parser.
+   *
+   * An ordinary undoable operation, not a reset: applying a parse must be reversible
+   * with the same Undo button as everything else. The legacy drawer overwrote the
+   * document outright with no way back.
+   */
+  applyRooms: (rooms: RoomDoc[], mode: "append" | "replace") => void;
 }
 
 export function useEstimateDocument(initial: RoomDoc[]): EstimateDocument {
@@ -87,6 +97,18 @@ export function useEstimateDocument(initial: RoomDoc[]): EstimateDocument {
     );
   }, [update, activeIndex]);
 
+  const addPreparedItem = useCallback(
+    (item: LineItemDoc) => {
+      if (activeIndex === null) return;
+      update((current) =>
+        current.map((room, i) =>
+          i === activeIndex ? { ...room, items: [...room.items, item] } : room,
+        ),
+      );
+    },
+    [update, activeIndex],
+  );
+
   const updateItem = useCallback(
     <K extends keyof LineItemDoc>(itemIndex: number, field: K, value: LineItemDoc[K]) => {
       if (activeIndex === null) return;
@@ -131,6 +153,16 @@ export function useEstimateDocument(initial: RoomDoc[]): EstimateDocument {
     [resetHistory],
   );
 
+  const applyRooms = useCallback(
+    (incoming: RoomDoc[], mode: "append" | "replace") => {
+      update((current) => (mode === "replace" ? incoming : [...current, ...incoming]));
+      // Land on the first room that just arrived, so the result is visible rather than
+      // hidden behind whichever room happened to be selected.
+      setSelected(mode === "replace" ? 0 : rooms.length);
+    },
+    [update, rooms.length],
+  );
+
   return {
     rooms,
     activeIndex,
@@ -140,6 +172,7 @@ export function useEstimateDocument(initial: RoomDoc[]): EstimateDocument {
     renameRoom,
     deleteRoom,
     addItem,
+    addPreparedItem,
     updateItem,
     deleteItem,
     undo: history.undo,
@@ -147,5 +180,6 @@ export function useEstimateDocument(initial: RoomDoc[]): EstimateDocument {
     canUndo: history.canUndo,
     canRedo: history.canRedo,
     reset,
+    applyRooms,
   };
 }

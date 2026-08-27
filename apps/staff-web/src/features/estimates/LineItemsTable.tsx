@@ -14,9 +14,11 @@ import { Button } from "@/components/Button";
 import { Input, Select, Textarea } from "@/components/form";
 import { Table, TableWrap, TBody, Td, TFoot, Th, THead, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/feedback";
-import { categoryColor, ITEM_CATEGORIES, ITEM_UNITS } from "@/domain/enums";
+import { categoryColor } from "@/domain/enums";
 import { formatMoney, lineTotal } from "@/domain/money";
 import { roomTotal } from "@/domain/estimateTotals";
+import type { AttachmentOut } from "@/api/types";
+import { LineItemAttachments } from "./LineItemAttachments";
 import type { LineItemDoc, RoomDoc } from "./document";
 
 export type UpdateItem = <K extends keyof LineItemDoc>(
@@ -27,29 +29,50 @@ export type UpdateItem = <K extends keyof LineItemDoc>(
 
 export function LineItemsTable({
   room,
+  roomIndex,
+  estimateId,
+  attachments,
+  units,
+  categories,
   readOnly,
   onAddItem,
+  onAddFromCatalogue,
   onUpdateItem,
   onDeleteItem,
 }: {
   room: RoomDoc;
+  /** Attachments are keyed by position, so the row needs to know where it sits. */
+  roomIndex: number;
+  estimateId: string;
+  attachments: AttachmentOut[];
+  /** Built-ins plus whatever the team added in Settings. */
+  units: string[];
+  categories: string[];
   readOnly: boolean;
   onAddItem: () => void;
+  onAddFromCatalogue: () => void;
   onUpdateItem: UpdateItem;
   onDeleteItem: (index: number) => void;
 }) {
-  // Which rows have their notes field open. Presentational only, so it is not part of
-  // the document and never triggers a save.
+  // Which rows have their notes or attachments panel open. Presentational only, so
+  // neither is part of the document and neither triggers a save.
   const [openNotes, setOpenNotes] = useState<ReadonlySet<number>>(new Set());
+  const [openFiles, setOpenFiles] = useState<ReadonlySet<number>>(new Set());
 
-  function toggleNotes(index: number) {
-    setOpenNotes((current) => {
-      const next = new Set(current);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
+  function toggle(
+    setter: typeof setOpenNotes,
+  ): (index: number) => void {
+    return (index) =>
+      setter((current) => {
+        const next = new Set(current);
+        if (next.has(index)) next.delete(index);
+        else next.add(index);
+        return next;
+      });
   }
+
+  const toggleNotes = toggle(setOpenNotes);
+  const toggleFiles = toggle(setOpenFiles);
 
   if (room.items.length === 0) {
     return (
@@ -61,9 +84,14 @@ export function LineItemsTable({
             ? {}
             : {
                 action: (
-                  <Button variant="primary" size="sm" onClick={onAddItem}>
-                    + Add item
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="primary" size="sm" onClick={onAddItem}>
+                      + Add item
+                    </Button>
+                    <Button size="sm" onClick={onAddFromCatalogue}>
+                      From rate list
+                    </Button>
+                  </div>
                 ),
               })}
         />
@@ -95,9 +123,18 @@ export function LineItemsTable({
                 key={index}
                 item={item}
                 index={index}
+                estimateId={estimateId}
+                roomIndex={roomIndex}
+                attachments={attachments.filter(
+                  (a) => a.room_index === roomIndex && a.item_index === index,
+                )}
+                units={units}
+                categories={categories}
                 readOnly={readOnly}
                 notesOpen={openNotes.has(index)}
+                filesOpen={openFiles.has(index)}
                 onToggleNotes={() => toggleNotes(index)}
+                onToggleFiles={() => toggleFiles(index)}
                 onUpdate={onUpdateItem}
                 onDelete={() => onDeleteItem(index)}
               />
@@ -119,9 +156,12 @@ export function LineItemsTable({
       </TableWrap>
 
       {!readOnly && (
-        <div>
+        <div className="flex gap-2">
           <Button size="sm" onClick={onAddItem}>
             + Add item
+          </Button>
+          <Button size="sm" onClick={onAddFromCatalogue}>
+            From rate list
           </Button>
         </div>
       )}
@@ -132,22 +172,68 @@ export function LineItemsTable({
 function LineItemRows({
   item,
   index,
+  estimateId,
+  roomIndex,
+  attachments,
+  units,
+  categories,
   readOnly,
   notesOpen,
+  filesOpen,
   onToggleNotes,
+  onToggleFiles,
   onUpdate,
   onDelete,
 }: {
   item: LineItemDoc;
   index: number;
+  estimateId: string;
+  roomIndex: number;
+  attachments: AttachmentOut[];
+  units: string[];
+  categories: string[];
   readOnly: boolean;
   notesOpen: boolean;
+  filesOpen: boolean;
   onToggleNotes: () => void;
+  onToggleFiles: () => void;
   onUpdate: UpdateItem;
   onDelete: () => void;
 }) {
   const label = item.name || `line ${index + 1}`;
   const hasNotes = item.notes.trim().length > 0;
+  const fileCount = attachments.length;
+
+  const filesPanel = filesOpen && (
+    <NotesRow>
+      <LineItemAttachments
+        estimateId={estimateId}
+        roomIndex={roomIndex}
+        itemIndex={index}
+        attachments={attachments}
+        readOnly={readOnly}
+        label={label}
+      />
+    </NotesRow>
+  );
+
+  const filesButton = (
+    <button
+      type="button"
+      onClick={onToggleFiles}
+      aria-expanded={filesOpen}
+      aria-label={`${filesOpen ? "Hide" : "Show"} attachments for ${label}${
+        fileCount ? ` (${fileCount})` : ""
+      }`}
+      className={
+        fileCount
+          ? "rounded p-1 text-xs text-brand-600 hover:bg-brand-50"
+          : "rounded p-1 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+      }
+    >
+      &#128206;{fileCount > 0 && <span className="ml-0.5 tnum">{fileCount}</span>}
+    </button>
+  );
 
   if (readOnly) {
     return (
@@ -163,9 +249,12 @@ function LineItemRows({
           <Td numeric className="font-medium">
             {formatMoney(lineTotal(item.quantity, item.unitCost))}
           </Td>
-          <Td />
+          <Td>
+            <div className="flex justify-end">{fileCount > 0 && filesButton}</div>
+          </Td>
         </Tr>
         {hasNotes && <NotesRow>{item.notes}</NotesRow>}
+        {filesPanel}
       </>
     );
   }
@@ -192,7 +281,7 @@ function LineItemRows({
                 onUpdate(index, "category", event.target.value as LineItemDoc["category"])
               }
             >
-              {ITEM_CATEGORIES.map((category) => (
+              {withCurrent(categories, item.category).map((category) => (
                 <option key={category} value={category}>
                   {category}
                 </option>
@@ -207,7 +296,7 @@ function LineItemRows({
             aria-label={`Unit for ${label}`}
             onChange={(event) => onUpdate(index, "unit", event.target.value as LineItemDoc["unit"])}
           >
-            {ITEM_UNITS.map((unit) => (
+            {withCurrent(units, item.unit).map((unit) => (
               <option key={unit} value={unit}>
                 {unit}
               </option>
@@ -250,6 +339,7 @@ function LineItemRows({
             >
               &#9998;
             </button>
+            {filesButton}
             <button
               type="button"
               onClick={onDelete}
@@ -273,6 +363,8 @@ function LineItemRows({
           />
         </NotesRow>
       )}
+
+      {filesPanel}
     </>
   );
 }
@@ -313,6 +405,18 @@ function NotesRow({ children }: { children: ReactNode }) {
       </Td>
     </Tr>
   );
+}
+
+/**
+ * The offered values, plus whatever this row already holds.
+ *
+ * A line written by the legacy app may carry `electrical`, and a line priced from a
+ * rate list may carry a unit the team has since deleted from Settings. Omitting it
+ * would make the `<select>` fall back to its first option and silently rewrite the
+ * value the moment the row rendered.
+ */
+function withCurrent(offered: string[], current: string): string[] {
+  return offered.includes(current) ? offered : [current, ...offered];
 }
 
 function CategoryDot({ category }: { category: string }) {

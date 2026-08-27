@@ -15,11 +15,14 @@ from app.models.profile import Profile
 from app.models.project import Project
 from app.models.project_activity import ProjectActivity
 from app.models.project_supplement import ProjectSupplement
+from app.models.settings import SETTINGS_ROW_ID, CatalogueItem, TeamSettings
 
 __all__ = [
+    "SETTINGS_ROW_ID",
     "ApprovalRequest",
     "Attachment",
     "Base",
+    "CatalogueItem",
     "Estimate",
     "Meeting",
     "MeetingAttendee",
@@ -28,4 +31,5 @@ __all__ = [
     "Project",
     "ProjectActivity",
     "ProjectSupplement",
+    "TeamSettings",
 ]
