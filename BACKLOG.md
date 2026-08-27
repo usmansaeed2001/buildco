@@ -3,6 +3,9 @@
 Known gaps, deferred deliberately rather than forgotten. Ordered by what would hurt
 most in a beta. Each entry says what breaks, where the code is, and what "done" means.
 
+**This file is about the system.** For what *you* have to do — before a deploy, in a
+console, or with your own eyes — see [`DEPLOY_CHECKLIST.md`](DEPLOY_CHECKLIST.md).
+
 Deployment state as of 2026-08-27: API on Cloud Run (`buildco-api`, `us-central1`),
 Postgres on Cloud SQL (`buildco-db`), frontend on Firebase Hosting at
 <https://buildco-production-505918.web.app>. All under the interim personal-account

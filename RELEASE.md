@@ -35,6 +35,10 @@ reach a serving revision.
 
 ## Before you release
 
+Work through [`DEPLOY_CHECKLIST.md`](DEPLOY_CHECKLIST.md) §1 and §2 first. It carries
+the blockers that make a feature look fine in the UI and fail silently for real users —
+the Resend sender being the current one.
+
 ```bash
 git switch production && git pull
 git log --oneline origin/production..origin/development   # what is about to ship
