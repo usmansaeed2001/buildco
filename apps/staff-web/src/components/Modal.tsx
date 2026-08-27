@@ -66,6 +66,12 @@ export function Modal({
       )}
       aria-label={title}
     >
+      {/* Mounted only while open. A closed `<dialog>` still renders its children into
+          the DOM and the accessibility tree, so a form nobody can see keeps its state
+          and its effects, and a test asserting "this confirmation is not showing"
+          passes whether or not it is. The element itself stays mounted because
+          `showModal()` has to be called on it. */}
+      {!open ? null : (
       <div className="flex flex-col">
         <header className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4">
           <div>
@@ -92,6 +98,7 @@ export function Modal({
           </footer>
         )}
       </div>
+      )}
     </dialog>
   );
 }

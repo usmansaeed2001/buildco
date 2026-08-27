@@ -82,25 +82,37 @@ existing attachments would render with no URL and no error anywhere.
 - [ ] Still works locally against the service-account JSON
 - [ ] Correct the claim in `DEPLOY_CLOUD_RUN.md` §3
 
-## 3. `/review/{token}` is not routed — reviewer emails go nowhere
+## 3. ~~`/review/{token}` is not routed~~ — done
 
-The backend builds approval links as `{SITE_URL}/review/{token}` and
-`apps/staff-web/src/api/client.ts` already handles the 410 spent-link case, but
-`src/router.tsx` registers no such route. Every emailed link lands on the in-app
-NotFound page.
+`src/router.tsx` now registers `/review/:token` outside every guard, and
+`features/review/ReviewPage.tsx` renders it. The submit side lives in
+`features/estimates/SubmitForReviewModal.tsx`. Approve, reject and request-changes all
+POST; 404 and 410 are told apart on the page, because "this link is wrong" and "you
+already answered this" send a reviewer to two different places.
 
-Blocks the whole submit-for-review flow end to end. Keep it out of the beta script until
-this and item 3 are done.
+One thing to preserve if this page is ever reworked: the emailed links carry
+`?action=approve|reject|changes`, and that only **opens** the matching confirmation. It
+must never perform the decision. Auto-acting on the query parameter would reintroduce
+exactly the hole that moving these endpoints from GET to POST closed — a prefetching
+email client or security scanner approving a construction estimate by following a link.
+There is a test named for it.
 
-## 4. Resend has no verified domain
+## 4. Resend domain — verified locally, still to do in production
 
-`GET /domains` returns empty, so the only sender is `onboarding@resend.dev`, which
-**delivers only to the address that owns the Resend account**. Every other recipient is
-rejected. Reviewer emails and new-user admin notifications will silently not arrive for
-testers.
+A domain is now verified and `notifications@lahandyconstruction.com` is the sender.
+`apps/api/.env` carries the key and `NOTIFY_FROM_EMAIL` for local development.
 
-The adapter never raises — it logs `email_skipped` and returns False — so nothing appears
-broken. Verify a domain in Resend and point `NOTIFY_FROM_EMAIL` at it.
+**Production is not updated.** Cloud Run reads `RESEND_API_KEY` from the Secret Manager
+secret `resend-key` and `NOTIFY_FROM_EMAIL` from its own environment, neither of which
+changes when a local `.env` does. Until both are set, production still sends as
+`onboarding@resend.dev`, which **delivers only to the address that owns the Resend
+account** — and the adapter never raises, it logs `email_skipped` and returns False, so
+nothing looks broken while every reviewer email silently fails to arrive.
+
+- [ ] `gcloud secrets versions add resend-key --data-file=-` with the new key
+- [ ] `gcloud run services update buildco-api --update-env-vars=NOTIFY_FROM_EMAIL=notifications@lahandyconstruction.com`
+- [ ] Send a real estimate for review to an address outside the Resend account and
+      confirm it arrives
 
 ## 5. OAuth consent screen is unbranded, and testers must be allowlisted
 
