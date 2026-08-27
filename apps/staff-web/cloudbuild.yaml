@@ -1,0 +1,57 @@
+# Cloud Build: staff-web -> Firebase Hosting. Triggered on push to `production`,
+# filtered to apps/staff-web/**, firebase.json and .firebaserc.
+#
+# Run it by hand against the current checkout with:
+#   gcloud builds submit --config=apps/staff-web/cloudbuild.yaml .
+
+steps:
+  - id: install
+    name: node:24
+    dir: apps/staff-web
+    args: ['npm', 'ci']
+
+  # Typecheck and unit tests before the build, for the same reason as the API: a merge
+  # to `production` deploys with nobody watching. `npm run build` runs `tsc -b` itself,
+  # so a type error would stop the build anyway - the tests are the part that would not.
+  - id: test
+    name: node:24
+    dir: apps/staff-web
+    args: ['npm', 'run', 'test']
+    waitFor: ['install']
+
+  # Vite inlines VITE_* at BUILD time from .env.production, which is committed
+  # precisely so this step has them. Without it the bundle ships with no Firebase
+  # config and silently redirects every user to /setup.
+  - id: build
+    name: node:24
+    dir: apps/staff-web
+    args: ['npm', 'run', 'build']
+    waitFor: ['test']
+
+  # Runs from the repo root, where firebase.json and .firebaserc live.
+  #
+  # Authenticates through Application Default Credentials from the build service
+  # account - no FIREBASE_TOKEN. CI tokens are deprecated and would mean a long-lived
+  # credential sitting in a build config or a secret. The build SA needs
+  # roles/firebasehosting.admin.
+  #
+  # firebase-tools is pinned: an unpinned `npx firebase-tools` picks up whatever major
+  # version published most recently, which is not a thing to discover during a deploy.
+  - id: deploy
+    name: node:24
+    entrypoint: npx
+    args:
+      - '--yes'
+      - 'firebase-tools@15'
+      - 'deploy'
+      - '--only'
+      - 'hosting:staff'
+      - '--project'
+      - '${PROJECT_ID}'
+      - '--non-interactive'
+    waitFor: ['build']
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1200s

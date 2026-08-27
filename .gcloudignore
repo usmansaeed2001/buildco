@@ -1,0 +1,45 @@
+# Applies to `gcloud builds submit` from this directory, which uploads the working
+# tree as build context. Trigger-driven builds check out from GitHub instead and are
+# unaffected by this file - but a manual run without it ships node_modules, .venv and
+# every cache to Cloud Build.
+#
+# Note this is NOT a security boundary for the API image: that is apps/api/.dockerignore,
+# which is what keeps .env and secrets/firebase-admin.json out of the Docker context.
+# Both are listed here as well, belt and braces.
+
+.git/
+.gitignore
+
+# Credentials
+.env
+.env.*
+!.env.example
+!apps/staff-web/.env.production
+resend.txt
+*-credentials.json
+service-account*.json
+apps/api/secrets/
+
+# Dependencies and build output - reinstalled and rebuilt inside the build
+node_modules/
+dist/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.turbo/
+*.tsbuildinfo
+.coverage
+htmlcov/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

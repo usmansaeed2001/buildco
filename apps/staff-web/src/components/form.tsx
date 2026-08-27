@@ -5,7 +5,7 @@
  * field and screen readers announce it. The legacy app used bare `<input>` with a
  * sibling `<div>` acting as a label, which neither of those things is true of.
  */
-import { useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useId, type ComponentPropsWithRef, type InputHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 const CONTROL =
@@ -54,15 +54,18 @@ export function Field({
   );
 }
 
-export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+/** `ComponentPropsWithRef` rather than `InputHTMLAttributes`, so callers can hold a ref
+ *  — the inline room rename needs one to select the existing text on open. React 19
+ *  passes `ref` through as an ordinary prop, so no `forwardRef` is involved. */
+export function Input({ className, ...rest }: ComponentPropsWithRef<"input">) {
   return <input className={cn(CONTROL, className)} {...rest} />;
 }
 
-export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className, ...rest }: ComponentPropsWithRef<"textarea">) {
   return <textarea className={cn(CONTROL, "resize-y", className)} {...rest} />;
 }
 
-export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className, children, ...rest }: ComponentPropsWithRef<"select">) {
   return (
     <select className={cn(CONTROL, "pr-8", className)} {...rest}>
       {children}

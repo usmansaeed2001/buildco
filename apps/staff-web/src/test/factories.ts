@@ -19,6 +19,8 @@ import type {
   MilestoneOut,
   ProjectOut,
   ProjectPage,
+  ReviewDecisionOut,
+  ReviewEstimateOut,
   UserOut,
 } from "@/api/types";
 import type { Role } from "@/domain/enums";
@@ -90,6 +92,59 @@ export function makeEstimatePage(
     offset: 0,
     ...overrides,
   } as EstimatePage;
+}
+
+/** What an external reviewer sees. Deliberately snake_case (`unit_cost`) — this is a
+ *  separate server-side projection, not the camelCase document stored in `rooms`. */
+export function makeReviewEstimate(
+  overrides: Partial<ReviewEstimateOut> = {},
+): ReviewEstimateOut {
+  return {
+    project_name: "Water damage — kitchen",
+    identifier: "CLM-100200",
+    client_name: "Jordan Homeowner",
+    insurance_carrier: "Acme Mutual",
+    pm_name: "Casey Owner",
+    submitted_by: "Casey Owner",
+    submitted_at: "2026-02-05T12:00:00Z",
+    status: "submitted",
+    rooms: [
+      {
+        name: "Kitchen",
+        total: "25.00",
+        items: [
+          {
+            name: "Drywall",
+            category: "drywall",
+            unit: "SF",
+            quantity: "10",
+            unit_cost: "2.50",
+            total: "25.00",
+            notes: "",
+          },
+        ],
+      },
+    ],
+    total: "25.00",
+    room_count: 1,
+    item_count: 1,
+    decision_pending: true,
+    review_note: null,
+    ...overrides,
+  };
+}
+
+export function makeReviewDecision(
+  overrides: Partial<ReviewDecisionOut> = {},
+): ReviewDecisionOut {
+  return {
+    status: "approved",
+    project_name: "Water damage — kitchen",
+    identifier: "CLM-100200",
+    reviewed_at: "2026-02-06T09:30:00Z",
+    message: "Thank you. This estimate has been approved and the team has been notified.",
+    ...overrides,
+  };
 }
 
 export function makeProject(overrides: Partial<ProjectOut> = {}): ProjectOut {

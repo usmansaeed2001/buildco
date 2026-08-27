@@ -54,6 +54,10 @@ identical on every machine and Docker is the only prerequisite. Data persists in
 named volume across `docker compose down` — see
 [`apps/api/docs/DATABASE.md`](apps/api/docs/DATABASE.md).
 
+Deploying? Read [`RELEASE.md`](RELEASE.md) first — releases are manual, and a merge
+to `production` ships nothing on its own. Known gaps live in
+[`BACKLOG.md`](BACKLOG.md).
+
 Read [`apps/api/README.md`](apps/api/README.md) for the endpoint reference and
 [`apps/api/DEVELOPMENT_GUIDELINES.md`](apps/api/DEVELOPMENT_GUIDELINES.md) before
 contributing.
@@ -109,8 +113,10 @@ A release is a pull request from `development` into `production`.
    git tag -a v0.2.0 -m "Add project documents; fix milestone reversal"
    git push origin v0.2.0
    ```
-5. Deployment follows from the merge (once CI exists — see
-   `migration-docs/05-cicd-infrastructure.md`).
+5. **Deploy. It does not happen on merge** — the repository lives under the client's
+   account and cannot be connected to Cloud Build, so there are no triggers. Run the
+   release by hand: [`RELEASE.md`](RELEASE.md). Until that changes, a green
+   `production` means the code is *ready* to ship, not that it *has* shipped.
 
 Tag every release. A tag is what makes "roll back to what we had on Tuesday" a
 one-command operation rather than an archaeology exercise.
@@ -160,13 +166,14 @@ hotfix.
 
 | Area | State |
 |---|---|
-| Backend API and domain logic | Implemented. 191 tests, `mypy --strict` clean, verified against Postgres 16. |
+| Backend API and domain logic | Implemented. 207 tests, `mypy --strict` clean, verified against Postgres 16 and running on Cloud SQL. |
 | Local database | Docker Compose, persistent named volume. Verified across container destruction. |
 | Database schema (Alembic) | Implemented and reversible. **Schema alignment against the live Supabase database is still pending** — see [`apps/api/docs/DATABASE.md`](apps/api/docs/DATABASE.md). |
-| Firebase Auth | Interface implemented and swappable. Awaiting a project and credentials — see [`apps/api/docs/FIREBASE_SETUP.md`](apps/api/docs/FIREBASE_SETUP.md). |
+| Firebase Auth | **Live.** Tokens verified in production via ADC on the Cloud Run service account — no key file in the image. Email/password and Google are enabled and the Hosting domain is authorised. See [`apps/api/docs/FIREBASE_SETUP.md`](apps/api/docs/FIREBASE_SETUP.md). |
 | User migration | Planned and documented — see [`apps/api/docs/USER_MIGRATION.md`](apps/api/docs/USER_MIGRATION.md). |
-| Cloud Storage, Resend, Slack, Groq, Calendar | Adapters implemented; degrade to logged no-ops without credentials. |
-| Cloud Run deploy + CI | Dockerfile ready, deploy runbook written (`apps/api/docs/DEPLOY_CLOUD_RUN.md`). No service, no pipeline. |
+| Cloud Storage, Resend, Slack, Groq, Calendar | Adapters implemented; degrade to logged no-ops without credentials. Resend and Groq are configured in production; Slack is deliberately not. **Cloud Storage signing is broken on Cloud Run** — [`BACKLOG.md`](BACKLOG.md) §2. |
+| Cloud Run deploy | **Live.** `buildco-api` in `us-central1`, backed by Cloud SQL `buildco-db` (Postgres 16), secrets in Secret Manager, migrations run as a Cloud Run Job. Provisioning runbook: `apps/api/docs/DEPLOY_CLOUD_RUN.md`. |
+| CI/CD | Pipelines written and exercised (`apps/*/cloudbuild.yaml`), but **no triggers** — the repo is on the client's account and cannot be connected to Cloud Build. Releases are manual: [`RELEASE.md`](RELEASE.md). |
 | `staff-web` foundation | Vite + React + TS + Tailwind. Typed API client generated from OpenAPI, Firebase Auth wired to `POST /auth/session`, routing and guards, design system. Money and permission rules ported from the backend with their tests. |
 | `staff-web` screens | Auth, launcher, and the estimates list are built. Estimate editor, projects, meetings, team, settings, and the public review page are not. |
-| Firebase Hosting | `firebase.json` written — SPA fallback plus an `/api/**` rewrite to Cloud Run, so the frontend calls same-origin `/api/v1` in every environment. Not deployed. |
+| Firebase Hosting | **Live** at <https://buildco-production-505918.web.app> — SPA fallback plus an `/api/**` rewrite to Cloud Run, so the frontend calls same-origin `/api/v1` in every environment and there is no CORS in production. |

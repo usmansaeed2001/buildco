@@ -18,10 +18,17 @@ import { SetupPage } from "@/features/auth/SetupPage";
 import { HomePage } from "@/features/home/HomePage";
 import { NotFoundPage } from "@/features/home/NotFoundPage";
 import { EstimatesListPage } from "@/features/estimates/EstimatesListPage";
+import { EstimateEditorPage } from "@/features/estimates/EstimateEditorPage";
+import { ReviewPage } from "@/features/review/ReviewPage";
 
 export const router = createBrowserRouter([
   // ── Public ────────────────────────────────────────────────────────────────
   { path: "/setup", element: <SetupPage /> },
+
+  // Outside every guard, and outside AppShell. Reviewers arrive from an email with no
+  // account and never will have one; RequireAuth would bounce them to a login screen
+  // they cannot pass, which is exactly where every emailed link used to land.
+  { path: "/review/:token", element: <ReviewPage /> },
 
   {
     element: <RedirectIfSignedIn />,
@@ -43,7 +50,7 @@ export const router = createBrowserRouter([
           // Placeholders until each stage lands. Listed rather than omitted so the
           // navigation is never a dead link.
           { path: "/estimates", element: <EstimatesListPage /> },
-          { path: "/estimates/:estimateId", element: <Pending title="Estimate editor" /> },
+          { path: "/estimates/:estimateId", element: <EstimateEditorPage /> },
           { path: "/projects", element: <Pending title="Projects" /> },
           { path: "/projects/:projectId", element: <Pending title="Project detail" /> },
           { path: "/calendar", element: <Pending title="Calendar" /> },

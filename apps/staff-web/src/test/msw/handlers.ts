@@ -11,7 +11,7 @@
  */
 import { http, HttpResponse } from "msw";
 import { API_BASE } from "@/api/client";
-import { makeEstimatePage, makeUser } from "../factories";
+import { makeEstimate, makeEstimatePage, makeUser } from "../factories";
 
 export const url = (path: string): string => `${API_BASE}${path}`;
 
@@ -35,4 +35,8 @@ export const handlers = [
     HttpResponse.json({ user: makeUser(), created: false, linked: false }),
   ),
   http.get(url("/estimates"), () => HttpResponse.json(makeEstimatePage([]))),
+  // A per-test override is the norm for the editor, which needs a specific document.
+  // This default exists so an unrelated screen navigating here does not fail on an
+  // unhandled request.
+  http.get(url("/estimates/:id"), () => HttpResponse.json(makeEstimate())),
 ];

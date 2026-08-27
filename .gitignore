@@ -36,3 +36,6 @@ Thumbs.db
 # Local credential scratch files. Keys belong in Secret Manager, not the repo.
 resend.txt
 *-keys.txt
+
+# Firebase CLI deploy cache
+.firebase/
