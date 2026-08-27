@@ -94,6 +94,17 @@ export function toQuantityString(value: MoneyInput): string {
   return toDecimal(value).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed();
 }
 
+/**
+ * Whether a typed money value is negative.
+ *
+ * Every money field on the API is `Field(ge=0)`, so a negative is a 422 — and the
+ * validation envelope's message is generic, which makes it a confusing one. Catching it
+ * where the number was typed lets the field say what is wrong.
+ */
+export function isNegativeMoney(value: MoneyInput): boolean {
+  return toDecimal(value).isNegative();
+}
+
 /** Percentage of `part` against `whole`, clamped to 0–100 for progress bars.
  *  A zero or missing budget yields 0 rather than NaN. */
 export function percentOf(part: MoneyInput, whole: MoneyInput): number {

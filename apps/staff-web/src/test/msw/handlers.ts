@@ -11,7 +11,13 @@
  */
 import { http, HttpResponse } from "msw";
 import { API_BASE } from "@/api/client";
-import { makeEstimate, makeEstimatePage, makeUser } from "../factories";
+import {
+  makeEstimate,
+  makeEstimatePage,
+  makeProject,
+  makeProjectPage,
+  makeUser,
+} from "../factories";
 
 export const url = (path: string): string => `${API_BASE}${path}`;
 
@@ -39,4 +45,8 @@ export const handlers = [
   // This default exists so an unrelated screen navigating here does not fail on an
   // unhandled request.
   http.get(url("/estimates/:id"), () => HttpResponse.json(makeEstimate())),
+  http.get(url("/projects"), () => HttpResponse.json(makeProjectPage([]))),
+  http.get(url("/projects/:id"), () =>
+    HttpResponse.json({ project: makeProject(), milestones: [], supplements: [], activity: [] }),
+  ),
 ];

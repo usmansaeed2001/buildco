@@ -20,6 +20,8 @@ import { NotFoundPage } from "@/features/home/NotFoundPage";
 import { EstimatesListPage } from "@/features/estimates/EstimatesListPage";
 import { EstimateEditorPage } from "@/features/estimates/EstimateEditorPage";
 import { ReviewPage } from "@/features/review/ReviewPage";
+import { ProjectsListPage } from "@/features/projects/ProjectsListPage";
+import { ProjectDetailPage } from "@/features/projects/ProjectDetailPage";
 
 export const router = createBrowserRouter([
   // ── Public ────────────────────────────────────────────────────────────────
@@ -51,8 +53,8 @@ export const router = createBrowserRouter([
           // navigation is never a dead link.
           { path: "/estimates", element: <EstimatesListPage /> },
           { path: "/estimates/:estimateId", element: <EstimateEditorPage /> },
-          { path: "/projects", element: <Pending title="Projects" /> },
-          { path: "/projects/:projectId", element: <Pending title="Project detail" /> },
+          { path: "/projects", element: <ProjectsListPage /> },
+          { path: "/projects/:projectId", element: <ProjectDetailPage /> },
           { path: "/calendar", element: <Pending title="Calendar" /> },
           { path: "/profile", element: <Pending title="Profile" /> },
           { path: "/settings", element: <Pending title="Settings" /> },
