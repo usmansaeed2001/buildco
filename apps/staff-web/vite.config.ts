@@ -32,8 +32,9 @@ export default defineConfig({
     // Giving jsdom a real origin is what lets that relative path resolve to something
     // the interceptor can match, instead of failing as an invalid URL.
     environmentOptions: { jsdom: { url: "http://localhost:5173" } },
-    // Playwright owns e2e/. Vitest would otherwise collect those specs and fail on
-    // `@playwright/test`'s own globals.
+    // `e2e/` stays excluded although nothing writes there yet: an end-to-end runner is
+    // deferred, not abandoned (BACKLOG.md §12), and leaving the exclusion in place means
+    // adding one later cannot start by breaking this suite.
     exclude: ["node_modules/**", "dist/**", "e2e/**"],
   },
 });

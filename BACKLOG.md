@@ -195,7 +195,52 @@ Done looks like: a dedicated `buildco-ci` service account holding only those rol
 as the trigger's service account, and `roles/editor` removed from the compute default.
 Worth doing before anyone outside the team can open a PR.
 
-## 12. Smaller things
+## 12. No end-to-end test coverage
+
+Every test in the repository stops short of a real browser. The backend suite drives
+FastAPI through httpx with a fake auth provider; the frontend suite drives components
+through jsdom with MSW answering every request. Both are fast and neither has ever
+proved that the pieces fit together.
+
+So these four things are verified **only by a human clicking through the app**, and a
+fully green `make check` plus `npm run test` says nothing about any of them:
+
+- the Vite dev proxy and the Firebase Hosting `/api/**` rewrite actually reaching Cloud
+  Run — the failure mode is `index.html` parsed as JSON, surfacing as
+  `Unexpected token '<'` nowhere near its cause
+- a real Firebase ID token surviving `verify_id_token(check_revoked=True)`
+- Postgres-specific behaviour the SQLite test database does not reproduce (CHECK
+  constraints, JSONB); `make test-pg` covers the API's half of this, nothing covers the
+  round trip
+- SPA deep links (`/estimates/abc-123`) surviving a refresh
+
+Playwright was added as a devDependency, wired into `vite.config.ts`'s Vitest `exclude`
+and into `eslint.config.js`, and a config plus a smoke spec were written — then removed
+again, because `npx playwright install chromium` could not fetch the browser on this
+network. It produced no output at all over 25 minutes and left only a lock directory;
+that is a blocked or black-holed download, not a slow one. The dependency was dropped
+rather than left installed-but-unusable, so nobody inherits a `test:e2e` script that
+cannot run.
+
+Picking it back up:
+
+- [ ] Resolve the download — `HTTPS_PROXY`, or `PLAYWRIGHT_DOWNLOAD_HOST` pointed at a
+      reachable mirror, or `channel: "chrome"` in the config to drive an already
+      installed Chrome and download nothing
+- [ ] Restore `@playwright/test`, `playwright.config.ts`, `tsconfig.e2e.json` and its
+      reference from `tsconfig.json`, and the `test:e2e` / `test:e2e:ui` scripts.
+      `eslint.config.js` still ignores `playwright-report/` and `test-results/` and
+      still treats `e2e/**/*.ts` as Node, so that part needs nothing
+- [ ] A smoke spec first, covering the harness rather than a feature: anonymous
+      redirect to `/login`, `/api/v1/auth/status` returning JSON rather than the SPA
+      fallback, and an unknown route rendering the in-app 404
+- [ ] Then the two flows worth the cost: sign in → create estimate → add rooms and
+      items → submit → approve through the emailed review link; and create project →
+      add milestone → mark paid → status becomes `closed`
+- [ ] Add `.gitignore` entries for `playwright-report/`, `test-results/` and
+      `blob-report/` — traces and failure screenshots capture a signed-in session
+
+## 13. Smaller things
 
 - `GROQ_MODEL` will rot again. Groq retires hosted models without aliasing the old id
   forward, and a retired id fails every call with a 400 that only says the model does not
