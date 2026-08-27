@@ -108,3 +108,71 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/**
+ * Printing a closing form.
+ *
+ * These are signed legal documents, and the legacy app printed them by opening a new
+ * window and rebuilding the whole thing as an HTML string — so the printed copy and the
+ * on-screen copy were two separate implementations of the same legal text, free to
+ * drift. Here the document on screen *is* the document that prints; everything else on
+ * the page is hidden.
+ *
+ * `[data-print-document]` is set by `ClosingFormDocument`. The dialog it sits in is
+ * promoted out of the top layer, because a `<dialog>` rendered by `showModal()` prints
+ * as an overlay on a blank page otherwise.
+ */
+@media print {
+  body:has([data-print-document]) > *:not(dialog) {
+    display: none !important;
+  }
+
+  dialog:has([data-print-document]) {
+    position: static;
+    display: block;
+    max-width: none;
+    max-height: none;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: #fff;
+  }
+
+  /* The dialog's own chrome — title bar, close button, footer buttons — is furniture,
+     not part of the document being signed. */
+  dialog:has([data-print-document]) header,
+  dialog:has([data-print-document]) footer,
+  dialog:has([data-print-document]) button {
+    display: none !important;
+  }
+
+  /* The document's own header and footer are the letterhead, which must print. */
+  [data-print-document] header,
+  [data-print-document] footer {
+    display: block !important;
+  }
+
+  [data-print-document] {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  /* Fields are inputs on screen. Printed, they must read as filled-in blanks rather
+     than as form controls with their own borders and focus rings. */
+  [data-print-document] input {
+    border: 0 !important;
+    border-bottom: 1px solid #374151 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding-left: 0 !important;
+  }
+
+  [data-print-document] .max-h-\[70vh\],
+  dialog:has([data-print-document]) > div > div {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}

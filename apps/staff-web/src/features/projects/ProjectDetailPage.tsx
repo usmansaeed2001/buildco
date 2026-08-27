@@ -40,12 +40,14 @@ import {
   canEditProject,
   canManageMilestones,
   canSetProjectStatus,
+  canSubmitClosingForms,
   deriveProjectState,
   type ProjectSnapshot,
 } from "@/domain/projectRules";
 import { displayName } from "@/lib/format";
 import { ActivityFeed } from "./ActivityFeed";
 import { BudgetSummary } from "./BudgetSummary";
+import { ClosingFormsCard } from "./ClosingFormsCard";
 import { LinkedSupplements } from "./LinkedSupplements";
 import { MilestoneList } from "./MilestoneList";
 import { WorkStatusStepper } from "./WorkStatusStepper";
@@ -213,6 +215,11 @@ function Detail({
             projectId={project.id}
             supplements={supplements}
             canManage={manageMilestones}
+          />
+
+          <ClosingFormsCard
+            project={project}
+            canSubmit={canSubmitClosingForms(actor, snapshot) && project.status !== "cancelled"}
           />
         </div>
 
