@@ -17,6 +17,7 @@ import type {
   SubmitForReviewOut,
   SubmitForReviewRequest,
 } from "../types";
+import type { EstimateIdOut, EstimateSort } from "../types";
 import type { EstimateStatus } from "@/domain/enums";
 import type { TransitionAction } from "@/domain/estimateRules";
 
@@ -24,6 +25,15 @@ export interface EstimateListFilters {
   trash?: boolean;
   status?: EstimateStatus | undefined;
   q?: string | undefined;
+  /** ISO instants. The caller converts from a local date — only it knows the zone. */
+  created_from?: string | undefined;
+  created_to?: string | undefined;
+  /**
+   * Ordering. The API defaults to `recently_created`, which is what it has always
+   * returned; this screen asks for `recently_edited` explicitly rather than that default
+   * being moved, so no other caller's ordering changes underneath them.
+   */
+  sort?: EstimateSort | undefined;
   limit?: number;
   offset?: number;
 }
@@ -33,13 +43,39 @@ export function useEstimates(filters: EstimateListFilters) {
     trash: filters.trash ?? false,
     status: filters.status,
     q: filters.q,
-    limit: filters.limit ?? 50,
+    created_from: filters.created_from,
+    created_to: filters.created_to,
+    sort: filters.sort,
+    limit: filters.limit ?? PAGE_SIZE,
     offset: filters.offset ?? 0,
   };
 
   return useQuery({
     queryKey: queryKeys.estimates.list(query),
     queryFn: () => apiFetch<EstimatePage>("/estimates", { query }),
+    // Keeps the previous page on screen while the next one loads, so paging does not
+    // collapse the list to a spinner and jump the scroll position.
+    placeholderData: (previous) => previous,
+  });
+}
+
+/** Rows per page. Comfortably under the API's ceiling of 200. */
+export const PAGE_SIZE = 24;
+
+/**
+ * Every visible estimate as just an id and a status.
+ *
+ * Feeds the unread dots on the status chips. They have to know what is in the statuses
+ * you are *not* looking at, so they cannot be derived from the current page — before
+ * pagination the screen loaded all 200 rows at once, which is what made the dots work by
+ * accident. Two columns and no joins, so it stays cheap as the list grows.
+ */
+export function useEstimateIds(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.estimates.ids,
+    queryFn: () => apiFetch<EstimateIdOut[]>("/estimates/ids"),
+    enabled,
+    staleTime: 30_000,
   });
 }
 

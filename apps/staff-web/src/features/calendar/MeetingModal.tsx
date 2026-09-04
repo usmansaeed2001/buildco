@@ -39,6 +39,7 @@ export function MeetingModal({
   open,
   meeting,
   defaultDate,
+  defaultRange,
   canManage,
   onClose,
 }: {
@@ -47,6 +48,14 @@ export function MeetingModal({
   meeting: MeetingOut | null;
   /** The day that was clicked, so a new meeting lands where the user expected. */
   defaultDate: Date;
+  /**
+   * A start and end dragged out on the time grid.
+   *
+   * Optional and additive rather than replacing `defaultDate`, so the "New meeting"
+   * button and the month grid's day cells keep working unchanged — they have a day in
+   * mind but no time, which is exactly what `defaultDate` expresses.
+   */
+  defaultRange?: { start: Date; end: Date };
   canManage: boolean;
   onClose: () => void;
 }) {
@@ -66,10 +75,22 @@ export function MeetingModal({
   const [description, setDescription] = useState(meeting?.description ?? "");
   const [location, setLocation] = useState(meeting?.location ?? "");
   const [date, setDate] = useState(
-    meeting ? toDateInput(meeting.start_time) : localDayKey(defaultDate),
+    meeting ? toDateInput(meeting.start_time) : localDayKey(defaultRange?.start ?? defaultDate),
   );
-  const [startTime, setStartTime] = useState(meeting ? toTimeInput(meeting.start_time) : "09:00");
-  const [endTime, setEndTime] = useState(meeting ? toTimeInput(meeting.end_time) : "10:00");
+  const [startTime, setStartTime] = useState(
+    meeting
+      ? toTimeInput(meeting.start_time)
+      : defaultRange
+        ? toTimeInput(defaultRange.start.toISOString())
+        : "09:00",
+  );
+  const [endTime, setEndTime] = useState(
+    meeting
+      ? toTimeInput(meeting.end_time)
+      : defaultRange
+        ? toTimeInput(defaultRange.end.toISOString())
+        : "10:00",
+  );
   const [color, setColor] = useState(meeting?.color ?? MEETING_COLORS[1]);
   const [projectId, setProjectId] = useState(meeting?.project_id ?? "");
   const [attendees, setAttendees] = useState<string[]>(

@@ -18,6 +18,7 @@ import type {
   MeetingOut,
   MilestoneOut,
   ProjectOut,
+  TeamSettingsOut,
   ProjectPage,
   ReviewDecisionOut,
   ReviewEstimateOut,
@@ -47,6 +48,27 @@ export function makeUser(overrides: Partial<UserOut> = {}): UserOut {
     status: "active",
     created_at: "2026-01-05T10:00:00Z",
     firebase_uid: "firebase-uid",
+    ...overrides,
+  };
+}
+
+export function makeSettings(overrides: Partial<TeamSettingsOut> = {}): TeamSettingsOut {
+  return {
+    custom_units: [],
+    custom_categories: [],
+    notification_prefs: { estimate_locked: true, member_joined: true, member_removed: true },
+    // Configured by default, because that is the state a working team is in — a
+    // reviewer has to be chosen before an estimate can be sent at all. Tests about the
+    // unconfigured case override this to `null` explicitly.
+    default_reviewer: {
+      id: testId("55555555"),
+      email: "rita@buildco.test",
+      full_name: "Rita Reviewer",
+      avatar_url: null,
+      role: "member",
+    },
+    updated_at: "2026-02-01T09:00:00Z",
+    updated_by: null,
     ...overrides,
   };
 }

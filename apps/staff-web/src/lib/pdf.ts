@@ -32,6 +32,35 @@ export interface PdfResult {
 }
 
 /**
+ * Wait for every `<img>` inside `node` to be decoded and ready to paint.
+ *
+ * html2canvas rasterises synchronously from whatever the DOM holds at the moment it
+ * runs. An image still in flight is captured as an empty box — with no error anywhere —
+ * so a report generated on a warm cache looks perfect and the same report on a cold load
+ * silently loses its photos. Since these are signed Cloud Storage URLs fetched fresh,
+ * the cold path is the common one.
+ *
+ * A failed image resolves rather than rejects: one broken photo should cost that photo,
+ * not the whole PDF.
+ */
+async function whenImagesAreReady(node: HTMLElement): Promise<void> {
+  const images = Array.from(node.querySelectorAll("img"));
+
+  await Promise.all(
+    images.map(async (image) => {
+      try {
+        // `decode()` resolves only once the bitmap is ready to paint, which `complete`
+        // and the load event do not guarantee.
+        await image.decode();
+      } catch {
+        // Broken, blocked by CORS, or an expired signed URL. Nothing to do about it
+        // here — the box rasterises empty and the rest of the report still renders.
+      }
+    }),
+  );
+}
+
+/**
  * Rasterise `node` and save it as `fileName`.
  *
  * `scale: 2` is the legibility floor — at 1 the rendered text is visibly soft once the
@@ -47,6 +76,8 @@ export async function downloadNodeAsPdf(
     import("html2canvas"),
     import("jspdf"),
   ]);
+
+  await whenImagesAreReady(node);
 
   const canvas = await html2canvas(node, {
     scale,

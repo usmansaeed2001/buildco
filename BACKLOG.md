@@ -241,10 +241,16 @@ Picking it back up:
 
 ## 13. Smaller things
 
-- `GROQ_MODEL` will rot again. Groq retires hosted models without aliasing the old id
-  forward, and a retired id fails every call with a 400 that only says the model does not
-  exist. `llama-3.3-70b-versatile` was already dead when the environment was first
-  provisioned. Currently `openai/gpt-oss-120b`.
+- ~~`GROQ_MODEL` will rot again~~ — **moved to OpenAI, because it did.** Groq retires
+  hosted models without aliasing the old id forward, and a retired id fails every call
+  with a 400 that only says the model does not exist. `llama-3.3-70b-versatile` was
+  already dead when the environment was first provisioned, and was *still* the value in
+  `apps/api/.env` when note parsing was reported broken. `integrations/ai_provider.py`
+  now prefers OpenAI, which keeps dated aliases working, and logs the model id on a
+  provider 400 so the next occurrence is one log line rather than a guess. Groq stays as
+  a fallback for **one release** so that deploying the code and setting
+  `OPEN_AI_API_KEY` need not coincide — delete the branch, and both Groq settings, once
+  every environment has the key.
 - `verify_id_token(check_revoked=True)` makes a Firebase network round-trip on every
   authenticated request. Deliberate — it is what makes a ban take effect immediately
   rather than at token expiry — but it is the latency floor for every endpoint.

@@ -332,6 +332,12 @@ export interface paths {
          * @description List estimates, newest first.
          *
          *     Members see only estimates they created; owners and admins see everything.
+         *
+         *     ``created_from`` and ``created_to`` are instants, not dates: only the browser knows
+         *     which zone "the 3rd" means, so it converts before asking.
+         *
+         *     ``sort`` defaults to newest-created, which is what this endpoint has always returned.
+         *     Callers who want another order ask for it — see ``EstimateSort``.
          */
         get: operations["list_estimates_api_v1_estimates_get"];
         put?: never;
@@ -340,6 +346,33 @@ export interface paths {
          * @description Create an estimate. The claim identifier is assigned by the server.
          */
         post: operations["create_estimate_api_v1_estimates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/estimates/ids": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Estimate Ids
+         * @description Every visible estimate as just an id and a status.
+         *
+         *     Feeds the unread dots on the list screen's status chips, which have to know what is
+         *     in the statuses you are *not* looking at — so they cannot be derived from the current
+         *     page. Deliberately tiny: two columns, no rooms, no totals, no joins.
+         *
+         *     Declared above ``/{estimate_id}`` because FastAPI matches routes in order and
+         *     ``ids`` would otherwise be parsed as a UUID path parameter and 422.
+         */
+        get: operations["list_estimate_ids_api_v1_estimates_ids_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -452,7 +485,11 @@ export interface paths {
         put?: never;
         /**
          * Submit For Review
-         * @description Send an estimate to an external reviewer for approval.
+         * @description Send an estimate to the configured reviewer for approval.
+         *
+         *     The recipient is the single user chosen in Settings, not something the caller
+         *     supplies — see ``SubmitForReviewRequest``. Submitting with no reviewer configured is
+         *     a 409 that names the fix, not a silent success.
          *
          *     Mints a single-use approval token and emails the reviewer a link to the review
          *     page. The email and the Slack post both run in the background, so a slow provider
@@ -803,16 +840,26 @@ export interface paths {
         };
         /**
          * List Meetings
-         * @description Meetings in ascending time order.
+         * @description Meetings in ascending time order, scoped to what the caller may see.
          *
-         *     Use ``from`` and ``to`` to window a calendar view. The calendar is shared across
-         *     the team, so this is not filtered by role.
+         *     Use ``from`` and ``to`` to window a calendar view, and ``scope`` to narrow it to
+         *     meetings the caller created (``mine``) or was invited to (``invited``).
+         *
+         *     ``scope=all`` returns the whole team calendar for owners and admins. For anyone else
+         *     it is silently clamped to mine-or-invited — the calendar is **no longer shared with
+         *     every member**, which is a deliberate reversal of the original design. See
+         *     ``meeting_service.list_meetings``.
          */
         get: operations["list_meetings_api_v1_meetings_get"];
         put?: never;
         /**
          * Create Meeting
          * @description Schedule a meeting and invite attendees.
+         *
+         *     Open to any authenticated user. It used to be elevated-only, which made "meetings I
+         *     created" an empty category for most of the team and left members unable to put their
+         *     own work on the calendar at all. Editing and cancelling stay narrower — see
+         *     ``PATCH``.
          *
          *     Supply ``google_access_token`` — a short-lived OAuth token from the Firebase Google
          *     provider carrying the ``calendar.events`` scope — to attach a Google Meet
@@ -840,6 +887,8 @@ export interface paths {
         /**
          * Delete Meeting
          * @description Cancel a meeting and send attendees a cancellation for their calendars.
+         *
+         *     Same rule as ``PATCH``: the creator, or an owner or admin.
          */
         delete: operations["delete_meeting_api_v1_meetings__meeting_id__delete"];
         options?: never;
@@ -847,6 +896,10 @@ export interface paths {
         /**
          * Update Meeting
          * @description Update a meeting.
+         *
+         *     A meeting may be changed by whoever created it, or by any owner or admin. Being
+         *     *invited* to one is not enough: an attendee who could move the time would re-invite
+         *     everyone else from an account they would not expect it from.
          *
          *     Attendees are re-invited only when the time, location, title, or attendee list
          *     actually changed — recolouring a meeting does not email everyone.
@@ -1351,12 +1404,12 @@ export interface components {
         };
         /**
          * EstimateCreate
-         * @description The identifier is assigned by the server, never supplied by the client.
+         * @description A new estimate. The identifier is generated when one is not supplied.
          */
         EstimateCreate: {
             /**
              * Project Name
-             * @default New Estimate
+             * @default
              */
             project_name: string;
             /**
@@ -1381,6 +1434,24 @@ export interface components {
             notes: string;
             /** Rooms */
             rooms?: components["schemas"]["Room"][];
+            /** Identifier */
+            identifier?: string | null;
+        };
+        /**
+         * EstimateIdOut
+         * @description An estimate reduced to what the unread dots need, and nothing else.
+         *
+         *     Not ``EstimateOut`` with fields stripped: this is fetched for every estimate the user
+         *     can see, so it has to stay two columns wide however large the list gets.
+         */
+        EstimateIdOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
         };
         /** EstimateOut */
         EstimateOut: {
@@ -1436,6 +1507,16 @@ export interface components {
             totals?: components["schemas"]["EstimateTotalsOut"] | null;
         };
         /**
+         * EstimateSort
+         * @description How to order a page of estimates.
+         *
+         *     Not persisted — a request-time parameter, living here because this module is where
+         *     every enum lives. The API's first sort parameter: until now every list endpoint
+         *     hardcoded its own order.
+         * @enum {string}
+         */
+        EstimateSort: "recently_created" | "recently_edited" | "highest_total" | "client_name";
+        /**
          * EstimateStatus
          * @enum {string}
          */
@@ -1465,6 +1546,8 @@ export interface components {
             project_name?: string | null;
             /** Client Name */
             client_name?: string | null;
+            /** Identifier */
+            identifier?: string | null;
             /** Pm Name */
             pm_name?: string | null;
             /** Insurance Carrier */
@@ -1657,6 +1740,16 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * MeetingScope
+         * @description Whose meetings a calendar request is asking for.
+         *
+         *     Not persisted — a request-time filter. It lives here because this module is where
+         *     every enum in the backend lives, and splitting "enums we store" from "enums we
+         *     validate" would mean looking in two places to answer the same question.
+         * @enum {string}
+         */
+        MeetingScope: "mine" | "invited" | "all";
         /**
          * MeetingUpdate
          * @description Partial update. Supplying ``attendee_ids`` replaces the attendee list wholesale.
@@ -2194,16 +2287,20 @@ export interface components {
             /** Review Url */
             review_url: string;
         };
-        /** SubmitForReviewRequest */
-        SubmitForReviewRequest: {
-            /**
-             * Recipient Email
-             * Format: email
-             */
-            recipient_email: string;
-            /** Recipient Name */
-            recipient_name?: string | null;
-        };
+        /**
+         * SubmitForReviewRequest
+         * @description Deliberately empty.
+         *
+         *     The reviewer used to be typed into this payload. It is now the single user chosen in
+         *     Settings, resolved server-side, because a hand-typed address is a delivery failure
+         *     that leaves no trace anywhere: a typo means no send is ever attempted, so nothing
+         *     appears in the mail provider's dashboard to explain the estimate nobody reviewed.
+         *
+         *     Per DEVELOPMENT_GUIDELINES §2, a field a client must never set does not appear on the
+         *     request model — so the recipient is absent rather than accepted and ignored. The
+         *     schema stays as a type so the route keeps its shape and can grow options later.
+         */
+        SubmitForReviewRequest: Record<string, never>;
         /** SupplementLinkCreate */
         SupplementLinkCreate: {
             /**
@@ -2248,6 +2345,7 @@ export interface components {
             notification_prefs?: {
                 [key: string]: boolean;
             };
+            default_reviewer?: components["schemas"]["ActorRef"] | null;
             /**
              * Updated At
              * Format: date-time
@@ -2269,6 +2367,8 @@ export interface components {
             notification_prefs?: {
                 [key: string]: boolean;
             } | null;
+            /** Default Reviewer Id */
+            default_reviewer_id?: string | null;
         };
         /** TransitionRequest */
         TransitionRequest: {
@@ -2843,6 +2943,12 @@ export interface operations {
                 status?: components["schemas"]["EstimateStatus"] | null;
                 /** @description Search text. */
                 q?: string | null;
+                /** @description Created at or after. */
+                created_from?: string | null;
+                /** @description Created at or before. */
+                created_to?: string | null;
+                /** @description Ordering. */
+                sort?: components["schemas"]["EstimateSort"];
                 limit?: number;
                 offset?: number;
             };
@@ -2896,6 +3002,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EstimateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_estimate_ids_api_v1_estimates_ids_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstimateIdOut"][];
                 };
             };
             /** @description Validation Error */
@@ -3905,6 +4042,7 @@ export interface operations {
     list_meetings_api_v1_meetings_get: {
         parameters: {
             query?: {
+                scope?: components["schemas"]["MeetingScope"];
                 from?: string | null;
                 to?: string | null;
                 project_id?: string | null;

@@ -1,40 +1,64 @@
 /**
- * The shared team calendar.
+ * The calendar.
  *
- * Month and day views, both built by hand — no calendar library. The grid is six weeks
- * of `<button>`s and a list; adding a dependency for that would be a lot of bundle for a
- * layout that is fifty lines of `monthGrid`.
+ * Month, week, day and year views, all built by hand — no calendar library. Adding a
+ * dependency would be a lot of bundle for arithmetic that is a few dozen lines in
+ * `domain/calendar.ts`, where it is pure and separately tested.
  *
- * View and anchor date live in the query string, so a particular month is linkable and
- * a refresh does not throw you back to today.
+ * View, anchor date and scope all live in the query string, so a particular week is
+ * linkable and a refresh does not throw you back to today.
  *
- * `GET /meetings` is **not** role-filtered — the calendar is shared across the team, so
- * a member sees everything. Only creating, editing and cancelling are elevated.
+ * **This calendar is no longer shared with the whole team.** It used to be, deliberately:
+ * `GET /meetings` was not filtered at all and a member saw everything. It now returns
+ * what you created and what you were invited to, and only owners and admins can ask for
+ * everything. The scope control below chooses between those; the server enforces the
+ * limit, so hiding the "Everyone" option from a member is a convenience, not the
+ * mechanism. Anyone may now create a meeting, but only its creator (or an elevated user)
+ * may change it.
  */
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMeetings } from "@/api/queries/meetings";
 import type { MeetingOut } from "@/api/types";
-import { useIsElevated } from "@/auth/useAuth";
+import { useActor, useIsElevated } from "@/auth/useAuth";
 import { Button } from "@/components/Button";
 import { ErrorState, LoadingState, PageHeader } from "@/components/feedback";
 import {
   addDays,
   addMonths,
+  addWeeks,
+  addYears,
   dayWindow,
   groupByDay,
   localDayKey,
   monthGrid,
   monthWindow,
+  weekGrid,
+  weekWindow,
+  yearGrid,
+  yearWindow,
   WEEKDAY_LABELS,
 } from "@/domain/calendar";
+import { TimeGrid } from "./TimeGrid";
 import { cn } from "@/lib/cn";
 import { formatTime } from "@/lib/format";
 import { MeetingModal } from "./MeetingModal";
 
-type View = "month" | "day";
+type View = "month" | "week" | "day" | "year";
+
+const VIEWS = ["month", "week", "day", "year"] as const;
+
+/** Whose meetings to show. Mirrors the API's `scope` parameter. */
+type Scope = "mine" | "invited" | "all";
+
+const SCOPES: { value: Scope; label: string; elevatedOnly?: boolean }[] = [
+  { value: "mine", label: "Mine" },
+  { value: "invited", label: "Invited" },
+  { value: "all", label: "Everyone", elevatedOnly: true },
+];
 
 const MONTH_LABEL = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
+const MONTH_NAME = new Intl.DateTimeFormat("en-US", { month: "long" });
 const DAY_LABEL = new Intl.DateTimeFormat("en-US", {
   weekday: "long",
   month: "long",
@@ -45,8 +69,23 @@ const DAY_LABEL = new Intl.DateTimeFormat("en-US", {
 export function CalendarPage() {
   const [params, setParams] = useSearchParams();
   const elevated = useIsElevated();
+  const actor = useActor();
 
-  const view: View = params.get("view") === "day" ? "day" : "month";
+  const view: View = (VIEWS as readonly string[]).includes(params.get("view") ?? "")
+    ? (params.get("view") as View)
+    : "month";
+
+  // Defaults differ by role on purpose. An elevated user opening the calendar wants the
+  // team's week, which is also what they saw before this change. Anyone else wants their
+  // own — and since the server clamps `all` for them anyway, the difference is only in
+  // which of the two allowed scopes loads first.
+  const scope: Scope = ((): Scope => {
+    const raw = params.get("scope");
+    if (raw === "mine" || raw === "invited" || raw === "all") {
+      return raw === "all" && !elevated ? "mine" : raw;
+    }
+    return elevated ? "all" : "mine";
+  })();
   // An unparseable `on=` falls back to today rather than rendering an Invalid Date.
   const anchor = useMemo(() => {
     const raw = params.get("on");
@@ -56,9 +95,25 @@ export function CalendarPage() {
 
   const [editing, setEditing] = useState<MeetingOut | null>(null);
   const [creatingOn, setCreatingOn] = useState<Date | null>(null);
+  const [creatingRange, setCreatingRange] = useState<{ start: Date; end: Date } | null>(null);
 
-  const window = view === "month" ? monthWindow(anchor) : dayWindow(anchor);
-  const { data: meetings, isPending, error, refetch } = useMeetings(window);
+  const window =
+    view === "month"
+      ? monthWindow(anchor)
+      : view === "week"
+        ? weekWindow(anchor)
+        : view === "year"
+          ? yearWindow(anchor)
+          : dayWindow(anchor);
+  const {
+    data: meetings,
+    isPending,
+    error,
+    refetch,
+    // A year is up to 500 meetings, the endpoint's ceiling. The year view only draws a
+    // density dot per day, so a truncated result costs a dot, not a meeting — but it is
+    // worth knowing that is the trade rather than discovering it.
+  } = useMeetings({ ...window, scope, limit: view === "year" ? 500 : undefined });
 
   const byDay = useMemo(() => groupByDay(meetings ?? []), [meetings]);
 
@@ -69,19 +124,44 @@ export function CalendarPage() {
     setParams(search, { replace: true });
   }
 
-  const step = (direction: number) =>
-    view === "month" ? addMonths(anchor, direction) : addDays(anchor, direction);
+  function setScope(next: Scope) {
+    const search = new URLSearchParams(params);
+    search.set("scope", next);
+    setParams(search, { replace: true });
+  }
+
+  const step = (direction: number) => {
+    switch (view) {
+      case "month":
+        return addMonths(anchor, direction);
+      case "week":
+        return addWeeks(anchor, direction);
+      case "year":
+        return addYears(anchor, direction);
+      default:
+        return addDays(anchor, direction);
+    }
+  };
+
+  const heading =
+    view === "month"
+      ? MONTH_LABEL.format(anchor)
+      : view === "year"
+        ? String(anchor.getFullYear())
+        : view === "week"
+          ? `Week of ${DAY_LABEL.format(weekGrid(anchor)[0]!.date)}`
+          : DAY_LABEL.format(anchor);
 
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
         title="Calendar"
         actions={
-          elevated ? (
-            <Button variant="primary" onClick={() => setCreatingOn(anchor)}>
-              New meeting
-            </Button>
-          ) : undefined
+          // Open to everyone now. It was elevated-only, which left a member unable to put
+          // their own work on the calendar and made "Mine" a permanently empty tab.
+          <Button variant="primary" onClick={() => setCreatingOn(anchor)}>
+            New meeting
+          </Button>
         }
       />
 
@@ -96,12 +176,10 @@ export function CalendarPage() {
           &rarr;
         </Button>
 
-        <h2 className="ml-2 text-lg font-semibold text-gray-900">
-          {view === "month" ? MONTH_LABEL.format(anchor) : DAY_LABEL.format(anchor)}
-        </h2>
+        <h2 className="ml-2 text-lg font-semibold text-gray-900">{heading}</h2>
 
         <div className="ml-auto flex gap-1" role="group" aria-label="Calendar view">
-          {(["month", "day"] as const).map((value) => (
+          {VIEWS.map((value) => (
             <button
               key={value}
               type="button"
@@ -120,6 +198,26 @@ export function CalendarPage() {
         </div>
       </div>
 
+      <div className="flex gap-1" role="radiogroup" aria-label="Whose meetings to show">
+        {SCOPES.filter((option) => elevated || !option.elevatedOnly).map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={scope === option.value}
+            onClick={() => setScope(option.value)}
+            className={cn(
+              "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+              scope === option.value
+                ? "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200"
+                : "bg-white text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
       {isPending ? (
         <LoadingState label="Loading meetings…" />
       ) : error ? (
@@ -131,26 +229,32 @@ export function CalendarPage() {
           onOpenDay={(day) => go(day, "day")}
           onOpenMeeting={setEditing}
         />
+      ) : view === "year" ? (
+        <YearView anchor={anchor} byDay={byDay} onOpenDay={(day) => go(day, "day")} />
       ) : (
-        <DayList
-          day={anchor}
-          meetings={byDay.get(localDayKey(anchor)) ?? []}
-          canCreate={elevated}
-          onCreate={() => setCreatingOn(anchor)}
+        <TimeGrid
+          days={view === "week" ? weekGrid(anchor).map((day) => day.date) : [anchor]}
+          byDay={byDay}
+          canCreate
           onOpenMeeting={setEditing}
+          onCreateRange={(start, end) => setCreatingRange({ start, end })}
         />
       )}
 
-      {(editing !== null || creatingOn !== null) && (
+      {(editing !== null || creatingOn !== null || creatingRange !== null) && (
         <MeetingModal
           key={editing?.id ?? "new"}
           open
           meeting={editing}
-          defaultDate={creatingOn ?? anchor}
-          canManage={elevated}
+          defaultDate={creatingRange?.start ?? creatingOn ?? anchor}
+          {...(creatingRange ? { defaultRange: creatingRange } : {})}
+          // Editing is row-level now: your own meeting, or any if you are elevated. An
+          // attendee can open someone else's meeting to read it, but not change it.
+          canManage={editing ? elevated || editing.created_by === actor?.id : true}
           onClose={() => {
             setEditing(null);
             setCreatingOn(null);
+            setCreatingRange(null);
           }}
         />
       )}
@@ -233,75 +337,6 @@ function MonthGrid({
   );
 }
 
-function DayList({
-  day,
-  meetings,
-  canCreate,
-  onCreate,
-  onOpenMeeting,
-}: {
-  day: Date;
-  meetings: MeetingOut[];
-  canCreate: boolean;
-  onCreate: () => void;
-  onOpenMeeting: (meeting: MeetingOut) => void;
-}) {
-  if (meetings.length === 0) {
-    return (
-      <div className="rounded-card bg-surface px-6 py-16 text-center ring-1 ring-gray-200">
-        <p className="font-medium text-gray-900">Nothing scheduled</p>
-        <p className="mt-1 text-sm text-gray-500">{DAY_LABEL.format(day)}</p>
-        {canCreate && (
-          <Button variant="primary" size="sm" className="mt-4" onClick={onCreate}>
-            New meeting
-          </Button>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <ul className="flex flex-col gap-2">
-      {meetings.map((meeting) => (
-        <li key={meeting.id}>
-          <button
-            type="button"
-            onClick={() => onOpenMeeting(meeting)}
-            className="flex w-full items-start gap-3 rounded-card bg-surface p-4 text-left ring-1 ring-gray-200 hover:shadow-md"
-          >
-            <span
-              aria-hidden="true"
-              className="mt-1 w-1 self-stretch rounded-full"
-              style={{ backgroundColor: meeting.color }}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="font-medium text-gray-900">{meeting.title}</p>
-              <p className="text-sm text-gray-500">
-                {formatTime(meeting.start_time)} – {formatTime(meeting.end_time)}
-                {meeting.location && ` · ${meeting.location}`}
-              </p>
-              {/* `default_factory=list` server-side, so this is always present in
-                  practice; openapi-typescript marks a field with a default optional. */}
-              {(meeting.attendees ?? []).length > 0 && (
-                <p className="mt-0.5 truncate text-xs text-gray-500">
-                  {(meeting.attendees ?? [])
-                    .map((attendee) => attendee.name || attendee.email)
-                    .join(", ")}
-                </p>
-              )}
-            </div>
-            {meeting.meet_link && (
-              <span className="shrink-0 rounded bg-brand-50 px-2 py-0.5 text-xs text-brand-700">
-                Meet
-              </span>
-            )}
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function MeetingChip({
   meeting,
   onClick,
@@ -323,5 +358,72 @@ function MeetingChip({
       />
       <span className="truncate text-gray-700">{meeting.title}</span>
     </button>
+  );
+}
+
+/**
+ * Twelve small month grids, one dot per day that has anything on it.
+ *
+ * Deliberately not chips. A year of meeting titles is unreadable at any size, and the
+ * question a year view answers is "which weeks were busy" — so it shows density and
+ * hands off to the day view for detail.
+ */
+function YearView({
+  anchor,
+  byDay,
+  onOpenDay,
+}: {
+  anchor: Date;
+  byDay: Map<string, MeetingOut[]>;
+  onOpenDay: (day: Date) => void;
+}) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {yearGrid(anchor).map(({ month, weeks }) => (
+        <div key={month.getMonth()} className="rounded-md bg-surface p-3 ring-1 ring-gray-200">
+          <h3 className="mb-2 text-sm font-semibold text-gray-900">{MONTH_NAME.format(month)}</h3>
+
+          <div className="grid grid-cols-7 gap-px text-center">
+            {WEEKDAY_LABELS.map((label) => (
+              <span key={label} className="text-[9px] text-gray-400">
+                {label.charAt(0)}
+              </span>
+            ))}
+
+            {weeks.flat().map((day) => {
+              const count = byDay.get(day.key)?.length ?? 0;
+              return (
+                <button
+                  key={day.key}
+                  type="button"
+                  onClick={() => onOpenDay(day.date)}
+                  className={cn(
+                    "flex aspect-square flex-col items-center justify-center rounded text-[10px] hover:bg-gray-100",
+                    day.inMonth ? "text-gray-700" : "text-gray-300",
+                    day.isToday && "bg-brand-50 font-semibold text-brand-700",
+                  )}
+                >
+                  {day.date.getDate()}
+                  {/* Announced as well as drawn: a dot alone tells a screen reader
+                      nothing, and this is the only signal the year view carries. */}
+                  <span
+                    className={cn(
+                      "mt-0.5 size-1 rounded-full",
+                      count > 0 ? "bg-brand-500" : "bg-transparent",
+                    )}
+                  >
+                    {count > 0 && (
+                      <span className="sr-only">
+                        {count} {count === 1 ? "meeting" : "meetings"}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

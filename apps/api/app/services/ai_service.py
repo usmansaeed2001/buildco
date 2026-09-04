@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from app.errors import ValidationFailed
 from app.logging import get_logger
 from app.schemas.ai import ParsedEstimate
-from app.services.integrations import groq
+from app.services.integrations import ai_provider
 
 log = get_logger(__name__)
 
@@ -24,7 +24,7 @@ async def parse_notes(notes: str) -> ParsedEstimate:
     parsed into ``ParsedEstimate`` and a failure becomes a 422 the client can show,
     rather than a malformed ``rooms`` array landing in the editor.
     """
-    raw = await groq.parse_notes(notes)
+    raw = await ai_provider.parse_notes(notes)
 
     try:
         return ParsedEstimate.model_validate(raw)

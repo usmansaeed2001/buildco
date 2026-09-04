@@ -5,7 +5,7 @@
  * the selected-room index — which the legacy app kept as a module-level `activeRoom`
  * that could point past the end of the array after a delete.
  *
- * Undo covers the room/item document only, not the Project Details fields. That matches
+ * Undo covers the room/item document only, not the Supplement Details fields. That matches
  * the legacy scope, and deliberately so: those are plain text inputs whose own native
  * undo is what a user reaches for while typing in them, and hijacking Ctrl+Z there
  * would be surprising.

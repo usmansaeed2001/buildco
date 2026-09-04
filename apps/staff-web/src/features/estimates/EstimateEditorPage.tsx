@@ -52,7 +52,7 @@ import { RoomRail } from "./RoomRail";
 
 const TABS = [
   { id: "items", label: "Line Items" },
-  { id: "details", label: "Project Details" },
+  { id: "details", label: "Supplement Details" },
 ] as const;
 
 export function EstimateEditorPage() {
@@ -380,6 +380,10 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
           status: estimate.status as EstimateStatus,
           details,
           rooms: document.rooms,
+          // Already fetched above for the line-item thumbnails, so the report costs no
+          // extra request. It was simply never passed through — which is why the PDF has
+          // had no photos in it.
+          attachments: attachments ?? [],
         }}
       />
 

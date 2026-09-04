@@ -61,6 +61,7 @@ from app.main import create_app  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.models.enums import Role, UserStatus  # noqa: E402
 from app.models.profile import Profile  # noqa: E402
+from app.models.settings import SETTINGS_ROW_ID, TeamSettings  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -220,6 +221,27 @@ async def member(session_factory) -> Profile:  # type: ignore[no-untyped-def]
 @pytest.fixture
 async def other_member(session_factory) -> Profile:  # type: ignore[no-untyped-def]
     return await _make_profile(session_factory, role=Role.MEMBER, name="Sam Second")
+
+
+@pytest.fixture
+async def reviewer(session_factory) -> Profile:  # type: ignore[no-untyped-def]
+    """A profile configured as the team's estimate reviewer.
+
+    Deliberately a ``member``: who signs off on an estimate is a business decision, not
+    an administrative permission, and a test suite that only ever proved it works for an
+    admin would let that distinction quietly rot.
+
+    Any test that submits an estimate for review needs this — without a configured
+    reviewer, submission is a 409 by design.
+    """
+    profile = await _make_profile(
+        session_factory, role=Role.MEMBER, name="Rita Reviewer", email="rita@buildco.test"
+    )
+    async with session_factory() as session:
+        row = TeamSettings(id=SETTINGS_ROW_ID, default_reviewer_id=profile.id)
+        session.add(row)
+        await session.commit()
+    return profile
 
 
 # ── HTTP client ───────────────────────────────────────────────────────────────

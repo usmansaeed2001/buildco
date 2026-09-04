@@ -46,6 +46,8 @@ export type EstimatePage = Schemas["Page_EstimateOut_"];
 export type ProjectPage = Schemas["Page_ProjectOut_"];
 
 // ── Attachments ─────────────────────────────────────────────────────────────
+export type EstimateIdOut = Schemas["EstimateIdOut"];
+export type EstimateSort = Schemas["EstimateSort"];
 export type AttachmentOut = Schemas["AttachmentOut"];
 export type AttachmentCreate = Schemas["AttachmentCreate"];
 export type UploadUrlRequest = Schemas["UploadUrlRequest"];

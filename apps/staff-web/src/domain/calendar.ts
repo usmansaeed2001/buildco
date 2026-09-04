@@ -87,6 +87,41 @@ export function monthGrid(anchor: Date, today: Date = new Date()): CalendarDay[]
   return weeks;
 }
 
+/** The seven days of the Sunday-start week `anchor` falls in. */
+export function weekGrid(anchor: Date, today: Date = new Date()): CalendarDay[] {
+  const start = addDays(startOfDay(anchor), -anchor.getDay());
+  const todayKey = localDayKey(today);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(start, index);
+    const key = localDayKey(date);
+    return { date, key, inMonth: date.getMonth() === anchor.getMonth(), isToday: key === todayKey };
+  });
+}
+
+/**
+ * The twelve months of `anchor`'s year, each as its own six-week grid.
+ *
+ * No new date arithmetic — twelve calls to `monthGrid`. The year view is a reader, not a
+ * different calendar.
+ */
+export function yearGrid(anchor: Date, today: Date = new Date()): { month: Date; weeks: CalendarDay[][] }[] {
+  return Array.from({ length: 12 }, (_, month) => {
+    const first = new Date(anchor.getFullYear(), month, 1);
+    return { month: first, weeks: monthGrid(first, today) };
+  });
+}
+
+export function addWeeks(value: Date, weeks: number): Date {
+  return addDays(value, weeks * 7);
+}
+
+export function addYears(value: Date, years: number): Date {
+  // Anchored to 1 January for the same reason `addMonths` anchors to the 1st: 29
+  // February plus one year is not a date, and a year grid only ever needs the year.
+  return new Date(value.getFullYear() + years, 0, 1);
+}
+
 export interface TimeWindow {
   /** ISO instants, for the API's `from` and `to` query parameters. */
   from: string;
@@ -111,6 +146,27 @@ export function monthWindow(anchor: Date): TimeWindow {
 export function dayWindow(day: Date): TimeWindow {
   const start = startOfDay(day);
   return { from: start.toISOString(), to: addDays(start, 1).toISOString() };
+}
+
+/** Sunday midnight to the following Sunday midnight, local. */
+export function weekWindow(anchor: Date): TimeWindow {
+  const start = addDays(startOfDay(anchor), -anchor.getDay());
+  return { from: start.toISOString(), to: addDays(start, 7).toISOString() };
+}
+
+/**
+ * The whole of `anchor`'s year.
+ *
+ * Covers the calendar year rather than the twelve rendered grids. A year view shows
+ * density per day, not individual meetings, so the few borrowed days at either end
+ * belong to a neighbouring year's count and are not worth a wider fetch.
+ */
+export function yearWindow(anchor: Date): TimeWindow {
+  const year = anchor.getFullYear();
+  return {
+    from: new Date(year, 0, 1).toISOString(),
+    to: new Date(year + 1, 0, 1).toISOString(),
+  };
 }
 
 /** Bucket anything with a `start_time` by the local day it falls on. */
@@ -173,4 +229,111 @@ export function addHour(time: string): string {
   const [hour, minute] = time.split(":").map(Number);
   if (hour === undefined || Number.isNaN(hour)) return time;
   return `${String((hour + 1) % 24).padStart(2, "0")}:${String(minute ?? 0).padStart(2, "0")}`;
+}
+
+// ── The time grid ───────────────────────────────────────────────────────────
+
+/** How finely a drag or a click snaps, in minutes. */
+export const SLOT_MINUTES = 15;
+
+/** Minutes from local midnight to `value`. The vertical position of anything on a grid. */
+export function minutesSinceMidnight(value: Date | string): number {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return 0;
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+/**
+ * Round to the nearest slot, clamped to the day.
+ *
+ * A non-finite input returns midnight rather than propagating. It reaches here from a
+ * pointer offset divided by a scale, and a NaN would end up in a CSS `top`, which
+ * silently collapses the element it was positioning.
+ */
+export function snapToSlot(minutes: number, slot: number = SLOT_MINUTES): number {
+  if (!Number.isFinite(minutes)) return 0;
+  const snapped = Math.round(minutes / slot) * slot;
+  return Math.min(24 * 60, Math.max(0, snapped));
+}
+
+/** The wall-clock moment a pointer at `offsetY` pixels down a day column is pointing at. */
+export function slotFromOffset(offsetY: number, pixelsPerMinute: number, day: Date): Date {
+  const minutes = snapToSlot(offsetY / pixelsPerMinute);
+  const start = startOfDay(day);
+  // Composed with setMinutes rather than by adding milliseconds: on a DST boundary the
+  // arithmetic day is 23 or 25 hours long, and "10:00" must still mean 10:00.
+  start.setMinutes(minutes);
+  return start;
+}
+
+export interface Placed<T> {
+  item: T;
+  /** Zero-based column within this item's overlap cluster. */
+  column: number;
+  /** How many columns that cluster needs. Width is `1 / columnCount`. */
+  columnCount: number;
+}
+
+/**
+ * Lay overlapping meetings out side by side, the way a calendar does.
+ *
+ * Two passes, because one is not enough:
+ *
+ * 1. **Assign columns.** Walk the day in start order, reusing the first column whose
+ *    occupant has already finished, otherwise opening a new one.
+ * 2. **Size each cluster separately.** `columnCount` is the widest point of the
+ *    *connected* run of overlaps an item belongs to, not the widest point of the day.
+ *    Without this, one five-way pile-up at 9am would squeeze a lone 4pm meeting to a
+ *    fifth of the width for no reason.
+ *
+ * Back-to-back meetings — one ending exactly as the next begins — deliberately do not
+ * overlap. They are the most common shape on a working calendar, and stacking them side
+ * by side would halve the width of an ordinary day.
+ */
+export function assignColumns<T extends { start_time: string; end_time: string }>(
+  items: readonly T[],
+): Placed<T>[] {
+  const sorted = [...items].sort(
+    (a, b) => a.start_time.localeCompare(b.start_time) || a.end_time.localeCompare(b.end_time),
+  );
+
+  const placed: { item: T; column: number; start: string; end: string }[] = [];
+  const columnEnds: string[] = [];
+  // Index in `placed` where the current run of overlaps began, plus the latest end time
+  // seen in it — a cluster ends when a meeting starts at or after everything before it.
+  const clusters: { from: number; to: number; width: number }[] = [];
+  let clusterFrom = 0;
+  let clusterEnd = "";
+
+  for (const item of sorted) {
+    if (clusterEnd && item.start_time >= clusterEnd) {
+      clusters.push({ from: clusterFrom, to: placed.length, width: columnEnds.length });
+      columnEnds.length = 0;
+      clusterFrom = placed.length;
+      clusterEnd = "";
+    }
+
+    let column = columnEnds.findIndex((end) => end <= item.start_time);
+    if (column === -1) {
+      column = columnEnds.length;
+      columnEnds.push(item.end_time);
+    } else {
+      columnEnds[column] = item.end_time;
+    }
+
+    placed.push({ item, column, start: item.start_time, end: item.end_time });
+    if (item.end_time > clusterEnd) clusterEnd = item.end_time;
+  }
+  if (placed.length > clusterFrom) {
+    clusters.push({ from: clusterFrom, to: placed.length, width: columnEnds.length });
+  }
+
+  const out: Placed<T>[] = [];
+  for (const cluster of clusters) {
+    for (let index = cluster.from; index < cluster.to; index += 1) {
+      const entry = placed[index]!;
+      out.push({ item: entry.item, column: entry.column, columnCount: cluster.width });
+    }
+  }
+  return out;
 }

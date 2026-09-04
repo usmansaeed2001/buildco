@@ -14,7 +14,7 @@ from typing import Annotated
 from fastapi import APIRouter, Path, status
 
 from app.deps import CurrentUser, DbSession, Elevated
-from app.schemas.common import Ack
+from app.schemas.common import Ack, ActorRef
 from app.schemas.settings import (
     CatalogueItemCreate,
     CatalogueItemOut,
@@ -37,6 +37,9 @@ def _to_out(row: object) -> TeamSettingsOut:
         # Resolved rather than raw, so the client renders a complete set of switches
         # without having to know the key list itself.
         notification_prefs=settings_service.resolved_prefs(row),
+        default_reviewer=(
+            ActorRef.model_validate(row.default_reviewer) if row.default_reviewer else None
+        ),
         updated_at=row.updated_at,
         updated_by=row.updated_by,
     )

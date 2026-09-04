@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Path, Query, status
 
 from app.deps import CurrentUser, DbSession, Elevated
-from app.models.enums import EstimateStatus
+from app.models.enums import EstimateSort, EstimateStatus
 from app.models.estimate import Estimate
 from app.schemas.common import Ack, Page
 from app.schemas.estimate import (
     EstimateCreate,
+    EstimateIdOut,
     EstimateOut,
     EstimateTotalsOut,
     EstimateUpdate,
@@ -46,15 +48,33 @@ async def list_estimates(
     trash: Annotated[bool, Query(description="Show soft-deleted estimates instead.")] = False,
     estimate_status: Annotated[EstimateStatus | None, Query(alias="status")] = None,
     q: Annotated[str | None, Query(max_length=200, description="Search text.")] = None,
+    created_from: Annotated[datetime | None, Query(description="Created at or after.")] = None,
+    created_to: Annotated[datetime | None, Query(description="Created at or before.")] = None,
+    sort: Annotated[EstimateSort, Query(description="Ordering.")] = EstimateSort.RECENTLY_CREATED,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[EstimateOut]:
     """List estimates, newest first.
 
     Members see only estimates they created; owners and admins see everything.
+
+    ``created_from`` and ``created_to`` are instants, not dates: only the browser knows
+    which zone "the 3rd" means, so it converts before asking.
+
+    ``sort`` defaults to newest-created, which is what this endpoint has always returned.
+    Callers who want another order ask for it — see ``EstimateSort``.
     """
     page = await estimate_service.list_estimates(
-        db, user, trash=trash, status=estimate_status, query=q, limit=limit, offset=offset
+        db,
+        user,
+        trash=trash,
+        status=estimate_status,
+        query=q,
+        created_from=created_from,
+        created_to=created_to,
+        sort=sort,
+        limit=limit,
+        offset=offset,
     )
     return Page[EstimateOut](
         items=[_to_out(e) for e in page.items],
@@ -62,6 +82,21 @@ async def list_estimates(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/ids", response_model=list[EstimateIdOut])
+async def list_estimate_ids(db: DbSession, user: CurrentUser) -> list[EstimateIdOut]:
+    """Every visible estimate as just an id and a status.
+
+    Feeds the unread dots on the list screen's status chips, which have to know what is
+    in the statuses you are *not* looking at — so they cannot be derived from the current
+    page. Deliberately tiny: two columns, no rooms, no totals, no joins.
+
+    Declared above ``/{estimate_id}`` because FastAPI matches routes in order and
+    ``ids`` would otherwise be parsed as a UUID path parameter and 422.
+    """
+    rows = await estimate_service.list_estimate_ids(db, user)
+    return [EstimateIdOut(id=row_id, status=row_status) for row_id, row_status in rows]
 
 
 @router.post("", response_model=EstimateOut, status_code=status.HTTP_201_CREATED)
@@ -184,21 +219,24 @@ async def submit_for_review(
     user: CurrentUser,
     estimate_id: Annotated[uuid.UUID, Path()],
 ) -> SubmitForReviewOut:
-    """Send an estimate to an external reviewer for approval.
+    """Send an estimate to the configured reviewer for approval.
+
+    The recipient is the single user chosen in Settings, not something the caller
+    supplies — see ``SubmitForReviewRequest``. Submitting with no reviewer configured is
+    a 409 that names the fix, not a silent success.
 
     Mints a single-use approval token and emails the reviewer a link to the review
     page. The email and the Slack post both run in the background, so a slow provider
     cannot fail a submission that has already been recorded.
     """
-    result = await estimate_service.submit_for_review(
-        db, user, estimate_id, recipient_email=body.recipient_email
-    )
+    result = await estimate_service.submit_for_review(db, user, estimate_id)
     estimate = result.estimate
+    reviewer = result.reviewer
     totals = estimate_service.totals_for(estimate)
 
     background.add_task(
         notifications.notify_one,
-        body.recipient_email,
+        reviewer.email,
         f"📋 Estimate for review — {estimate.project_name} ({estimate.identifier})",
         "estimate_review_request.html",
         {
@@ -213,7 +251,7 @@ async def submit_for_review(
                 if estimate.submitted_at
                 else ""
             ),
-            "recipient_name": body.recipient_name or "",
+            "recipient_name": reviewer.display_name,
             "totals": totals,
             "rooms": _rooms_for_email(estimate, totals),
             "approve_url": result.approve_url,
@@ -228,7 +266,7 @@ async def submit_for_review(
         identifier=estimate.identifier,
         client_name=estimate.client_name,
         submitted_by=user.display_name,
-        recipient_email=body.recipient_email,
+        recipient_email=reviewer.email,
     )
 
     return SubmitForReviewOut(estimate=_to_out(estimate, totals), review_url=result.review_url)

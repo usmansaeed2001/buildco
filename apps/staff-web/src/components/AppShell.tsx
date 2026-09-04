@@ -4,11 +4,23 @@
  * A topbar rather than a sidebar, matching what staff use today. Navigation is
  * role-aware — `member` never sees Team — but that is presentation only; the API
  * enforces the same rule on every request.
+ *
+ * **Width.** The content was capped at `max-w-7xl` (1280px), which on a 1440p or wider
+ * monitor left a third of the screen as empty margin — while the screens that actually
+ * need the room, the estimates grid and the calendar's seven-column week, were the ones
+ * being squeezed. It is now `max-w-[1600px]`, wide enough to use a large display and
+ * still short of the line where a table becomes hard to track across. Prose-shaped
+ * screens set their own narrower cap and are deliberately unaffected — see
+ * `HomePage`.
+ *
+ * **Below `md` the nav collapses into a drawer.** It used to scroll sideways instead,
+ * which meant a phone showed the first two links and no indication the others existed.
  */
-import { useEffect, useRef, useState } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, useIsElevated } from "@/auth/useAuth";
 import { RoleBadge } from "./Badge";
+import { Menu } from "./Menu";
 import { BrandMark } from "@/features/auth/AuthLayout";
 import { cn } from "@/lib/cn";
 import type { Role } from "@/domain/enums";
@@ -29,93 +41,107 @@ const NAV: NavItem[] = [
 export function AppShell() {
   const elevated = useIsElevated();
   const items = NAV.filter((item) => !item.elevatedOnly || elevated);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { pathname } = useLocation();
+
+  // Navigating is the one thing that should always close the drawer. Without this it
+  // stays open over the page you just asked for, which reads as a broken tap.
+  useEffect(() => setMenuOpen(false), [pathname]);
+
+  const link = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      "rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
+      isActive
+        ? "bg-brand-50 text-brand-700"
+        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
+    );
 
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-30 border-b border-gray-200 bg-surface">
-        <div className="mx-auto flex h-13 max-w-7xl items-center gap-6 px-4 sm:px-6">
+        <div className="mx-auto flex h-13 max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
+          <button
+            type="button"
+            aria-label="Menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+            className="-ml-1 rounded-md p-1.5 text-gray-600 hover:bg-gray-100 md:hidden"
+          >
+            <MenuIcon open={menuOpen} />
+          </button>
+
           <Link to="/" className="shrink-0">
             <BrandMark />
           </Link>
 
-          <nav className="flex flex-1 items-center gap-1 overflow-x-auto" aria-label="Main">
+          <nav className="hidden flex-1 items-center gap-1 md:flex" aria-label="Main">
             {items.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
-                    isActive
-                      ? "bg-brand-50 text-brand-700"
-                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
-                  )
-                }
-              >
+              <NavLink key={item.to} to={item.to} className={link}>
                 {item.label}
               </NavLink>
             ))}
           </nav>
 
+          {/* Pushes the account menu right on narrow screens, where the nav that used to
+              do it is hidden. */}
+          <div className="flex-1 md:hidden" />
+
           <AccountMenu />
         </div>
+
+        {menuOpen && (
+          <nav
+            className="flex flex-col gap-1 border-t border-gray-200 px-3 py-2 md:hidden"
+            aria-label="Main"
+          >
+            {items.map((item) => (
+              <NavLink key={item.to} to={item.to} className={link}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+        )}
       </header>
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">
+      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6">
         <Outlet />
       </main>
     </div>
   );
 }
 
+function MenuIcon({ open }: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="size-5">
+      {open ? (
+        <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.6" />
+      ) : (
+        <path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" strokeWidth="1.6" />
+      )}
+    </svg>
+  );
+}
+
 function AccountMenu() {
   const { profile, signOut } = useAuth();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const container = useRef<HTMLDivElement>(null);
-
-  // Close on an outside click or Escape. Both, because either alone leaves a way to
-  // get stuck with the menu open.
-  useEffect(() => {
-    if (!open) return;
-
-    function onPointerDown(event: MouseEvent) {
-      if (!container.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
 
   if (!profile) return null;
 
   const displayName = profile.full_name || profile.email;
 
   return (
-    <div className="relative shrink-0" ref={container}>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-gray-100"
-      >
-        <Avatar url={profile.avatar_url} name={displayName} />
-        <span className="hidden text-sm font-medium text-gray-700 sm:inline">{displayName}</span>
-      </button>
-
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 z-40 mt-1 w-56 overflow-hidden rounded-md bg-surface py-1 shadow-lg ring-1 ring-gray-200"
-        >
+    <Menu
+      label="Account"
+      trigger={
+        <>
+          <Avatar url={profile.avatar_url} name={displayName} />
+          <span className="hidden text-sm font-medium text-gray-700 sm:inline">{displayName}</span>
+        </>
+      }
+    >
+      {(close) => (
+        <>
           <div className="border-b border-gray-100 px-3 py-2">
             <p className="truncate text-sm font-medium text-gray-900">{displayName}</p>
             <p className="truncate text-xs text-gray-500">{profile.email}</p>
@@ -124,10 +150,10 @@ function AccountMenu() {
             </div>
           </div>
 
-          <MenuLink to="/profile" onSelect={() => setOpen(false)}>
+          <MenuLink to="/profile" onSelect={close}>
             Profile
           </MenuLink>
-          <MenuLink to="/settings" onSelect={() => setOpen(false)}>
+          <MenuLink to="/settings" onSelect={close}>
             Settings
           </MenuLink>
 
@@ -135,7 +161,7 @@ function AccountMenu() {
             type="button"
             role="menuitem"
             onClick={async () => {
-              setOpen(false);
+              close();
               await signOut();
               navigate("/login", { replace: true });
             }}
@@ -143,9 +169,9 @@ function AccountMenu() {
           >
             Sign out
           </button>
-        </div>
+        </>
       )}
-    </div>
+    </Menu>
   );
 }
 

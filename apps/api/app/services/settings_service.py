@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import NotFound
+from app.errors import Conflict, NotFound, ValidationFailed
 from app.logging import get_logger
 from app.models.profile import Profile
 from app.models.settings import SETTINGS_ROW_ID, CatalogueItem, TeamSettings
@@ -62,10 +62,40 @@ def resolved_prefs(row: TeamSettings) -> dict[str, bool]:
     return {key: bool(stored.get(key, True)) for key in sorted(NOTIFICATION_KEYS)}
 
 
+async def _validate_reviewer(session: AsyncSession, reviewer_id: uuid.UUID) -> Profile:
+    """Reject a reviewer who cannot actually review.
+
+    Deliberately **not** limited to elevated roles: who signs off on an estimate is a
+    business decision, not an administrative permission, and the team may well want a
+    senior estimator with a ``member`` role to be the approver. The approval itself is
+    authorised by the emailed token, not by the reviewer's role, so nothing here grants
+    them anything they could not already do from that link.
+
+    A banned profile is refused, because an estimate sent to one can never be approved
+    and the submitter would get no hint of why.
+    """
+    reviewer = await session.get(Profile, reviewer_id)
+    if reviewer is None:
+        raise NotFound("That user no longer exists.")
+    if reviewer.is_banned:
+        raise ValidationFailed("That user's access has been removed and they cannot review.")
+    return reviewer
+
+
 async def update_settings(
     session: AsyncSession, actor: Profile, changes: dict[str, Any]
 ) -> TeamSettings:
+    reviewer: Profile | None = None
+    if (reviewer_id := changes.get("default_reviewer_id")) is not None:
+        reviewer = await _validate_reviewer(session, reviewer_id)
+
     row = await get_settings_row(session)
+    if reviewer is not None:
+        # Set the relationship as well as the id. Selectin loaders populate on a *query*,
+        # and this row is already in the session — so serialising the response would
+        # otherwise lazy-load from async context and raise MissingGreenlet. The same
+        # reason ``estimate_service.create_estimate`` assigns ``creator`` directly.
+        row.default_reviewer = reviewer
 
     for field, value in changes.items():
         if field == "notification_prefs":
@@ -148,3 +178,22 @@ async def delete_catalogue_item(session: AsyncSession, item_id: uuid.UUID) -> No
     item = await get_catalogue_item(session, item_id)
     await session.delete(item)
     await session.flush()
+
+
+# ── The review recipient ──────────────────────────────────────────────────────
+
+
+async def reviewer_or_error(session: AsyncSession) -> Profile:
+    """The user every estimate sent for review goes to.
+
+    Raises rather than returning ``None``. Submission with no reviewer configured used
+    to be impossible — the address was typed per submission — so there was no such state
+    to handle. Now there is, and it must be loud: a silent no-op here would mark an
+    estimate ``submitted`` and email nobody, which is precisely the failure this change
+    exists to remove.
+    """
+    row = await get_settings_row(session)
+    reviewer = row.default_reviewer
+    if reviewer is None or reviewer.is_banned:
+        raise Conflict("No reviewer is configured. An owner or admin can choose one in Settings.")
+    return reviewer

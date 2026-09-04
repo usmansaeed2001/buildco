@@ -29,17 +29,149 @@ async def make_meeting(client, **overrides):
 # ── Meetings ──────────────────────────────────────────────────────────────────
 
 
-async def test_a_member_cannot_schedule_a_meeting(member_client):
+async def test_a_member_can_now_schedule_a_meeting(member_client):
+    """Deliberately reversed. This used to be a 403.
+
+    Scheduling was elevated-only, which made "meetings I created" an empty category for
+    most of the team and left a member unable to put their own work on the calendar.
+    Editing and cancelling stayed narrow — see the row-level tests below — so opening
+    creation does not let a member touch anyone else's meeting.
+    """
     response = await member_client.post(
         "/api/v1/meetings",
         json={
-            "title": "Nope",
+            "title": "My own site visit",
             "start_time": START.isoformat(),
             "end_time": END.isoformat(),
         },
     )
 
+    assert response.status_code == 201
+
+
+# ── Visibility ────────────────────────────────────────────────────────────────
+
+
+async def test_a_member_does_not_see_a_meeting_they_have_nothing_to_do_with(
+    owner_client, member_client
+):
+    """Also deliberately reversed.
+
+    The calendar was shared across the whole team by design, and both the router and the
+    service said so in their docstrings. It is now scoped: created-by-me or
+    invited-to-me, unless you are an owner or admin.
+    """
+    await make_meeting(owner_client, title="Leadership sync")
+
+    listed = (await member_client.get("/api/v1/meetings")).json()
+
+    assert listed == []
+
+
+async def test_scope_all_no_longer_returns_the_whole_calendar_to_a_member(
+    owner_client, member_client
+):
+    """Asking for everything is clamped, not refused.
+
+    Refusing would turn a stale client bundle into an error page. Clamping mirrors
+    ``project_service.list_projects``, which narrows a member to their own projects
+    rather than 403ing them.
+    """
+    await make_meeting(owner_client, title="Leadership sync")
+
+    response = await member_client.get("/api/v1/meetings", params={"scope": "all"})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_an_attendee_sees_the_meeting_they_were_invited_to(
+    owner_client, member_client, member
+):
+    """They were emailed an invite for it — the app must not be the one place it is hidden."""
+    await make_meeting(owner_client, title="Adjuster call", attendee_ids=[str(member.id)])
+
+    titles = [m["title"] for m in (await member_client.get("/api/v1/meetings")).json()]
+
+    assert titles == ["Adjuster call"]
+
+
+async def test_scope_invited_excludes_a_members_own_meeting(member_client):
+    await make_meeting(member_client, title="My own site visit")
+
+    listed = (await member_client.get("/api/v1/meetings", params={"scope": "invited"})).json()
+
+    assert listed == []
+
+
+async def test_scope_mine_returns_what_the_member_created(member_client):
+    await make_meeting(member_client, title="My own site visit")
+
+    titles = [
+        m["title"]
+        for m in (await member_client.get("/api/v1/meetings", params={"scope": "mine"})).json()
+    ]
+
+    assert titles == ["My own site visit"]
+
+
+async def test_an_owner_still_sees_everything(owner_client, member_client):
+    await make_meeting(member_client, title="A member's meeting")
+
+    titles = [m["title"] for m in (await owner_client.get("/api/v1/meetings")).json()]
+
+    assert titles == ["A member's meeting"]
+
+
+async def test_a_meeting_a_member_cannot_see_is_a_404_not_a_403(owner_client, member_client):
+    """Its existence is privileged. 403 would confirm that this id names a meeting."""
+    meeting = await make_meeting(owner_client, title="Leadership sync")
+
+    response = await member_client.get(f"/api/v1/meetings/{meeting['id']}")
+
+    assert response.status_code == 404
+
+
+# ── Who may change one ────────────────────────────────────────────────────────
+
+
+async def test_a_member_can_edit_the_meeting_they_created(member_client):
+    meeting = await make_meeting(member_client, title="My own site visit")
+
+    response = await member_client.patch(
+        f"/api/v1/meetings/{meeting['id']}", json={"title": "Rescheduled site visit"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Rescheduled site visit"
+
+
+async def test_an_attendee_cannot_move_someone_elses_meeting(owner_client, member_client, member):
+    """403, not 404: they can see it, they were invited. They just may not move it.
+
+    An attendee who could change the time would re-invite everyone else from an account
+    nobody expected it from.
+    """
+    meeting = await make_meeting(owner_client, attendee_ids=[str(member.id)])
+
+    response = await member_client.patch(
+        f"/api/v1/meetings/{meeting['id']}", json={"title": "Hijacked"}
+    )
+
     assert response.status_code == 403
+
+
+async def test_a_member_cannot_cancel_someone_elses_meeting(owner_client, member_client, member):
+    meeting = await make_meeting(owner_client, attendee_ids=[str(member.id)])
+
+    assert (await member_client.delete(f"/api/v1/meetings/{meeting['id']}")).status_code == 403
+
+
+async def test_an_owner_can_cancel_a_members_meeting(owner_client, member_client):
+    """Elevated users answer for the calendar, so they keep full control of it."""
+    meeting = await make_meeting(member_client, title="My own site visit")
+
+    assert (await owner_client.delete(f"/api/v1/meetings/{meeting['id']}")).status_code == 200
 
 
 async def test_a_meeting_is_created_without_a_meet_link_when_no_token_is_given(

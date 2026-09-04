@@ -168,6 +168,39 @@ spreading a fetched object into a `PATCH` sends `id` and `created_at` and earns 
 
 ---
 
+## The estimates list sorts server-side, and so does everything else on it
+
+Status, search, the date window, pagination **and the sort order** are all the API's job.
+Nothing on that screen filters or orders in the browser, because a list that shows one
+page at a time cannot correctly do either locally — page two would be filtered and sorted
+against only the rows page two happens to hold.
+
+Two consequences worth knowing:
+
+- **"Highest total" reads a stored column.** `rooms` is JSONB, so the total is otherwise
+  only knowable in Python. `estimates.total_amount` is maintained on write, purely so the
+  database can order by it — the number rendered on the card still comes from
+  `totals`, computed per request. If those two ever disagree the display stays right and
+  only the ordering is stale, which is the safer way round.
+- **The screen asks for `sort=recently_edited` explicitly.** The API's own default is
+  still `recently_created`, so no other caller's ordering moved.
+
+The unread dots are the reason `GET /estimates/ids` exists: they have to know what is in
+the statuses you are *not* looking at, which a paginated, filtered list cannot tell them.
+
+## The calendar is per-person, not per-team
+
+`GET /meetings` returns what you created and what you were invited to. `scope=all` gives
+the whole team's calendar to an owner or admin and is **silently clamped** for everyone
+else — so the "Everyone" button not being rendered for a member is a convenience, not the
+mechanism. Anyone may create a meeting; only its creator, or an elevated user, may change
+or cancel it.
+
+This reverses the original design, which was a deliberately shared calendar with
+elevated-only editing. Both the old docstrings and `DEPLOY_CHECKLIST.md` §3.6 said so, and
+both have been updated — if you find a comment claiming the calendar is shared, it is
+stale, not a spec.
+
 ## Settings are shared by the team
 
 The Settings screen — the universal rate list, custom units, custom categories, and

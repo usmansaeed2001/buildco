@@ -13,9 +13,10 @@ from __future__ import annotations
 # time, so uuid cannot hide under TYPE_CHECKING.
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, Uuid, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, JSONBType, TimestampMixin, UUIDPrimaryKey
@@ -39,8 +40,13 @@ class Estimate(Base, UUIDPrimaryKey, TimestampMixin):
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), index=True
     )
 
+    #: Blank means unnamed, and the UI says so.
+    #:
+    #: This used to default to the literal string "New Estimate", which meant an estimate
+    #: created without one was not unnamed — it was named the same thing as every other
+    #: one, so a list of them was a wall of identical rows with no way to tell them apart.
     project_name: Mapped[str] = mapped_column(
-        String(300), server_default=text("'New Estimate'"), default="New Estimate", nullable=False
+        String(300), server_default=text("''"), default="", nullable=False
     )
     client_name: Mapped[str] = mapped_column(
         String(300), server_default=text("''"), default="", nullable=False
@@ -52,6 +58,18 @@ class Estimate(Base, UUIDPrimaryKey, TimestampMixin):
     )
     insurance_carrier: Mapped[str] = mapped_column(
         String(200), server_default=text("''"), default="", nullable=False
+    )
+
+    #: The estimate's grand total, denormalised from ``rooms`` so the database can sort
+    #: by it. ``rooms`` is JSONB, so the total is otherwise only knowable in Python, and
+    #: sorting a paginated list in the browser sorts one page rather than the list.
+    #:
+    #: **Not the source of truth for the response.** ``estimate_service.totals_for()``
+    #: still recomputes on every read, so if this column ever drifts the number on screen
+    #: stays correct and only the sort position is stale. Do not "optimise" the response
+    #: to read from here — that trades a wrong ordering for a wrong number.
+    total_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), server_default=text("0"), default=Decimal("0"), nullable=False
     )
 
     rooms: Mapped[list[Any]] = mapped_column(

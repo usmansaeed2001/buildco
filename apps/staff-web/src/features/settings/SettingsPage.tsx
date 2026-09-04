@@ -22,6 +22,7 @@ import {
   useUpdateTeamSettings,
 } from "@/api/queries/settings";
 import type { CatalogueItemOut, TeamSettingsOut } from "@/api/types";
+import { useUsers } from "@/api/queries/users";
 import { useIsElevated } from "@/auth/useAuth";
 import { Button } from "@/components/Button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -31,6 +32,7 @@ import { Table, TableWrap, TBody, Td, Th, THead, Tr } from "@/components/Table";
 import { useToast } from "@/components/Toast";
 import { ITEM_CATEGORIES, ITEM_UNITS } from "@/domain/enums";
 import { formatMoney, isNegativeMoney, toMoneyString } from "@/domain/money";
+import { displayName } from "@/lib/format";
 
 /** Copy for each notification key the API accepts. */
 const NOTIFICATIONS: { key: string; label: string; description: string }[] = [
@@ -75,6 +77,7 @@ export function SettingsPage() {
         </Alert>
       )}
 
+      <Reviewer settings={settings.data} canEdit={elevated} />
       <RateList items={catalogue.data ?? []} canEdit={elevated} />
       <ListSetting
         title="Custom units"
@@ -96,6 +99,67 @@ export function SettingsPage() {
       />
       <Notifications settings={settings.data} canEdit={elevated} />
     </div>
+  );
+}
+
+function Reviewer({ settings, canEdit }: { settings: TeamSettingsOut; canEdit: boolean }) {
+  const toast = useToast();
+  const update = useUpdateTeamSettings();
+  const users = useUsers();
+
+  const current = settings.default_reviewer?.id ?? "";
+
+  async function choose(id: string) {
+    if (!id) return;
+    try {
+      await update.mutateAsync({ default_reviewer_id: id });
+    } catch (caught) {
+      toast.error(
+        caught instanceof ApiError ? caught.message : "The reviewer could not be saved.",
+      );
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-3 p-5">
+      <div>
+        <h2 className="text-xs font-medium tracking-wide text-gray-500 uppercase">Reviewer</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          Every estimate sent for approval goes to this person. They receive a link and can
+          approve, reject, or request changes without signing in.
+        </p>
+      </div>
+
+      {/* Anyone on the team, not just owners and admins. Who signs off on an estimate is a
+          business decision, and the approval is authorised by the emailed link rather than
+          by the reviewer's role — so naming a member here grants them nothing extra. */}
+      <Field label="Who approves estimates">
+        {(props) => (
+          <Select
+            {...props}
+            value={current}
+            disabled={!canEdit || users.isPending || update.isPending}
+            onChange={(event) => void choose(event.target.value)}
+          >
+            <option value="" disabled>
+              {users.isPending ? "Loading the team…" : "Choose someone"}
+            </option>
+            {(users.data ?? []).map((user) => (
+              <option key={user.id} value={user.id}>
+                {displayName(user)} — {user.email}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+
+      {!settings.default_reviewer && (
+        <Alert tone="warning">
+          Nobody is set up to approve estimates yet, so sending one for review will fail until
+          someone is chosen here.
+        </Alert>
+      )}
+    </Card>
   );
 }
 

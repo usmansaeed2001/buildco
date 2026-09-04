@@ -152,19 +152,23 @@ describe("CalendarPage", () => {
   });
 
   describe("the day view", () => {
-    it("lists the day's meetings with their times", async () => {
-      serveMeetings([at(2026, 3, 15, 9, { title: "Walkthrough", location: "12 Oak Street" })]);
+    it("places the day's meetings on the hour grid", async () => {
+      // The day view was a flat list; it is now a positioned time grid, so a meeting is
+      // a chip at a vertical offset rather than a row with a location line under it.
+      serveMeetings([at(2026, 3, 15, 9, { title: "Walkthrough" })]);
       renderCalendar(OWNER, "/calendar?on=2026-03-15&view=day");
 
-      expect(await screen.findByText("Walkthrough")).toBeVisible();
-      expect(screen.getByText(/12 Oak Street/)).toBeVisible();
+      expect(await screen.findByRole("button", { name: /Walkthrough/ })).toBeVisible();
+      expect(screen.getByText("9 AM")).toBeVisible();
     });
 
-    it("says so when nothing is scheduled", async () => {
+    it("draws the hours even with nothing scheduled", async () => {
       serveMeetings([]);
       renderCalendar(OWNER, "/calendar?on=2026-03-15&view=day");
 
-      expect(await screen.findByText("Nothing scheduled")).toBeVisible();
+      // An empty grid is not an empty state — the point of it is the slots you can
+      // click, so there is nothing to say "nothing scheduled" about.
+      expect(await screen.findByText("11 PM")).toBeVisible();
     });
 
     it("windows a single day", async () => {
@@ -176,31 +180,151 @@ describe("CalendarPage", () => {
       expect(localDayKey(new Date(windows[0]!.get("to")!))).toBe("2026-03-16");
     });
 
-    it("flags a meeting that has a Meet link", async () => {
+    it("opens a meeting from the grid", async () => {
       serveMeetings([
         at(2026, 3, 15, 9, { title: "Walkthrough", meet_link: "https://meet.google.com/abc" }),
       ]);
-      renderCalendar(OWNER, "/calendar?on=2026-03-15&view=day");
+      const { user } = renderCalendar(OWNER, "/calendar?on=2026-03-15&view=day");
 
-      expect(await screen.findByText("Meet")).toBeVisible();
+      await user.click(await screen.findByRole("button", { name: /Walkthrough/ }));
+
+      expect(await screen.findByRole("dialog")).toBeVisible();
+    });
+  });
+
+
+  describe("the week and year views", () => {
+    it("windows a whole week, Sunday to Sunday", async () => {
+      const windows = serveMeetings([]);
+      renderCalendar(OWNER, "/calendar?on=2026-03-04&view=week");
+      await waitFor(() => expect(windows).toHaveLength(1));
+
+      expect(localDayKey(new Date(windows[0]!.get("from")!))).toBe("2026-03-01");
+      expect(localDayKey(new Date(windows[0]!.get("to")!))).toBe("2026-03-08");
+    });
+
+    it("shows seven day columns", async () => {
+      serveMeetings([]);
+      renderCalendar(OWNER, "/calendar?on=2026-03-04&view=week");
+
+      // The hour gutter, which only exists once the grid has rendered — the page heading
+      // is drawn while the meetings are still loading, so waiting on that would assert
+      // against a spinner.
+      await screen.findByText("11 PM");
+      expect(screen.getByText(/Week of/)).toBeVisible();
+      // Sunday 1st through Saturday 7th, each a column header.
+      for (const date of ["1", "2", "3", "4", "5", "6", "7"]) {
+        expect(screen.getAllByText(date).length).toBeGreaterThan(0);
+      }
+    });
+
+    it("windows a whole year", async () => {
+      const windows = serveMeetings([]);
+      renderCalendar(OWNER, "/calendar?on=2026-03-15&view=year");
+      await waitFor(() => expect(windows).toHaveLength(1));
+
+      expect(new Date(windows[0]!.get("from")!).getFullYear()).toBe(2026);
+      expect(new Date(windows[0]!.get("to")!).getFullYear()).toBe(2027);
+    });
+
+    it("shows twelve months and announces the busy days", async () => {
+      serveMeetings([at(2026, 3, 15, 9, { title: "Walkthrough" })]);
+      renderCalendar(OWNER, "/calendar?on=2026-03-15&view=year");
+
+      expect(await screen.findByRole("heading", { name: "March" })).toBeVisible();
+      expect(screen.getByRole("heading", { name: "December" })).toBeVisible();
+      // A dot alone says nothing to a screen reader, so the count is announced.
+      expect(screen.getByText("1 meeting")).toBeInTheDocument();
+    });
+
+    it("steps a week at a time in the week view", async () => {
+      const windows = serveMeetings([]);
+      const { user } = renderCalendar(OWNER, "/calendar?on=2026-03-04&view=week");
+      await waitFor(() => expect(windows).toHaveLength(1));
+
+      await user.click(screen.getByRole("button", { name: "Next" }));
+
+      await waitFor(() =>
+        expect(localDayKey(new Date(windows.at(-1)!.get("from")!))).toBe("2026-03-08"),
+      );
+    });
+
+    it("steps a year at a time in the year view", async () => {
+      const windows = serveMeetings([]);
+      const { user } = renderCalendar(OWNER, "/calendar?on=2026-03-15&view=year");
+      await waitFor(() => expect(windows).toHaveLength(1));
+
+      await user.click(screen.getByRole("button", { name: "Next" }));
+
+      await waitFor(() =>
+        expect(new Date(windows.at(-1)!.get("from")!).getFullYear()).toBe(2027),
+      );
+    });
+  });
+
+  describe("creating from the time grid", () => {
+    it("opens the modal at the time a slot was chosen", async () => {
+      // The grid's own pointer and keyboard mechanics are covered in TimeGrid.test.tsx,
+      // where the component can be driven directly. What matters here is the handoff:
+      // a range chosen on the grid arrives in the modal as its start and end.
+      serveMeetings([]);
+      const { user } = renderCalendar(OWNER, "/calendar?on=2026-03-15&view=day");
+      await screen.findByText("11 PM");
+
+      await user.click(screen.getByRole("button", { name: /Create a meeting at Sunday 9:00 AM/ }));
+
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByLabelText("Start")).toHaveValue("09:00");
+      expect(within(dialog).getByLabelText("End")).toHaveValue("10:00");
     });
   });
 
   describe("permissions", () => {
-    it("shows the shared calendar to a member", async () => {
-      // GET /meetings is deliberately not role-filtered.
-      serveMeetings([at(2026, 3, 15, 9, { title: "Walkthrough" })]);
+    it("asks for a member's own meetings by default, not the whole team's", async () => {
+      // Deliberately reversed. `GET /meetings` used to be unfiltered and every member
+      // saw the entire team calendar; it now returns what you created and what you were
+      // invited to.
+      const windows = serveMeetings([]);
       renderCalendar(MEMBER);
 
-      expect(await screen.findByRole("button", { name: /Walkthrough/ })).toBeVisible();
+      await waitFor(() => expect(windows).toHaveLength(1));
+      expect(windows[0]!.get("scope")).toBe("mine");
     });
 
-    it("offers a member no way to create one", async () => {
+    it("does not offer a member the everyone scope", async () => {
       serveMeetings([]);
       renderCalendar(MEMBER);
       await screen.findByRole("heading", { name: "March 2026" });
 
-      expect(screen.queryByRole("button", { name: "New meeting" })).not.toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Mine" })).toBeVisible();
+      expect(screen.queryByRole("radio", { name: "Everyone" })).not.toBeInTheDocument();
+    });
+
+    it("ignores scope=all in the URL for a member", async () => {
+      // The server clamps it regardless; this keeps the control from claiming otherwise.
+      const windows = serveMeetings([]);
+      renderCalendar(MEMBER, "/calendar?on=2026-03-15&scope=all");
+
+      await waitFor(() => expect(windows).toHaveLength(1));
+      expect(windows[0]!.get("scope")).toBe("mine");
+    });
+
+    it("defaults an owner to the whole team", async () => {
+      const windows = serveMeetings([]);
+      renderCalendar(OWNER);
+
+      await waitFor(() => expect(windows).toHaveLength(1));
+      expect(windows[0]!.get("scope")).toBe("all");
+    });
+
+    it("lets a member create a meeting", async () => {
+      // Also deliberately reversed: creating used to be elevated-only, which left a
+      // member unable to put their own work on the calendar at all.
+      serveMeetings([]);
+      renderCalendar(MEMBER);
+      await screen.findByRole("heading", { name: "March 2026" });
+
+      expect(screen.getByRole("button", { name: "New meeting" })).toBeVisible();
     });
 
     it("lets a member open a meeting read-only", async () => {
