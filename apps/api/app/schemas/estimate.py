@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import EmailStr, Field, field_validator
+from pydantic import Field, field_validator
 
 from app.models.enums import EstimateStatus, ItemCategory, ItemUnit
 from app.schemas.common import ActorRef, ORMSchema, Schema
@@ -69,7 +69,9 @@ class Room(Schema):
 
 
 class EstimateBase(Schema):
-    project_name: str = Field(default="New Estimate", max_length=300)
+    #: Blank means unnamed. It used to default to the literal "New Estimate", which is
+    #: why an unnamed estimate was indistinguishable from every other unnamed one.
+    project_name: str = Field(default="", max_length=300)
     client_name: str = Field(default="", max_length=300)
     pm_name: str = Field(default="", max_length=200)
     insurance_carrier: str = Field(default="", max_length=200)
@@ -78,7 +80,27 @@ class EstimateBase(Schema):
 
 
 class EstimateCreate(EstimateBase):
-    """The identifier is assigned by the server, never supplied by the client."""
+    """A new estimate. The identifier is generated when one is not supplied."""
+
+    #: A claim reference the team can recognise.
+    #:
+    #: Deliberately unvalidated beyond trimming and length. The obvious instinct is a
+    #: character whitelist, and it is wrong here: real identifiers in this business
+    #: include "Self Pay", "Self pay proposal" and "SELF PAY the Difference". Spaces and
+    #: mixed case are values people actually use, and a tidy pattern would reject the
+    #: data already in the database.
+    #:
+    #: Absent or blank means "generate one", which is what keeps every existing caller —
+    #: including a bare ``POST`` with an empty body — working unchanged.
+    identifier: str | None = Field(default=None, max_length=40)
+
+    @field_validator("identifier")
+    @classmethod
+    def _blank_means_generate(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
 
 
 class EstimateUpdate(Schema):
@@ -92,6 +114,22 @@ class EstimateUpdate(Schema):
 
     project_name: str | None = Field(default=None, max_length=300)
     client_name: str | None = Field(default=None, max_length=300)
+    #: ``None`` means "leave it alone", as every field here does. An explicitly blank
+    #: value is refused rather than regenerating: silently reassigning a claim ID during
+    #: an edit is a surprise nobody asked for, and the reviewer's paperwork already has
+    #: the old one on it.
+    identifier: str | None = Field(default=None, max_length=40)
+
+    @field_validator("identifier")
+    @classmethod
+    def _reject_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Claim ID cannot be blank. Omit the field to leave it unchanged.")
+        return trimmed
+
     pm_name: str | None = Field(default=None, max_length=200)
     insurance_carrier: str | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=20_000)
@@ -161,9 +199,29 @@ class TransitionRequest(Schema):
         return v
 
 
+class EstimateIdOut(Schema):
+    """An estimate reduced to what the unread dots need, and nothing else.
+
+    Not ``EstimateOut`` with fields stripped: this is fetched for every estimate the user
+    can see, so it has to stay two columns wide however large the list gets.
+    """
+
+    id: uuid.UUID
+    status: str
+
+
 class SubmitForReviewRequest(Schema):
-    recipient_email: EmailStr
-    recipient_name: str | None = Field(default=None, max_length=200)
+    """Deliberately empty.
+
+    The reviewer used to be typed into this payload. It is now the single user chosen in
+    Settings, resolved server-side, because a hand-typed address is a delivery failure
+    that leaves no trace anywhere: a typo means no send is ever attempted, so nothing
+    appears in the mail provider's dashboard to explain the estimate nobody reviewed.
+
+    Per DEVELOPMENT_GUIDELINES §2, a field a client must never set does not appear on the
+    request model — so the recipient is absent rather than accepted and ignored. The
+    schema stays as a type so the route keeps its shape and can grow options later.
+    """
 
 
 class SubmitForReviewOut(ORMSchema):

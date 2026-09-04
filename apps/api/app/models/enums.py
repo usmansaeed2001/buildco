@@ -21,6 +21,33 @@ class Role(StrEnum):
 ELEVATED_ROLES: frozenset[Role] = frozenset({Role.OWNER, Role.ADMIN})
 
 
+class MeetingScope(StrEnum):
+    """Whose meetings a calendar request is asking for.
+
+    Not persisted — a request-time filter. It lives here because this module is where
+    every enum in the backend lives, and splitting "enums we store" from "enums we
+    validate" would mean looking in two places to answer the same question.
+    """
+
+    MINE = "mine"
+    INVITED = "invited"
+    ALL = "all"
+
+
+class EstimateSort(StrEnum):
+    """How to order a page of estimates.
+
+    Not persisted — a request-time parameter, living here because this module is where
+    every enum lives. The API's first sort parameter: until now every list endpoint
+    hardcoded its own order.
+    """
+
+    RECENTLY_CREATED = "recently_created"
+    RECENTLY_EDITED = "recently_edited"
+    HIGHEST_TOTAL = "highest_total"
+    CLIENT_NAME = "client_name"
+
+
 class UserStatus(StrEnum):
     ACTIVE = "active"
     BANNED = "banned"

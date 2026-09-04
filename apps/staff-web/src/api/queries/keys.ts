@@ -14,6 +14,7 @@ export const queryKeys = {
   estimates: {
     all: ["estimates"] as const,
     list: (filters: Record<string, unknown>) => ["estimates", "list", filters] as const,
+    ids: ["estimates", "ids"] as const,
     detail: (id: string) => ["estimates", "detail", id] as const,
     attachments: (id: string) => ["estimates", "detail", id, "attachments"] as const,
   },

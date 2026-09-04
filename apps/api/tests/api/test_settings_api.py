@@ -276,3 +276,74 @@ async def test_rates_are_ordered_by_category_then_name(owner_client):
     listed = (await owner_client.get("/api/v1/catalogue-items")).json()
 
     assert [item["name"] for item in listed] == ["Drywall", "Paint", "Trim"]
+
+
+# ── The default reviewer ──────────────────────────────────────────────────────
+
+
+async def test_an_admin_can_choose_the_reviewer(owner_client, member):
+    response = await owner_client.patch(
+        "/api/v1/settings", json={"default_reviewer_id": str(member.id)}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["default_reviewer"]["id"] == str(member.id)
+    assert response.json()["default_reviewer"]["email"] == member.email
+
+
+async def test_a_member_can_be_the_reviewer(owner_client, member):
+    """Signing off on an estimate is a business role, not an administrative permission.
+
+    The approval itself is authorised by the emailed token, so naming a member here
+    grants them nothing they could not already do from that link.
+    """
+    await owner_client.patch("/api/v1/settings", json={"default_reviewer_id": str(member.id)})
+
+    reviewer = (await owner_client.get("/api/v1/settings")).json()["default_reviewer"]
+
+    assert reviewer["role"] == "member"
+
+
+async def test_the_reviewer_is_returned_resolved_not_as_a_bare_id(owner_client, admin):
+    """The settings screen and the submit modal both need a name without a second call."""
+    await owner_client.patch("/api/v1/settings", json={"default_reviewer_id": str(admin.id)})
+
+    reviewer = (await owner_client.get("/api/v1/settings")).json()["default_reviewer"]
+
+    assert reviewer["full_name"] == "Adam Admin"
+
+
+async def test_a_banned_user_cannot_be_the_reviewer(owner_client, member, db):
+    """An estimate sent to a banned reviewer could never be approved."""
+    from app.models.enums import UserStatus
+    from app.models.profile import Profile
+
+    banned = await db.get(Profile, member.id)
+    assert banned is not None
+    banned.status = UserStatus.BANNED.value
+    await db.commit()
+
+    response = await owner_client.patch(
+        "/api/v1/settings", json={"default_reviewer_id": str(member.id)}
+    )
+
+    assert response.status_code == 422
+
+
+async def test_an_unknown_reviewer_is_a_404(owner_client):
+    response = await owner_client.patch(
+        "/api/v1/settings",
+        json={"default_reviewer_id": "00000000-0000-4000-8000-000000000099"},
+    )
+
+    assert response.status_code == 404
+
+
+async def test_a_member_cannot_choose_the_reviewer(member_client, admin):
+    assert (
+        await member_client.patch("/api/v1/settings", json={"default_reviewer_id": str(admin.id)})
+    ).status_code == 403
+
+
+async def test_no_reviewer_is_configured_by_default(owner_client):
+    assert (await owner_client.get("/api/v1/settings")).json()["default_reviewer"] is None

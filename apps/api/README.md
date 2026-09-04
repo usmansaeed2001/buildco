@@ -275,7 +275,8 @@ variables injected from Secret Manager.
 | `RESEND_API_KEY` | `resend-key` | Email is logged and skipped |
 | `NOTIFY_FROM_EMAIL` | `notify-from-email` | Defaults to the Resend sandbox sender |
 | `SLACK_WEBHOOK_URL` | `slack-webhook` | Slack posts are skipped |
-| `GROQ_API_KEY` | `groq-key` | `/ai/parse-estimate` returns 503 |
+| `OPEN_AI_API_KEY` | `openai-key` | Falls back to Groq; `/ai/parse-estimate` returns 503 if that is unset too. Note the spelling — **not** `OPENAI_API_KEY` |
+| `GROQ_API_KEY` | `groq-key` | Fallback only, for one release. Remove once OpenAI is configured everywhere |
 | `CORS_ORIGINS` | — | Only localhost may call from a browser |
 
 Every integration credential is optional by design: the service boots and serves with

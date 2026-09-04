@@ -16,6 +16,7 @@ import { computeTotals, roomTotal } from "@/domain/estimateTotals";
 import { formatMoney, lineTotal } from "@/domain/money";
 import { ESTIMATE_STATUS_LABELS, type EstimateStatus } from "@/domain/enums";
 import { formatDate } from "@/lib/format";
+import type { AttachmentOut } from "@/api/types";
 import type { EstimateDetails, RoomDoc } from "./document";
 
 export interface ReportProps {
@@ -23,14 +24,44 @@ export interface ReportProps {
   status: EstimateStatus;
   details: EstimateDetails;
   rooms: readonly RoomDoc[];
+  attachments?: readonly AttachmentOut[];
   preparedOn?: string;
 }
 
+/**
+ * Photos for one line item, keyed by position.
+ *
+ * Position, not identity, because that is how the API addresses attachments —
+ * `room_index` and `item_index` are plain integers, not foreign keys. Reordering or
+ * deleting a room does not move its photos, so a report generated after an edit can show
+ * a photo under the wrong line. That is `BACKLOG.md` §14, it predates this component, and
+ * putting the photos in the PDF makes it visible and printable rather than causing it.
+ */
+function photosByPosition(
+  attachments: readonly AttachmentOut[],
+): Map<string, AttachmentOut[]> {
+  const byPosition = new Map<string, AttachmentOut[]>();
+  for (const attachment of attachments) {
+    // A video cannot be rasterised into a page, and a null URL means the signed link
+    // could not be minted — `create_download_url` returns None rather than raising, so
+    // the row exists with nothing to show. Both are skipped here and counted below, so
+    // the reader is told rather than left wondering what happened to the photo.
+    if (attachment.is_video || !attachment.url) continue;
+    const key = `${attachment.room_index}:${attachment.item_index}`;
+    const bucket = byPosition.get(key);
+    if (bucket) bucket.push(attachment);
+    else byPosition.set(key, [attachment]);
+  }
+  return byPosition;
+}
+
 export const EstimateReport = forwardRef<HTMLDivElement, ReportProps>(function EstimateReport(
-  { identifier, status, details, rooms, preparedOn },
+  { identifier, status, details, rooms, attachments = [], preparedOn },
   ref,
 ) {
   const totals = computeTotals(rooms);
+  const photos = photosByPosition(attachments);
+  const omitted = attachments.filter((a) => a.is_video || !a.url);
 
   return (
     <div
@@ -113,6 +144,42 @@ export const EstimateReport = forwardRef<HTMLDivElement, ReportProps>(function E
                     <Td numeric>{formatMoney(lineTotal(item.quantity, item.unitCost))}</Td>
                   </tr>
                 ))}
+                {room.items.map((item, itemIndex) => {
+                  const shots = photos.get(`${index}:${itemIndex}`);
+                  if (!shots?.length) return null;
+                  return (
+                    <tr key={`photos-${itemIndex}`}>
+                      <Td colSpan={5}>
+                        <span className="mb-1 block text-[10px] text-gray-500">
+                          {item.name || "Untitled item"} — {shots.length}{" "}
+                          {shots.length === 1 ? "photo" : "photos"}
+                        </span>
+                        <span className="flex flex-wrap gap-2">
+                          {shots.map((shot) => (
+                            <img
+                              key={shot.id}
+                              src={shot.url ?? ""}
+                              // Real alt text, not `alt=""`. The PDF is a bitmap so it
+                              // gains nothing there, but this same node is the on-screen
+                              // preview, and these photos are evidence for a line item —
+                              // content, not decoration.
+                              alt={`${item.name || "Untitled item"} — ${shot.file_name}`}
+                              // Sized in pixels for the same reason the page is: the
+                              // rasteriser measures the box, so a responsive width would
+                              // put a different photo size in the PDF on every screen.
+                              style={{
+                                width: 150,
+                                height: 110,
+                                objectFit: "cover",
+                                border: "1px solid #e5e7eb",
+                              }}
+                            />
+                          ))}
+                        </span>
+                      </Td>
+                    </tr>
+                  );
+                })}
                 {room.items.length === 0 && (
                   <tr>
                     <Td colSpan={5}>
@@ -146,6 +213,22 @@ export const EstimateReport = forwardRef<HTMLDivElement, ReportProps>(function E
         </span>
         <span className="text-xl font-bold">{formatMoney(totals.total)}</span>
       </div>
+
+      {omitted.length > 0 && (
+        <section style={{ marginTop: 16 }}>
+          <h2 className="text-[10px] font-semibold tracking-wide text-gray-500 uppercase">
+            Attachments not shown
+          </h2>
+          <ul className="mt-1 text-[10px] text-gray-500">
+            {omitted.map((attachment) => (
+              <li key={attachment.id}>
+                {attachment.file_name}
+                {attachment.is_video ? " (video)" : " (unavailable)"}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 });

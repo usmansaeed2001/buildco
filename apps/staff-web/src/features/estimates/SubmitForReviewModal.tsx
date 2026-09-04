@@ -1,8 +1,13 @@
 /**
- * Sending an estimate to an external reviewer.
+ * Sending an estimate to the team's reviewer.
  *
- * The server mints a single-use token and emails a link; this only collects who it goes
- * to. Two things worth knowing before changing it:
+ * **The recipient is no longer typed here.** It is the single user an admin chooses in
+ * Settings, resolved server-side — `SubmitForReviewRequest` does not carry an address at
+ * all. The typed field it replaced was a silent delivery failure waiting to happen: a
+ * mistyped address means no send is ever attempted, so nothing appears in the mail
+ * provider's dashboard to explain the estimate nobody reviewed.
+ *
+ * So this is a confirmation, not a form. Two things worth knowing before changing it:
  *
  * - Submitting is **not** reversible from here. It freezes the estimate behind a live
  *   approval link, and undoing it means Recall, which invalidates the reviewer's link
@@ -12,14 +17,16 @@
  *   without telling anyone.
  */
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { ApiError } from "@/api/client";
 import { useSubmitForReview } from "@/api/queries/estimates";
+import { useTeamSettings } from "@/api/queries/settings";
 import { Button } from "@/components/Button";
 import { Modal } from "@/components/Modal";
 import { Alert } from "@/components/feedback";
-import { TextField } from "@/components/form";
 import { useToast } from "@/components/Toast";
 import { formatMoney } from "@/domain/money";
+import { displayName } from "@/lib/format";
 import type { Decimal } from "decimal.js";
 
 export function SubmitForReviewModal({
@@ -37,9 +44,10 @@ export function SubmitForReviewModal({
 }) {
   const toast = useToast();
   const submit = useSubmitForReview(estimateId);
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
+  const settings = useTeamSettings();
   const [failure, setFailure] = useState<string | null>(null);
+
+  const reviewer = settings.data?.default_reviewer ?? null;
 
   function close() {
     setFailure(null);
@@ -49,18 +57,13 @@ export function SubmitForReviewModal({
   async function send() {
     setFailure(null);
     try {
-      await submit.mutateAsync({
-        recipient_email: email.trim(),
-        ...(name.trim() ? { recipient_name: name.trim() } : {}),
-      });
-      toast.success(`Sent to ${email.trim()} for review.`);
-      setEmail("");
-      setName("");
+      await submit.mutateAsync({});
+      toast.success(reviewer ? `Sent to ${displayName(reviewer)} for review.` : "Sent for review.");
       onClose();
     } catch (caught) {
-      // Kept in the modal rather than a toast: the reviewer's address is still on
-      // screen and usually needs correcting, which a toast that vanishes cannot help
-      // with.
+      // Kept in the modal rather than a toast. The likeliest failure now is "no reviewer
+      // configured", whose fix is a link the reader needs time to read and follow — a
+      // toast that vanishes cannot carry that.
       setFailure(
         caught instanceof ApiError
           ? caught.message
@@ -68,11 +71,6 @@ export function SubmitForReviewModal({
       );
     }
   }
-
-  // Deliberately loose. The API validates the address properly (`EmailStr`); this only
-  // stops the obviously-empty submission, because a stricter regex here would reject
-  // valid addresses the server accepts.
-  const looksLikeEmail = /.+@.+\..+/.test(email.trim());
 
   return (
     <Modal
@@ -88,7 +86,10 @@ export function SubmitForReviewModal({
           <Button
             variant="primary"
             busy={submit.isPending}
-            disabled={!looksLikeEmail}
+            // Disabled while settings load, and while there is nobody to send to. The
+            // server refuses either way; this just avoids offering a button that cannot
+            // work.
+            disabled={settings.isPending || !reviewer}
             onClick={() => void send()}
           >
             Send for approval
@@ -104,27 +105,24 @@ export function SubmitForReviewModal({
 
         {failure && <Alert tone="danger">{failure}</Alert>}
 
-        <TextField
-          label="Reviewer email"
-          type="email"
-          required
-          autoComplete="email"
-          value={email}
-          placeholder="adjuster@carrier.com"
-          onChange={(event) => setEmail(event.target.value)}
-        />
-
-        <TextField
-          label="Reviewer name"
-          hint="Optional. Used to address the email."
-          value={name}
-          placeholder="Alex Adjuster"
-          onChange={(event) => setName(event.target.value)}
-        />
+        {reviewer ? (
+          <div className="rounded-md bg-gray-50 px-3 py-2.5 ring-1 ring-gray-200">
+            <p className="text-xs font-medium tracking-wide text-gray-500 uppercase">Reviewer</p>
+            <p className="mt-1 text-sm font-medium text-gray-900">{displayName(reviewer)}</p>
+            <p className="truncate text-sm text-gray-500">{reviewer.email}</p>
+          </div>
+        ) : (
+          !settings.isPending && (
+            <Alert tone="warning">
+              No reviewer is set up yet, so there is nobody to send this to. An owner or admin
+              can choose one in <Link to="/settings" className="underline">Settings</Link>.
+            </Alert>
+          )
+        )}
 
         <Alert tone="info">
-          The estimate moves to <strong>Submitted</strong> while it awaits a decision. To edit
-          it again you will need to recall it, which invalidates the reviewer&rsquo;s link.
+          The estimate moves to <strong>Submitted</strong> while it awaits a decision. To edit it
+          again you will need to recall it, which invalidates the reviewer&rsquo;s link.
         </Alert>
       </div>
     </Modal>

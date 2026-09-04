@@ -1,8 +1,11 @@
 /**
  * Meetings.
  *
- * The calendar is **shared across the team** — `GET /meetings` is not role-filtered, so
- * a member sees everything. Creating, updating and deleting are elevated.
+ * The calendar is **no longer shared across the team**. `GET /meetings` returns what you
+ * created and what you were invited to; `scope=all` is honoured only for owners and
+ * admins and silently clamped for everyone else, so the UI hiding that option is a
+ * convenience rather than the mechanism. Anyone may create a meeting; only its creator,
+ * or an elevated user, may change or cancel it.
  *
  * `google_access_token` is a short-lived OAuth token from the Firebase Google provider
  * with the `calendar.events` scope. It is used once, server-side, to create the Meet
@@ -21,6 +24,9 @@ import type { TimeWindow } from "@/domain/calendar";
 
 export interface MeetingFilters extends Partial<TimeWindow> {
   project_id?: string | undefined;
+  /** Whose meetings to return. The server clamps `all` for a non-elevated caller. */
+  scope?: "mine" | "invited" | "all" | undefined;
+  limit?: number | undefined;
 }
 
 export function useMeetings(filters: MeetingFilters) {
@@ -29,6 +35,8 @@ export function useMeetings(filters: MeetingFilters) {
     from: filters.from,
     to: filters.to,
     project_id: filters.project_id,
+    scope: filters.scope,
+    limit: filters.limit,
   };
 
   return useQuery({

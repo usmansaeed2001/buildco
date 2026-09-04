@@ -9,7 +9,7 @@ from typing import Annotated
 
 from pydantic import Field, field_validator
 
-from app.schemas.common import ORMSchema, Schema
+from app.schemas.common import ActorRef, ORMSchema, Schema
 
 Money = Annotated[Decimal, Field(ge=0, max_digits=12, decimal_places=2)]
 
@@ -63,6 +63,10 @@ class TeamSettingsUpdate(Schema):
     custom_units: list[str] | None = Field(default=None, max_length=100)
     custom_categories: list[str] | None = Field(default=None, max_length=100)
     notification_prefs: dict[str, bool] | None = None
+    #: Who every estimate sent for review goes to. ``None`` in a payload means "leave
+    #: unchanged"; clearing it is deliberately not offered, because an unset reviewer
+    #: makes submission fail and there is no reason to want that state on purpose.
+    default_reviewer_id: uuid.UUID | None = None
 
     @field_validator("custom_units", "custom_categories")
     @classmethod
@@ -114,5 +118,8 @@ class TeamSettingsOut(ORMSchema):
     #: Every known key, with absent ones defaulted to enabled — so the client renders a
     #: complete set of switches without having to know the list itself.
     notification_prefs: dict[str, bool] = Field(default_factory=dict)
+    #: Resolved rather than a bare id, so the settings screen and the submit modal can
+    #: both name the reviewer without a second request.
+    default_reviewer: ActorRef | None = None
     updated_at: datetime
     updated_by: uuid.UUID | None = None

@@ -15,9 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.errors import Conflict, Forbidden, NotFound
 from app.logging import get_logger
-from app.models.enums import ELEVATED_ROLES, EstimateStatus, Role
+from app.models.enums import ELEVATED_ROLES, EstimateSort, EstimateStatus, Role
 from app.models.estimate import Estimate
 from app.models.profile import Profile
+from app.services import settings_service
 from app.services.rules import estimate_rules, estimate_totals
 from app.services.rules.estimate_rules import (
     ActorSnapshot,
@@ -83,6 +84,40 @@ class EstimatePage:
     total: int
 
 
+#: How each sort value maps to an ORDER BY.
+#:
+#: Column objects, never strings — a user-supplied value must not reach SQL text, and
+#: FastAPI has already rejected anything outside the enum with a 422 before this is read.
+#:
+#: **Every ordering ends with ``id``.** Timestamps tie — a seeded batch or a bulk import
+#: can share one to the microsecond — and under an unstable sort, LIMIT/OFFSET pagination
+#: can show one row twice and skip another entirely. That reads as data loss and is
+#: miserable to reproduce. ``id`` is a UUID with no natural order, but uniqueness is the
+#: only property a tiebreaker needs.
+_SORT_ORDERS: dict[EstimateSort, tuple[Any, Any]] = {
+    EstimateSort.RECENTLY_CREATED: (Estimate.created_at.desc(), Estimate.id.desc()),
+    EstimateSort.RECENTLY_EDITED: (Estimate.updated_at.desc(), Estimate.id.desc()),
+    EstimateSort.HIGHEST_TOTAL: (Estimate.total_amount.desc(), Estimate.id.desc()),
+    EstimateSort.CLIENT_NAME: (Estimate.client_name.asc(), Estimate.id.asc()),
+}
+
+
+def _sync_total(estimate: Estimate) -> None:
+    """Refresh the denormalised total from ``rooms``.
+
+    Called from every path that writes ``rooms``. There are exactly two, and both assign
+    generically — ``Estimate(**data)`` and a ``setattr`` loop — so there is no hook where
+    this could happen implicitly.
+
+    A SQLAlchemy event listener would be the tempting "cannot be forgotten" option and is
+    the wrong trade: ``rooms`` is a plain JSONB column with no ``MutableList`` wrapper, so
+    in-place mutation is not tracked and a listener keyed on attribute-set would miss
+    those edits *silently*. A forgotten call here is caught by a test; a listener that
+    quietly does not fire is caught by nobody.
+    """
+    estimate.total_amount = estimate_totals.compute(estimate.rooms).total
+
+
 async def list_estimates(
     session: AsyncSession,
     user: Profile,
@@ -90,6 +125,9 @@ async def list_estimates(
     trash: bool = False,
     status: EstimateStatus | None = None,
     query: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    sort: EstimateSort = EstimateSort.RECENTLY_CREATED,
     limit: int = 50,
     offset: int = 0,
 ) -> EstimatePage:
@@ -98,12 +136,24 @@ async def list_estimates(
     ``trash=True`` shows only soft-deleted rows; otherwise they are excluded. The two
     views never mix, which is what keeps a deleted estimate from reappearing in a
     filtered search.
+
+    The date window filters ``created_at``. Both bounds are inclusive instants; the
+    client turns a local date into one, because only the browser knows the viewer's zone.
+
+    ``sort`` defaults to newest-created, which is what this endpoint has always returned.
+    The staff list asks for ``recently_edited`` explicitly rather than that default being
+    moved — people find work by what they touched last, but changing the *server's* answer
+    to an unchanged request would silently reorder the list for every other caller.
     """
     conditions: list[ColumnElement[bool]] = [
         Estimate.deleted_at.is_not(None) if trash else Estimate.deleted_at.is_(None)
     ]
     if status is not None:
         conditions.append(Estimate.status == status.value)
+    if created_from is not None:
+        conditions.append(Estimate.created_at >= created_from)
+    if created_to is not None:
+        conditions.append(Estimate.created_at <= created_to)
     if query:
         like = f"%{query.strip()}%"
         conditions.append(
@@ -122,10 +172,27 @@ async def list_estimates(
         _visible_to(select(func.count()).select_from(Estimate).where(*conditions), user)
     )
 
-    rows = await session.scalars(
-        base.order_by(Estimate.created_at.desc()).limit(limit).offset(offset)
-    )
+    primary, tiebreak = _SORT_ORDERS[sort]
+    rows = await session.scalars(base.order_by(primary, tiebreak).limit(limit).offset(offset))
     return EstimatePage(items=list(rows), total=total or 0)
+
+
+async def list_estimate_ids(session: AsyncSession, user: Profile) -> list[tuple[uuid.UUID, str]]:
+    """Every visible, non-trashed estimate as just ``(id, status)``.
+
+    This exists for the unread dots on the list screen's status chips. A dot has to know
+    what is in the *other* statuses, so it cannot be computed from the page you are
+    looking at — and before pagination the screen simply loaded all 200 rows, which is
+    what made the dots work by accident.
+
+    Ids rather than counts because ``lib/seen.ts`` compares them against a per-browser
+    record of what you have already opened; a count cannot answer "is any of this new to
+    *me*". Two columns and no joins, so it stays cheap as the list grows past a page.
+    """
+    rows = await session.execute(
+        _visible_to(select(Estimate.id, Estimate.status).where(Estimate.deleted_at.is_(None)), user)
+    )
+    return [(row[0], row[1]) for row in rows.all()]
 
 
 async def get_estimate(session: AsyncSession, user: Profile, estimate_id: uuid.UUID) -> Estimate:
@@ -148,11 +215,27 @@ async def get_estimate(session: AsyncSession, user: Profile, estimate_id: uuid.U
 async def create_estimate(session: AsyncSession, user: Profile, data: dict[str, Any]) -> Estimate:
     """Create an estimate owned by the caller.
 
-    The identifier is random and only six digits wide, so a collision — while
+    A generated identifier is random and only six digits wide, so a collision — while
     unlikely — is not impossible once a few thousand estimates exist. Each attempt
     runs inside a SAVEPOINT so a unique violation rolls back only the failed INSERT,
     leaving the surrounding request transaction intact for the retry.
+
+    **A supplied identifier does not retry.** Retrying would mint a fresh one and store
+    that instead, so the caller would get a 201 for a claim ID they never asked for and
+    would not find out until they noticed the field had changed under them. Colliding on
+    a value someone typed is a 409 naming it.
+
+    ``pm_name`` defaults to the creator. Defaulted here rather than in the client because
+    ``POST /estimates`` accepts an empty body, so the browser is not the only caller that
+    can reach this — putting it in the service means every path gets it. An explicitly
+    supplied name always wins; this only fills a blank.
     """
+    if not data.get("pm_name"):
+        data = {**data, "pm_name": user.display_name}
+
+    data = dict(data)
+    supplied_identifier = data.pop("identifier", None)
+
     for attempt in range(5):
         savepoint = await session.begin_nested()
         estimate = Estimate(
@@ -162,7 +245,7 @@ async def create_estimate(session: AsyncSession, user: Profile, data: dict[str, 
             # been queried. Without this, serialising the response would trigger a
             # lazy load from async context and raise MissingGreenlet.
             creator=user,
-            identifier=generate_identifier(),
+            identifier=supplied_identifier or generate_identifier(),
             status=EstimateStatus.ACTIVE.value,
             **data,
         )
@@ -171,12 +254,18 @@ async def create_estimate(session: AsyncSession, user: Profile, data: dict[str, 
             await session.flush()
         except IntegrityError:
             await savepoint.rollback()
+            if supplied_identifier:
+                raise Conflict(
+                    f"Claim ID {supplied_identifier!r} is already used by another estimate."
+                ) from None
             if attempt == 4:
                 raise Conflict(
                     "Could not allocate a unique estimate identifier. Please retry."
                 ) from None
             continue
 
+        _sync_total(estimate)
+        await session.flush()
         log.info("estimate_created", estimate_id=str(estimate.id), by=str(user.id))
         return estimate
 
@@ -203,7 +292,20 @@ async def update_estimate(
 
     for field, value in changes.items():
         setattr(estimate, field, value)
-    await session.flush()
+    if "rooms" in changes:
+        _sync_total(estimate)
+
+    # A savepoint because the identifier is unique and a collision is an *expected*
+    # outcome of an edit, not a bug. Without one the IntegrityError would poison the
+    # surrounding transaction, turning a 409 into a 500. Same reasoning, and the same
+    # shape, as the retry loop in create_estimate.
+    try:
+        async with session.begin_nested():
+            await session.flush()
+    except IntegrityError:
+        raise Conflict(
+            f"Claim ID {changes.get('identifier')!r} is already used by another estimate."
+        ) from None
     return estimate
 
 
@@ -322,6 +424,8 @@ async def apply_transition(
 @dataclass(frozen=True, slots=True)
 class SubmissionResult:
     estimate: Estimate
+    #: Carried out so the router can address the email without re-reading settings.
+    reviewer: Profile
     token: str
     review_url: str
     approve_url: str
@@ -342,13 +446,19 @@ def review_urls(token: str) -> tuple[str, str, str, str]:
 
 
 async def submit_for_review(
-    session: AsyncSession, user: Profile, estimate_id: uuid.UUID, *, recipient_email: str
+    session: AsyncSession, user: Profile, estimate_id: uuid.UUID
 ) -> SubmissionResult:
     """Mint an approval token and mark the estimate as awaiting a decision.
+
+    The recipient is the reviewer configured in Settings, resolved here rather than
+    supplied by the caller — see ``SubmitForReviewRequest``. Resolution happens *before*
+    any mutation, so a team with no reviewer configured gets a 409 and an estimate still
+    in its previous state, rather than one marked ``submitted`` that emailed nobody.
 
     Sending the email is the caller's job, from a background task, so a slow mail
     provider does not hold the request open.
     """
+    reviewer = await settings_service.reviewer_or_error(session)
     estimate = await get_estimate(session, user, estimate_id)
 
     if estimate.is_trashed:
@@ -364,7 +474,7 @@ async def submit_for_review(
     token = generate_approval_token()
     estimate.status = EstimateStatus.SUBMITTED.value
     estimate.approval_token = token
-    estimate.submitted_to = recipient_email
+    estimate.submitted_to = reviewer.email
     estimate.submitted_at = datetime.now(UTC)
     estimate.submitted_by = user.id
     estimate.reviewed_at = None
@@ -376,6 +486,7 @@ async def submit_for_review(
 
     return SubmissionResult(
         estimate=estimate,
+        reviewer=reviewer,
         token=token,
         review_url=review_url,
         approve_url=approve_url,

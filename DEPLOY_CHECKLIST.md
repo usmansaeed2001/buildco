@@ -128,6 +128,26 @@ perfectly healthy service as down.
 
 ---
 
+## 2b. After migrating: check the estimate totals backfilled
+
+**No test covers this and none can.** The suite builds its schema from
+`Base.metadata.create_all` and never runs a migration, so a green run says nothing about
+whether revision `b7c4e1f2a930` filled in `total_amount` for the estimates already in the
+database. If it silently did nothing, every existing estimate sorts as $0 under "Highest
+total" and nothing else looks wrong.
+
+```sql
+-- Should return no rows: an estimate with line items but a zero stored total.
+SELECT identifier, total_amount, jsonb_array_length(rooms) AS rooms
+FROM estimates
+WHERE total_amount = 0 AND jsonb_array_length(rooms) > 0;
+```
+
+Spot-check a couple against what the app shows — the number on the card is computed
+independently, so if they agree the backfill worked.
+
+---
+
 ## 3. Hand-verification, because nothing else does it
 
 No automated test drives a real browser, a real Firebase session, or real Postgres
@@ -164,7 +184,8 @@ Run these against production after a release, or locally before merging somethin
 ### 3.3 Notes parsing, dictation and the report
 
 - [ ] **Parse notes** on an estimate: dictate or type "Kitchen — 200 square feet of
-      drywall at 2.50", parse, and confirm the preview shows a Kitchen room
+      drywall at 2.50", parse, and confirm the preview shows a Kitchen room.
+      **This now runs on OpenAI** — see §5 for `OPEN_AI_API_KEY`
 - [ ] Add it to an estimate that already has rooms; the existing ones survive
 - [ ] Undo takes the parse back
 - [ ] **Dictation is Chromium-only.** In Chrome or Edge the Dictate button appears; in
@@ -177,10 +198,17 @@ Run these against production after a release, or locally before merging somethin
       message should say the parser is unconfigured and that items can still be added by
       hand — not show a raw error
 
-> `GROQ_MODEL` is the thing most likely to break this without warning. Groq retires
-> hosted models without aliasing the old id forward, and a retired id fails **every**
-> call with a 400 saying only that the model does not exist. Currently
-> `openai/gpt-oss-120b`. If parsing suddenly stops working everywhere, check this first.
+> **This moved to OpenAI because of exactly that.** Groq retires hosted models without
+> aliasing the old id forward, and a retired id fails **every** call with a 400 saying
+> only that the model does not exist. It happened twice: `llama-3.3-70b-versatile` was
+> already dead when the environment was first provisioned, and was *still* the value in
+> `apps/api/.env` when parsing was reported broken. The adapter now logs the model id on
+> a provider 400, so the next time it is one log line rather than a guess.
+>
+> Groq remains wired as a fallback for **one release**, so that deploying the code and
+> setting the secret need not happen at the same moment. Once `OPEN_AI_API_KEY` is set
+> everywhere, delete `GROQ_API_KEY`, `GROQ_MODEL`, and the branch in
+> `integrations/ai_provider.py`.
 
 ### 3.4 Projects
 
@@ -237,13 +265,60 @@ app and must not be paraphrased — someone has agreed to those exact sentences.
       the legacy invites
 - [ ] Move the time. An invite *is* re-sent
 - [ ] Cancel it. Attendees receive a cancellation
-- [ ] Sign in as a **member**: they see the whole shared calendar but cannot create,
-      edit or cancel
+- [ ] Sign in as a **member**: they see **only meetings they created or were invited
+      to** — not the whole team's calendar. This reverses the original design; if a
+      member can see an owner's unrelated meeting, the scope filter is broken open
+- [ ] The same member can **create** a meeting, and can edit and cancel that one
+- [ ] They **cannot** edit or cancel a meeting someone else created, even one they are
+      invited to (403, not a hidden button — check the API, not just the UI)
+- [ ] As an owner, the **Everyone** scope shows the whole team; as a member that option
+      is not offered, and adding `?scope=all` to the URL by hand still shows only theirs
+- [ ] **Week, day and year views.** The day and week views are an hour grid: drag across
+      it to create a meeting at those times, and check a plain click also works
+- [ ] Tab into the day grid and press Enter — a meeting can be created without a mouse
 
 > **Google Meet links need §1.3.** Without a Google sign-in carrying the
 > `calendar.events` scope, meetings are created with no Meet link — which is normal, not
 > a failure, and the form says so. In Testing mode the refresh token expires after
 > **7 days**, so this will stop working periodically until the OAuth app is verified.
+
+### 3.6b Reviewer, pagination and the report
+
+- [ ] **Settings → Reviewer**: choose someone. Any user is selectable, including a
+      `member` — that is deliberate, approval is authorised by the emailed token rather
+      than by a role
+- [ ] Send an estimate for review. The modal **names** the reviewer rather than asking
+      for an address, and the mail arrives at that person's account email
+- [ ] Clear the reviewer (or test on a fresh database) and try to submit: it fails with a
+      message pointing at Settings, and the estimate stays `active` rather than being
+      marked submitted with nothing sent
+- [ ] **New estimate** now asks for a name before it creates anything. Create one with a
+      name, a client and a claim ID, and confirm the card on the list shows that name
+- [ ] Create one with the claim ID left blank: a `CLM-######` is generated
+- [ ] Try a claim ID that already exists: it is refused with a message naming it, and
+      **no estimate is created under a different number**. This is the failure the change
+      exists to prevent — silently renumbering what somebody typed
+- [ ] A claim ID with spaces (`Self Pay`) is accepted. That is deliberate; the identifiers
+      already in the database look like that
+- [ ] Rows created by the old flow read **Untitled · CLM-…** rather than all saying
+      "New Estimate"
+- [ ] The card shows **Edited …**, and it changes after you edit that estimate
+- [ ] An estimate with no rooms says **Not priced yet** rather than $0.00
+- [ ] **Sort**: all four orders work. "Highest total" reflects an edit made *after*
+      creation — that is the one that catches a stale stored total
+- [ ] **Row menu** on a card: Archive (owners/admins only — check a member does not see
+      it) and Delete, which confirms first and lands in Trash
+- [ ] Opening the row menu does **not** open the estimate
+- [ ] **New estimate**: the Project manager field is pre-filled with your own name
+- [ ] The estimate editor's second tab reads **Supplement Details**, not Project Details
+- [ ] **Estimates list**: page through with Previous/Next; the count is the total, not
+      the page. Narrow it with the date pickers and confirm paging resets to the first
+      page
+- [ ] The unread dots on the status chips still light for statuses that are **not** on
+      the current page — they are fed by `GET /estimates/ids`, not by the list
+- [ ] **Report → Download PDF** on an estimate with photos: the photos are in the file.
+      Reload first, so the images are fetched cold — that is the case that used to
+      rasterise as empty boxes *(needs §1.2 released)*
 
 ### 3.7 Team, profile and settings
 
@@ -314,7 +389,9 @@ editing `cloudbuild.yaml` will not do it.
 | `RESEND_API_KEY` | Secret Manager `resend-key` | §1.1 |
 | `NOTIFY_FROM_EMAIL` | Cloud Run env var | §1.1 |
 | *(no new config)* | — | Phase 8 added two tables but no new environment variables or secrets. |
-| `GROQ_MODEL` | Cloud Run env var | Groq retires hosted models without aliasing the old id forward. A retired id fails every call with a 400 saying only that the model does not exist. Currently `openai/gpt-oss-120b` |
+| `OPEN_AI_API_KEY` | Secret Manager | Note the spelling — **not** `OPENAI_API_KEY`. Unset means `POST /ai/parse-estimate` falls back to Groq, and 503s if that is unset too |
+| `OPENAI_MODEL` | Cloud Run env var | Defaults to `gpt-4o-mini` |
+| `GROQ_MODEL` / `GROQ_API_KEY` | Cloud Run env var / Secret Manager | **Fallback only, for one release.** Remove both once OpenAI is configured everywhere |
 | `SITE_URL` | Secret Manager `site-url` | Reviewer links are built from it. Wrong value = links to the wrong host |
 | `GCS_ATTACHMENTS_BUCKET` / `GCS_AVATARS_BUCKET` | Cloud Run env vars | Unset means download URLs come back `null` and uploads 503 |
 

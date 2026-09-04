@@ -16,9 +16,18 @@ import {
   fromDateTimeInputs,
   groupByDay,
   localDayKey,
+  addYears,
+  assignColumns,
+  minutesSinceMidnight,
   monthGrid,
   monthWindow,
+  slotFromOffset,
+  snapToSlot,
   startOfDay,
+  weekGrid,
+  weekWindow,
+  yearGrid,
+  yearWindow,
   toDateInput,
   toTimeInput,
   WEEKDAY_LABELS,
@@ -232,5 +241,233 @@ describe("form values", () => {
     expect(addHour("14:00")).toBe("15:00");
     expect(addHour("23:30")).toBe("00:30");
     expect(addHour("09:05")).toBe("10:05");
+  });
+});
+
+// ── Week and year grids ──────────────────────────────────────────────────────
+
+describe("weekGrid", () => {
+  it("returns seven days starting on Sunday", () => {
+    const week = weekGrid(new Date(2026, 2, 4)); // A Wednesday.
+
+    expect(week).toHaveLength(7);
+    expect(week[0]!.date.getDay()).toBe(0);
+    expect(week[0]!.key).toBe("2026-03-01");
+    expect(week[6]!.key).toBe("2026-03-07");
+  });
+
+  it("spans a month boundary rather than stopping at it", () => {
+    const week = weekGrid(new Date(2026, 2, 31)); // Tuesday 31 March.
+
+    expect(week[0]!.key).toBe("2026-03-29");
+    expect(week[6]!.key).toBe("2026-04-04");
+    // `inMonth` is relative to the anchor, so April's days read as borrowed.
+    expect(week[6]!.inMonth).toBe(false);
+  });
+
+  it("marks today", () => {
+    const week = weekGrid(new Date(2026, 2, 4), new Date(2026, 2, 6));
+
+    expect(week.filter((day) => day.isToday).map((day) => day.key)).toEqual(["2026-03-06"]);
+  });
+});
+
+describe("yearGrid", () => {
+  it("returns twelve months of the anchor's year", () => {
+    const year = yearGrid(new Date(2026, 6, 15));
+
+    expect(year).toHaveLength(12);
+    expect(year[0]!.month.getMonth()).toBe(0);
+    expect(year[11]!.month.getMonth()).toBe(11);
+    expect(year.every((entry) => entry.month.getFullYear() === 2026)).toBe(true);
+  });
+
+  it("gives every month a full six-week grid, as the month view does", () => {
+    const year = yearGrid(new Date(2026, 0, 1));
+
+    expect(year.every((entry) => entry.weeks.length === 6)).toBe(true);
+  });
+
+  it("handles a leap February", () => {
+    const february = yearGrid(new Date(2028, 0, 1))[1]!;
+    const days = february.weeks.flat().filter((day) => day.inMonth);
+
+    expect(days).toHaveLength(29);
+  });
+});
+
+describe("weekWindow", () => {
+  it("spans Sunday midnight to the next Sunday midnight", () => {
+    const window = weekWindow(new Date(2026, 2, 4, 13, 30));
+
+    expect(new Date(window.from).getDay()).toBe(0);
+    expect(new Date(window.from).getHours()).toBe(0);
+    const days = (new Date(window.to).getTime() - new Date(window.from).getTime()) / 86_400_000;
+    // 7, or 6.958…/7.042 across a DST change — the boundary must stay a local midnight.
+    expect(days).toBeGreaterThan(6.9);
+    expect(days).toBeLessThan(7.1);
+  });
+});
+
+describe("yearWindow", () => {
+  it("spans 1 January to the following 1 January", () => {
+    const window = yearWindow(new Date(2026, 6, 15));
+
+    expect(new Date(window.from).getFullYear()).toBe(2026);
+    expect(new Date(window.from).getMonth()).toBe(0);
+    expect(new Date(window.to).getFullYear()).toBe(2027);
+  });
+});
+
+describe("addYears", () => {
+  it("steps the year without landing on a date that does not exist", () => {
+    // 29 February plus one year is not a date. Anchoring to 1 January sidesteps it.
+    expect(addYears(new Date(2028, 1, 29), 1).getFullYear()).toBe(2029);
+    expect(addYears(new Date(2028, 1, 29), 1).getMonth()).toBe(0);
+  });
+});
+
+// ── The time grid ────────────────────────────────────────────────────────────
+
+describe("snapToSlot", () => {
+  it("rounds to the nearest quarter hour", () => {
+    expect(snapToSlot(0)).toBe(0);
+    expect(snapToSlot(7)).toBe(0);
+    expect(snapToSlot(8)).toBe(15);
+    expect(snapToSlot(52)).toBe(45);
+    expect(snapToSlot(60)).toBe(60);
+  });
+
+  it("clamps to the day rather than running past midnight", () => {
+    expect(snapToSlot(-30)).toBe(0);
+    expect(snapToSlot(24 * 60 + 90)).toBe(24 * 60);
+  });
+});
+
+describe("minutesSinceMidnight", () => {
+  it("reads local wall-clock time, not UTC", () => {
+    expect(minutesSinceMidnight(new Date(2026, 2, 1, 14, 30))).toBe(870);
+  });
+
+  it("returns zero for an unparseable value rather than NaN", () => {
+    // NaN would propagate into a CSS `top` and blank the whole grid.
+    expect(minutesSinceMidnight("not a date")).toBe(0);
+  });
+});
+
+describe("slotFromOffset", () => {
+  it("turns a pixel offset into a snapped wall-clock time", () => {
+    const at = slotFromOffset(600, 1, new Date(2026, 2, 1));
+
+    expect(at.getHours()).toBe(10);
+    expect(at.getMinutes()).toBe(0);
+  });
+
+  it("round-trips with minutesSinceMidnight at any scale", () => {
+    const at = slotFromOffset(48 * 14.5, 48 / 60, new Date(2026, 2, 1));
+
+    expect(minutesSinceMidnight(at)).toBe(snapToSlot(14.5 * 60));
+  });
+});
+
+describe("assignColumns", () => {
+  const at = (start: string, end: string) => ({ start_time: start, end_time: end });
+
+  it("gives a lone meeting the full width", () => {
+    const placed = assignColumns([at("2026-03-01T10:00:00Z", "2026-03-01T11:00:00Z")]);
+
+    expect(placed[0]!.column).toBe(0);
+    expect(placed[0]!.columnCount).toBe(1);
+  });
+
+  it("returns nothing for an empty day", () => {
+    expect(assignColumns([])).toEqual([]);
+  });
+
+  it("splits two overlapping meetings into two columns", () => {
+    const placed = assignColumns([
+      at("2026-03-01T10:00:00Z", "2026-03-01T11:00:00Z"),
+      at("2026-03-01T10:30:00Z", "2026-03-01T11:30:00Z"),
+    ]);
+
+    expect(placed.map((p) => p.column)).toEqual([0, 1]);
+    expect(placed.every((p) => p.columnCount === 2)).toBe(true);
+  });
+
+  it("keeps back-to-back meetings full width", () => {
+    // The most common shape on a working calendar. Treating a shared boundary as an
+    // overlap would halve the width of an ordinary day.
+    const placed = assignColumns([
+      at("2026-03-01T10:00:00Z", "2026-03-01T11:00:00Z"),
+      at("2026-03-01T11:00:00Z", "2026-03-01T12:00:00Z"),
+    ]);
+
+    expect(placed.every((p) => p.columnCount === 1)).toBe(true);
+  });
+
+  it("stacks a three-way overlap into three columns", () => {
+    const placed = assignColumns([
+      at("2026-03-01T10:00:00Z", "2026-03-01T12:00:00Z"),
+      at("2026-03-01T10:30:00Z", "2026-03-01T12:00:00Z"),
+      at("2026-03-01T11:00:00Z", "2026-03-01T12:00:00Z"),
+    ]);
+
+    expect(placed.map((p) => p.column)).toEqual([0, 1, 2]);
+    expect(placed.every((p) => p.columnCount === 3)).toBe(true);
+  });
+
+  it("handles a transitive chain: A-B and B-C overlap, A-C do not", () => {
+    // The case a naive "count what is concurrent right now" gets wrong. All three are
+    // one connected cluster, so all three are sized against it — but A and C can share
+    // a column, because they do not actually overlap.
+    const placed = assignColumns([
+      at("2026-03-01T10:00:00Z", "2026-03-01T11:00:00Z"),
+      at("2026-03-01T10:30:00Z", "2026-03-01T12:00:00Z"),
+      at("2026-03-01T11:30:00Z", "2026-03-01T13:00:00Z"),
+    ]);
+
+    expect(placed.map((p) => p.column)).toEqual([0, 1, 0]);
+    expect(placed.every((p) => p.columnCount === 2)).toBe(true);
+  });
+
+  it("sizes each cluster independently", () => {
+    // A pile-up in the morning must not narrow an unrelated meeting in the afternoon.
+    const placed = assignColumns([
+      at("2026-03-01T09:00:00Z", "2026-03-01T10:00:00Z"),
+      at("2026-03-01T09:00:00Z", "2026-03-01T10:00:00Z"),
+      at("2026-03-01T09:00:00Z", "2026-03-01T10:00:00Z"),
+      at("2026-03-01T16:00:00Z", "2026-03-01T17:00:00Z"),
+    ]);
+
+    expect(placed.slice(0, 3).every((p) => p.columnCount === 3)).toBe(true);
+    expect(placed[3]!.columnCount).toBe(1);
+  });
+
+  it("sorts by start time regardless of input order", () => {
+    const placed = assignColumns([
+      at("2026-03-01T14:00:00Z", "2026-03-01T15:00:00Z"),
+      at("2026-03-01T09:00:00Z", "2026-03-01T10:00:00Z"),
+    ]);
+
+    expect(placed[0]!.item.start_time).toBe("2026-03-01T09:00:00Z");
+  });
+
+  it("puts the shorter of two meetings starting together in the first column", () => {
+    const placed = assignColumns([
+      at("2026-03-01T10:00:00Z", "2026-03-01T14:00:00Z"),
+      at("2026-03-01T10:00:00Z", "2026-03-01T11:00:00Z"),
+    ]);
+
+    expect(placed[0]!.item.end_time).toBe("2026-03-01T11:00:00Z");
+  });
+
+  it("nests a short meeting inside a long one without losing either", () => {
+    const placed = assignColumns([
+      at("2026-03-01T09:00:00Z", "2026-03-01T17:00:00Z"),
+      at("2026-03-01T12:00:00Z", "2026-03-01T13:00:00Z"),
+    ]);
+
+    expect(placed).toHaveLength(2);
+    expect(placed.map((p) => p.column)).toEqual([0, 1]);
   });
 });

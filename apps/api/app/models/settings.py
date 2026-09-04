@@ -17,12 +17,15 @@ from __future__ import annotations
 # so uuid cannot hide under TYPE_CHECKING.
 import uuid
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import ForeignKey, Numeric, String, Text, Uuid, text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, JSONBType, TimestampMixin, UUIDPrimaryKey
+
+if TYPE_CHECKING:
+    from app.models.profile import Profile
 
 #: The single row's primary key.
 #:
@@ -57,9 +60,13 @@ class CatalogueItem(Base, UUIDPrimaryKey, TimestampMixin):
 class TeamSettings(Base, TimestampMixin):
     """The one row of shared preferences.
 
-    Everything here is JSONB rather than columns, because all three are lists or maps
-    that the UI owns and that will grow: a new notification toggle should not be a
-    migration.
+    The three JSONB fields are lists or maps that the UI owns and that will grow: a new
+    notification toggle should not be a migration.
+
+    ``default_reviewer_id`` is deliberately the exception. It is a real column with a
+    real foreign key, because it names a *row in another table* rather than a bag of
+    UI-owned values — a reviewer id inside JSONB could point at a profile that no longer
+    exists, and the first anyone would learn of it is a submission that emails nobody.
     """
 
     __tablename__ = "team_settings"
@@ -80,6 +87,22 @@ class TeamSettings(Base, TimestampMixin):
         JSONBType, server_default=text("'{}'"), default=dict, nullable=False
     )
 
+    #: Who receives every estimate sent for review.
+    #:
+    #: Any active profile, deliberately including a member: the team decides who signs
+    #: off, and that is not the same question as who may administer the app. ``SET NULL``
+    #: on delete rather than cascade — losing the reviewer must not delete the settings
+    #: row; submission then fails loudly and an admin picks someone new.
+    default_reviewer_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")
+    )
+
     updated_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")
+    )
+
+    #: Eager: the settings row is always serialised with the reviewer's name and email,
+    #: and a lazy load would fire from async context after the session has moved on.
+    default_reviewer: Mapped[Profile | None] = relationship(
+        "Profile", foreign_keys=[default_reviewer_id], lazy="selectin"
     )

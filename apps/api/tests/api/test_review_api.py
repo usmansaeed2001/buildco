@@ -13,7 +13,12 @@ from app.services import estimate_service
 
 
 async def submitted_estimate(owner_client, db) -> Estimate:
-    """Create an estimate, send it for review, and return it with its token."""
+    """Create an estimate, send it for review, and return it with its token.
+
+    Callers must also request the ``reviewer`` fixture: the recipient is the user
+    configured in Settings, not an address in the payload, so submission 409s without
+    one.
+    """
     estimate = (
         await owner_client.post(
             "/api/v1/estimates",
@@ -32,7 +37,7 @@ async def submitted_estimate(owner_client, db) -> Estimate:
 
     result = await owner_client.post(
         f"/api/v1/estimates/{estimate['id']}/submit",
-        json={"recipient_email": "adjuster@acme-insurance.example.com", "recipient_name": "Alex"},
+        json={},
     )
     assert result.status_code == 200, result.text
 
@@ -48,49 +53,91 @@ async def submitted_estimate(owner_client, db) -> Estimate:
 # ── Submission ────────────────────────────────────────────────────────────────
 
 
-async def test_submitting_marks_the_estimate_and_returns_a_review_url(owner_client):
+async def test_submitting_marks_the_estimate_and_returns_a_review_url(owner_client, reviewer):
     estimate = (await owner_client.post("/api/v1/estimates", json={"project_name": "X"})).json()
 
     response = await owner_client.post(
         f"/api/v1/estimates/{estimate['id']}/submit",
-        json={"recipient_email": "adjuster@acme-insurance.example.com"},
+        json={},
     )
     body = response.json()
 
     assert body["estimate"]["status"] == "submitted"
-    assert body["estimate"]["submitted_to"] == "adjuster@acme-insurance.example.com"
+    assert body["estimate"]["submitted_to"] == reviewer.email
     assert "/review/" in body["review_url"]
 
 
-async def test_submitting_emails_the_reviewer(owner_client, notifications):
+async def test_submitting_emails_the_reviewer(owner_client, notifications, reviewer):
     estimate = (await owner_client.post("/api/v1/estimates", json={"project_name": "X"})).json()
 
     await owner_client.post(
         f"/api/v1/estimates/{estimate['id']}/submit",
-        json={"recipient_email": "adjuster@acme-insurance.example.com"},
+        json={},
     )
 
-    reviewer_mail = [
-        s for s in notifications.sent if s.recipient == "adjuster@acme-insurance.example.com"
-    ]
+    reviewer_mail = [s for s in notifications.sent if s.recipient == reviewer.email]
     assert len(reviewer_mail) == 1
     assert reviewer_mail[0].template == "estimate_review_request.html"
 
 
-async def test_an_estimate_awaiting_a_decision_cannot_be_resubmitted(owner_client):
+async def test_an_estimate_awaiting_a_decision_cannot_be_resubmitted(owner_client, reviewer):
     """Minting a second token would silently orphan the first reviewer's link."""
     estimate = (await owner_client.post("/api/v1/estimates", json={"project_name": "X"})).json()
     await owner_client.post(
         f"/api/v1/estimates/{estimate['id']}/submit",
-        json={"recipient_email": "a@acme-insurance.example.com"},
+        json={},
     )
 
     second = await owner_client.post(
         f"/api/v1/estimates/{estimate['id']}/submit",
-        json={"recipient_email": "b@acme-insurance.example.com"},
+        json={},
     )
 
     assert second.status_code == 409
+
+
+async def test_submitting_with_no_reviewer_configured_is_refused(owner_client):
+    """Loudly, and before anything is written.
+
+    The recipient used to be typed per submission, so "no reviewer" was not a reachable
+    state. Now it is, and the failure has to be visible: silently marking an estimate
+    ``submitted`` while emailing nobody is exactly the class of bug that moving the
+    address out of the payload exists to remove.
+    """
+    estimate = (await owner_client.post("/api/v1/estimates", json={"project_name": "X"})).json()
+
+    response = await owner_client.post(f"/api/v1/estimates/{estimate['id']}/submit", json={})
+
+    assert response.status_code == 409
+    assert "Settings" in response.json()["error"]["message"]
+
+
+async def test_a_refused_submission_leaves_the_estimate_untouched(owner_client, db):
+    """Resolution happens before any mutation, so a 409 is not a half-submitted estimate."""
+    estimate = (await owner_client.post("/api/v1/estimates", json={"project_name": "X"})).json()
+
+    await owner_client.post(f"/api/v1/estimates/{estimate['id']}/submit", json={})
+
+    row = await db.get(Estimate, uuid.UUID(estimate["id"]))
+    assert row is not None
+    assert row.status == "active"
+    assert row.approval_token is None
+
+
+async def test_the_client_cannot_choose_its_own_reviewer(owner_client, reviewer, admin):
+    """A recipient in the payload is rejected outright, not accepted and ignored.
+
+    DEVELOPMENT_GUIDELINES §2: a field a client must never set does not appear on the
+    request model. Silently dropping it would let a caller believe it had taken effect.
+    """
+    estimate = (await owner_client.post("/api/v1/estimates", json={"project_name": "X"})).json()
+
+    response = await owner_client.post(
+        f"/api/v1/estimates/{estimate['id']}/submit",
+        json={"recipient_email": admin.email},
+    )
+
+    assert response.status_code == 422
 
 
 async def test_the_approval_token_is_long_and_random():
@@ -103,7 +150,9 @@ async def test_the_approval_token_is_long_and_random():
 # ── Reading a review ──────────────────────────────────────────────────────────
 
 
-async def test_a_reviewer_can_read_the_estimate_without_signing_in(owner_client, anon_client, db):
+async def test_a_reviewer_can_read_the_estimate_without_signing_in(
+    owner_client, anon_client, db, reviewer
+):
     estimate = await submitted_estimate(owner_client, db)
 
     response = await anon_client.get(f"/api/v1/public/reviews/{estimate.approval_token}")
@@ -116,7 +165,9 @@ async def test_a_reviewer_can_read_the_estimate_without_signing_in(owner_client,
     assert body["rooms"][0]["items"][0]["total"] == "250.00"
 
 
-async def test_the_reviewer_payload_exposes_no_internal_identifiers(owner_client, anon_client, db):
+async def test_the_reviewer_payload_exposes_no_internal_identifiers(
+    owner_client, anon_client, db, reviewer
+):
     estimate = await submitted_estimate(owner_client, db)
 
     body = (await anon_client.get(f"/api/v1/public/reviews/{estimate.approval_token}")).json()
@@ -138,7 +189,9 @@ async def test_an_unknown_token_is_a_404(anon_client):
 # ── Decisions ─────────────────────────────────────────────────────────────────
 
 
-async def test_approving_records_the_decision_and_spends_the_link(owner_client, anon_client, db):
+async def test_approving_records_the_decision_and_spends_the_link(
+    owner_client, anon_client, db, reviewer
+):
     estimate = await submitted_estimate(owner_client, db)
     token = estimate.approval_token
 
@@ -150,7 +203,7 @@ async def test_approving_records_the_decision_and_spends_the_link(owner_client, 
     assert (await anon_client.get(f"/api/v1/public/reviews/{token}")).status_code == 404
 
 
-async def test_rejecting_records_the_decision(owner_client, anon_client, db):
+async def test_rejecting_records_the_decision(owner_client, anon_client, db, reviewer):
     estimate = await submitted_estimate(owner_client, db)
 
     response = await anon_client.post(f"/api/v1/public/reviews/{estimate.approval_token}/reject")
@@ -159,7 +212,7 @@ async def test_rejecting_records_the_decision(owner_client, anon_client, db):
 
 
 async def test_a_decision_notifies_the_admins_and_the_submitter(
-    owner_client, anon_client, db, notifications, owner
+    owner_client, anon_client, db, notifications, owner, reviewer
 ):
     estimate = await submitted_estimate(owner_client, db)
     notifications.sent.clear()
@@ -171,7 +224,7 @@ async def test_a_decision_notifies_the_admins_and_the_submitter(
     assert any(s.recipient == owner.email for s in notifications.sent)
 
 
-async def test_approving_is_not_reachable_by_a_get(owner_client, anon_client, db):
+async def test_approving_is_not_reachable_by_a_get(owner_client, anon_client, db, reviewer):
     """As a GET link this mutated state on any prefetch — an email client or scanner
     that followed the URL approved the estimate on the reviewer's behalf."""
     estimate = await submitted_estimate(owner_client, db)
@@ -185,7 +238,7 @@ async def test_approving_is_not_reachable_by_a_get(owner_client, anon_client, db
 
 
 async def test_requesting_changes_records_the_notes_and_keeps_the_link_alive(
-    owner_client, anon_client, db
+    owner_client, anon_client, db, reviewer
 ):
     estimate = await submitted_estimate(owner_client, db)
     token = estimate.approval_token
@@ -203,7 +256,7 @@ async def test_requesting_changes_records_the_notes_and_keeps_the_link_alive(
 
 
 async def test_requesting_changes_emails_the_submitter_with_the_notes(
-    owner_client, anon_client, db, notifications, owner
+    owner_client, anon_client, db, notifications, owner, reviewer
 ):
     estimate = await submitted_estimate(owner_client, db)
     notifications.sent.clear()
@@ -218,7 +271,7 @@ async def test_requesting_changes_emails_the_submitter_with_the_notes(
     assert "carpet removal" in to_submitter[0].context["callout_body"]
 
 
-async def test_empty_change_notes_are_rejected(owner_client, anon_client, db):
+async def test_empty_change_notes_are_rejected(owner_client, anon_client, db, reviewer):
     estimate = await submitted_estimate(owner_client, db)
 
     response = await anon_client.post(
@@ -229,7 +282,7 @@ async def test_empty_change_notes_are_rejected(owner_client, anon_client, db):
     assert response.status_code == 422
 
 
-async def test_an_already_decided_estimate_reports_gone(owner_client, anon_client, db):
+async def test_an_already_decided_estimate_reports_gone(owner_client, anon_client, db, reviewer):
     estimate = await submitted_estimate(owner_client, db)
     token = estimate.approval_token
     await anon_client.post(
@@ -248,7 +301,9 @@ async def test_an_already_decided_estimate_reports_gone(owner_client, anon_clien
 # ── Recall invalidates the link ───────────────────────────────────────────────
 
 
-async def test_recalling_an_estimate_invalidates_the_reviewers_link(owner_client, anon_client, db):
+async def test_recalling_an_estimate_invalidates_the_reviewers_link(
+    owner_client, anon_client, db, reviewer
+):
     estimate = await submitted_estimate(owner_client, db)
     token = estimate.approval_token
 

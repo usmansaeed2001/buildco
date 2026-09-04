@@ -7,16 +7,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.errors import NotFound, ValidationFailed
+from app.errors import Forbidden, NotFound, ValidationFailed
 from app.logging import get_logger
+from app.models.enums import ELEVATED_ROLES, MeetingScope, Role
 from app.models.meeting import Meeting, MeetingAttendee
 from app.models.profile import Profile
 from app.services.integrations import calendar
 from app.services.integrations.calendar import IcsAttendee
+from app.services.rules import meeting_rules
 
 log = get_logger(__name__)
 
@@ -119,17 +121,33 @@ def _build_bundle(
 
 async def list_meetings(
     session: AsyncSession,
+    actor: Profile,
     *,
+    scope: MeetingScope = MeetingScope.ALL,
     start_after: datetime | None = None,
     start_before: datetime | None = None,
     project_id: uuid.UUID | None = None,
     limit: int = 200,
     offset: int = 0,
 ) -> list[Meeting]:
-    """Meetings in ascending time order, optionally windowed for a calendar view.
+    """Meetings in ascending time order, windowed and scoped for a calendar view.
 
-    Not filtered by role: the team calendar is shared, and a member needs to see the
-    meetings around their own to make sense of the week.
+    **This used to return the whole team's calendar to everyone, deliberately.** It no
+    longer does: a meeting now reaches a non-elevated user only if they created it or
+    were invited to it. If you are here because the docstring you remember said the
+    opposite, that was true until the visibility filter was added — do not "fix" it back.
+
+    ``scope=all`` is honoured for owners and admins. For anyone else it is *clamped* to
+    the union of mine-and-invited rather than refused, which is what
+    ``project_service.list_projects`` already does for a member asking for every project.
+    A stale client bundle then narrows safely instead of turning the calendar into an
+    error page.
+
+    ``ALL`` is the default for the same reason: an elevated caller that sends no scope
+    gets exactly the old behaviour, and a non-elevated one that sends none is clamped
+    anyway — so omitting the parameter can never leak. Defaulting to ``MINE`` would be
+    worse, not safer: a member cannot create meetings they are not also invited to in
+    every normal flow, so the unset case would render an empty calendar and look broken.
     """
     conditions = []
     if start_after is not None:
@@ -139,17 +157,61 @@ async def list_meetings(
     if project_id is not None:
         conditions.append(Meeting.project_id == project_id)
 
+    mine = Meeting.created_by == actor.id
+    invited = Meeting.id.in_(
+        select(MeetingAttendee.meeting_id).where(MeetingAttendee.user_id == actor.id)
+    )
+    if scope is MeetingScope.MINE:
+        conditions.append(mine)
+    elif scope is MeetingScope.INVITED:
+        conditions.append(invited)
+    elif Role(actor.role) not in ELEVATED_ROLES:
+        conditions.append(or_(mine, invited))
+
     rows = await session.scalars(
         select(Meeting).where(*conditions).order_by(Meeting.start_time).limit(limit).offset(offset)
     )
     return list(rows)
 
 
-async def get_meeting(session: AsyncSession, meeting_id: uuid.UUID) -> Meeting:
+def _snapshot(meeting: Meeting) -> meeting_rules.MeetingSnapshot:
+    return meeting_rules.MeetingSnapshot(
+        created_by=meeting.created_by,
+        attendee_ids=frozenset(a.user_id for a in meeting.attendees if a.user_id is not None),
+    )
+
+
+def _actor(profile: Profile) -> meeting_rules.ActorSnapshot:
+    return meeting_rules.ActorSnapshot(id=profile.id, role=Role(profile.role))
+
+
+async def get_meeting(session: AsyncSession, actor: Profile, meeting_id: uuid.UUID) -> Meeting:
+    """Load a meeting the actor is allowed to see.
+
+    A meeting they may not see is a **404, not a 403**: its existence is itself
+    privileged, and 403 would confirm that a meeting with that id exists. Same rule, and
+    the same reasoning, as ``deps.require_project_access``.
+
+    ``attendees`` is ``lazy="selectin"``, so the membership check costs no extra query.
+    """
     meeting = await session.get(Meeting, meeting_id)
     if meeting is None:
         raise NotFound("Meeting not found.")
+    if not meeting_rules.can_view(_actor(actor), _snapshot(meeting)):
+        raise NotFound("Meeting not found.")
     return meeting
+
+
+def require_manageable(actor: Profile, meeting: Meeting) -> None:
+    """Guard editing and cancelling.
+
+    403 here, not 404, and the difference is deliberate: the caller has already passed
+    ``get_meeting``, so they can legitimately see this meeting — they were invited to
+    it. They simply may not move it. Hiding it at this point would be a lie about
+    something they are looking at.
+    """
+    if not meeting_rules.can_manage(_actor(actor), _snapshot(meeting)):
+        raise Forbidden("You can only change meetings you created.")
 
 
 # ── Writes ────────────────────────────────────────────────────────────────────

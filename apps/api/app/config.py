@@ -89,7 +89,20 @@ class Settings(BaseSettings):
     # ── Slack ─────────────────────────────────────────────────────────────────
     slack_webhook_url: str | None = None
 
-    # ── AI (Groq) ─────────────────────────────────────────────────────────────
+    # ── AI note parsing ───────────────────────────────────────────────────────
+    #
+    # OpenAI is the primary provider. Groq remains configured as a fallback for one
+    # release: deploying the code and setting the secret are separate acts here, so a
+    # hard cutover would leave the parser dead in the window between them. Once
+    # OPEN_AI_API_KEY is set in every environment, the Groq settings and the branch in
+    # ``integrations/ai_provider`` come out.
+    #
+    # Spelled OPEN_AI_API_KEY, not OPENAI_API_KEY, to match what is actually set in the
+    # environment. Renaming it "correctly" would silently unconfigure the parser.
+    open_ai_api_key: str | None = None
+    openai_model: str = "gpt-4o-mini"
+    openai_base_url: str = "https://api.openai.com/v1"
+
     groq_api_key: str | None = None
     #: Groq retires hosted models on its own schedule and does not keep the old
     #: name working — a retired id fails every call with a 400 that only says the

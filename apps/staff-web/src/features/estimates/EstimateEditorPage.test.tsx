@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders } from "@/test/utils";
-import { makeEstimate, makeTotals, makeUser } from "@/test/factories";
+import { makeEstimate, makeSettings, makeTotals, makeUser } from "@/test/factories";
 import { server } from "@/test/msw/server";
 import { apiError, url } from "@/test/msw/handlers";
 import type { EstimateOut } from "@/api/types";
@@ -264,7 +264,7 @@ describe("EstimateEditorPage", () => {
       const { user } = renderEditor();
       await waitForEditor();
 
-      await user.click(screen.getByRole("tab", { name: "Project Details" }));
+      await user.click(screen.getByRole("tab", { name: "Supplement Details" }));
       await user.clear(screen.getByLabelText("Client name"));
       await user.type(screen.getByLabelText("Client name"), "Alex Client");
       await vi.advanceTimersByTimeAsync(1200);
@@ -278,7 +278,7 @@ describe("EstimateEditorPage", () => {
       const { user } = renderEditor();
       await waitForEditor();
 
-      await user.click(screen.getByRole("tab", { name: "Project Details" }));
+      await user.click(screen.getByRole("tab", { name: "Supplement Details" }));
 
       expect(screen.getByLabelText("Claim ID")).toHaveValue("CLM-100200");
       expect(screen.getByLabelText("Claim ID")).toHaveAttribute("readonly");
@@ -701,7 +701,10 @@ describe("EstimateEditorPage", () => {
   });
 
   describe("submitting for review", () => {
-    it("offers the button on an active estimate and sends the recipient", async () => {
+    it("sends without asking who it goes to", async () => {
+      // The recipient used to be typed here. It is now the user chosen in Settings and
+      // resolved server-side, so the payload carries no address at all — a mistyped one
+      // was a delivery failure that left no trace anywhere.
       serveEstimate(estimateWith());
       const bodies: Record<string, unknown>[] = [];
       server.use(
@@ -718,55 +721,45 @@ describe("EstimateEditorPage", () => {
       await waitForEditor();
 
       await user.click(screen.getByRole("button", { name: "Send for approval" }));
-      await user.type(screen.getByLabelText(/Reviewer email/), "adjuster@carrier.com");
-      await user.type(screen.getByLabelText(/Reviewer name/), "Alex Adjuster");
+      await screen.findByText("Rita Reviewer");
       await user.click(screen.getAllByRole("button", { name: "Send for approval" })[1]!);
 
       await waitFor(() => expect(bodies).toHaveLength(1));
-      expect(bodies[0]).toEqual({
-        recipient_email: "adjuster@carrier.com",
-        recipient_name: "Alex Adjuster",
-      });
+      expect(bodies[0]).toEqual({});
     });
 
-    it("omits the optional name rather than sending an empty string", async () => {
+    it("names the reviewer it is about to email", async () => {
       serveEstimate(estimateWith());
-      const bodies: Record<string, unknown>[] = [];
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "Send for approval" }));
+
+      expect(await screen.findByText("Rita Reviewer")).toBeVisible();
+      expect(screen.getByText("rita@buildco.test")).toBeVisible();
+    });
+
+    it("will not send when no reviewer is configured, and says where to fix it", async () => {
+      // The one new failure mode this change introduces. It has to be loud: the button
+      // is dead and the copy points at the screen that resolves it.
+      serveEstimate(estimateWith());
       server.use(
-        http.post(url("/estimates/:id/submit"), async ({ request }) => {
-          bodies.push((await request.json()) as Record<string, unknown>);
-          return HttpResponse.json({
-            estimate: estimateWith({ status: "submitted" }),
-            review_url: "http://localhost:5173/review/tok-1",
-          });
-        }),
+        http.get(url("/settings"), () =>
+          HttpResponse.json(makeSettings({ default_reviewer: null })),
+        ),
       );
 
       const { user } = renderEditor();
       await waitForEditor();
 
       await user.click(screen.getByRole("button", { name: "Send for approval" }));
-      await user.type(screen.getByLabelText(/Reviewer email/), "adjuster@carrier.com");
-      await user.click(screen.getAllByRole("button", { name: "Send for approval" })[1]!);
 
-      await waitFor(() => expect(bodies).toHaveLength(1));
-      expect(bodies[0]).toEqual({ recipient_email: "adjuster@carrier.com" });
+      expect(await screen.findByText(/No reviewer is set up yet/)).toBeVisible();
+      expect(screen.getAllByRole("button", { name: "Send for approval" })[1]!).toBeDisabled();
+      expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
     });
 
-    it("will not send without an address", async () => {
-      serveEstimate(estimateWith());
-      const { user } = renderEditor();
-      await waitForEditor();
-
-      await user.click(screen.getByRole("button", { name: "Send for approval" }));
-
-      const send = screen.getAllByRole("button", { name: "Send for approval" })[1]!;
-      expect(send).toBeDisabled();
-      await user.type(screen.getByLabelText(/Reviewer email/), "not-an-address");
-      expect(send).toBeDisabled();
-    });
-
-    it("keeps a rejected submission on screen with the address still editable", async () => {
+    it("keeps a rejected submission on screen", async () => {
       serveEstimate(estimateWith());
       server.use(
         http.post(url("/estimates/:id/submit"), () =>
@@ -778,13 +771,12 @@ describe("EstimateEditorPage", () => {
       await waitForEditor();
 
       await user.click(screen.getByRole("button", { name: "Send for approval" }));
-      await user.type(screen.getByLabelText(/Reviewer email/), "adjuster@carrier.com");
+      await screen.findByText("Rita Reviewer");
       await user.click(screen.getAllByRole("button", { name: "Send for approval" })[1]!);
 
       expect(
         await screen.findByText("This estimate is already awaiting a decision."),
       ).toBeVisible();
-      expect(screen.getByLabelText(/Reviewer email/)).toHaveValue("adjuster@carrier.com");
     });
 
     it("does not offer submission while a decision is outstanding", async () => {
