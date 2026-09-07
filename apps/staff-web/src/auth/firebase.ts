@@ -75,18 +75,28 @@ export function getFirebaseAuth(): Auth {
 }
 
 /**
- * The Google provider, carrying the Calendar scope.
+ * The Google provider used to **sign in**.
  *
- * That scope is what yields an OAuth access token the backend can use to create a
- * Google Meet link for a meeting. It replaces Supabase's `session.provider_token`,
- * which is how the legacy app obtained the same thing. Without it, meetings are
- * created without a Meet link — a supported outcome, not an error.
+ * Deliberately carries no scopes beyond the implicit `openid`/`email`/`profile`. Those
+ * are non-sensitive, so the OAuth app needs no Google verification and can be published
+ * without a review — which is the difference between every member signing in and only
+ * the handful on the test-user allowlist.
+ *
+ * It used to request `calendar.events` here. That scope is *sensitive*, which pinned
+ * the consent screen in Testing mode: a 100-user cap, an "unverified app" interstitial
+ * on every sign-in, and refresh tokens that expire after seven days. The team's owner
+ * signs in with Google and has no password, so that setting could lock the owner out of
+ * their own workspace.
+ *
+ * The cost is that Google Meet links are no longer created: the access token that needed
+ * came from this scope. Meetings and their calendar invites are unaffected. Restoring
+ * Meet links means asking for `calendar.events` incrementally — at the point a meeting is
+ * created, not at the door — rather than putting the sensitive scope back here.
  */
 export function googleProvider(): GoogleAuthProvider {
-  const provider = new GoogleAuthProvider();
-  provider.addScope("https://www.googleapis.com/auth/calendar.events");
-  return provider;
+  return new GoogleAuthProvider();
 }
+
 
 /** Turn a Firebase error code into something worth showing a person.
  *

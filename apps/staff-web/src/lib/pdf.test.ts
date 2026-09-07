@@ -1,7 +1,7 @@
 /**
  * Pagination arithmetic and the library contract.
  *
- * html2canvas cannot rasterise anything in jsdom — there is no layout engine — so both
+ * html2canvas-pro cannot rasterise anything in jsdom — there is no layout engine — so both
  * libraries are mocked and what is asserted is the *decision*: how many pages a bitmap
  * of a given height produces, what the file is called, and that failures propagate
  * rather than being swallowed. Anything about how the output looks has to be checked by
@@ -22,7 +22,7 @@ vi.mock("jspdf", () => ({
   },
 }));
 
-vi.mock("html2canvas", () => ({ default: (...args: unknown[]) => html2canvas(...args) }));
+vi.mock("html2canvas-pro", () => ({ default: (...args: unknown[]) => html2canvas(...args) }));
 
 const { downloadNodeAsPdf, reportFileName } = await import("./pdf");
 

@@ -7,7 +7,7 @@
  * from the preview whenever either changed.
  *
  * Deliberately plain: fixed widths in pixels, no Tailwind responsive utilities, black on
- * white. html2canvas rasterises at whatever size the node happens to be, so a layout
+ * white. html2canvas-pro rasterises at whatever size the node happens to be, so a layout
  * that reflows with the viewport produces a different PDF on a laptop than on a
  * desktop.
  */
@@ -108,7 +108,7 @@ export const EstimateReport = forwardRef<HTMLDivElement, ReportProps>(function E
         )}
 
         {rooms.map((room, index) => (
-          // `break-inside: avoid` does nothing for html2canvas — it rasterises one
+          // `break-inside: avoid` does nothing for html2canvas-pro — it rasterises one
           // bitmap and the slicing is purely geometric. A room can and will be split
           // across a page boundary; that is a known limitation of this approach.
           <div key={index}>

@@ -1,8 +1,8 @@
 /**
  * Rendering a DOM node to a paginated PDF.
  *
- * Same approach as the legacy `downloadPDF`: rasterise with html2canvas, then slice the
- * bitmap across A4 pages with jsPDF. It produces an image-based PDF — no selectable
+ * Same approach as the legacy `downloadPDF`: rasterise with html2canvas-pro, then slice
+ * the bitmap across A4 pages with jsPDF. It produces an image-based PDF — no selectable
  * text, no accessibility — which is a real drawback, but it guarantees the file looks
  * exactly like the report on screen, and the alternative (laying the document out twice,
  * once in HTML and once in jsPDF's drawing API) drifts the moment either changes.
@@ -34,7 +34,7 @@ export interface PdfResult {
 /**
  * Wait for every `<img>` inside `node` to be decoded and ready to paint.
  *
- * html2canvas rasterises synchronously from whatever the DOM holds at the moment it
+ * html2canvas-pro rasterises synchronously from whatever the DOM holds at the moment it
  * runs. An image still in flight is captured as an empty box — with no error anywhere —
  * so a report generated on a warm cache looks perfect and the same report on a cold load
  * silently loses its photos. Since these are signed Cloud Storage URLs fetched fresh,
@@ -72,8 +72,11 @@ export async function downloadNodeAsPdf(
   fileName: string,
   { scale = 2 }: { scale?: number } = {},
 ): Promise<PdfResult> {
+  // The `-pro` fork rather than `html2canvas` itself: the original's colour parser
+  // predates CSS Color 4 and throws on `oklch()`, which is the space Tailwind v4 emits
+  // its entire default palette in, so every report failed to rasterise.
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-    import("html2canvas"),
+    import("html2canvas-pro"),
     import("jspdf"),
   ]);
 

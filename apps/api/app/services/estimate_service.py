@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import ColumnElement, Select, func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -215,15 +214,13 @@ async def get_estimate(session: AsyncSession, user: Profile, estimate_id: uuid.U
 async def create_estimate(session: AsyncSession, user: Profile, data: dict[str, Any]) -> Estimate:
     """Create an estimate owned by the caller.
 
-    A generated identifier is random and only six digits wide, so a collision — while
-    unlikely — is not impossible once a few thousand estimates exist. Each attempt
-    runs inside a SAVEPOINT so a unique violation rolls back only the failed INSERT,
-    leaving the surrounding request transaction intact for the retry.
+    ``identifier`` is no longer unique (revision ``c8d5f3a1e207``), so there is nothing
+    here to collide with and nothing to retry. A supplied claim ID is stored verbatim;
+    a blank one gets a generated ``CLM-482913`` so the estimate is still quotable.
 
-    **A supplied identifier does not retry.** Retrying would mint a fresh one and store
-    that instead, so the caller would get a 201 for a claim ID they never asked for and
-    would not find out until they noticed the field had changed under them. Colliding on
-    a value someone typed is a 409 naming it.
+    This used to run five attempts inside a SAVEPOINT, catching the unique violation and
+    minting a fresh identifier. That loop guarded a constraint the live data never
+    satisfied, and it is gone with the constraint.
 
     ``pm_name`` defaults to the creator. Defaulted here rather than in the client because
     ``POST /estimates`` accepts an empty body, so the browser is not the only caller that
@@ -236,40 +233,24 @@ async def create_estimate(session: AsyncSession, user: Profile, data: dict[str, 
     data = dict(data)
     supplied_identifier = data.pop("identifier", None)
 
-    for attempt in range(5):
-        savepoint = await session.begin_nested()
-        estimate = Estimate(
-            created_by=user.id,
-            # Assigned directly rather than left to the selectin loader: eager
-            # loaders populate on a *query*, and a freshly flushed object has not
-            # been queried. Without this, serialising the response would trigger a
-            # lazy load from async context and raise MissingGreenlet.
-            creator=user,
-            identifier=supplied_identifier or generate_identifier(),
-            status=EstimateStatus.ACTIVE.value,
-            **data,
-        )
-        session.add(estimate)
-        try:
-            await session.flush()
-        except IntegrityError:
-            await savepoint.rollback()
-            if supplied_identifier:
-                raise Conflict(
-                    f"Claim ID {supplied_identifier!r} is already used by another estimate."
-                ) from None
-            if attempt == 4:
-                raise Conflict(
-                    "Could not allocate a unique estimate identifier. Please retry."
-                ) from None
-            continue
+    estimate = Estimate(
+        created_by=user.id,
+        # Assigned directly rather than left to the selectin loader: eager loaders
+        # populate on a *query*, and a freshly flushed object has not been queried.
+        # Without this, serialising the response would trigger a lazy load from async
+        # context and raise MissingGreenlet.
+        creator=user,
+        identifier=supplied_identifier or generate_identifier(),
+        status=EstimateStatus.ACTIVE.value,
+        **data,
+    )
+    session.add(estimate)
+    await session.flush()
 
-        _sync_total(estimate)
-        await session.flush()
-        log.info("estimate_created", estimate_id=str(estimate.id), by=str(user.id))
-        return estimate
-
-    raise Conflict("Could not allocate a unique estimate identifier.")
+    _sync_total(estimate)
+    await session.flush()
+    log.info("estimate_created", estimate_id=str(estimate.id), by=str(user.id))
+    return estimate
 
 
 async def update_estimate(
@@ -295,17 +276,12 @@ async def update_estimate(
     if "rooms" in changes:
         _sync_total(estimate)
 
-    # A savepoint because the identifier is unique and a collision is an *expected*
-    # outcome of an edit, not a bug. Without one the IntegrityError would poison the
-    # surrounding transaction, turning a 409 into a 500. Same reasoning, and the same
-    # shape, as the retry loop in create_estimate.
-    try:
-        async with session.begin_nested():
-            await session.flush()
-    except IntegrityError:
-        raise Conflict(
-            f"Claim ID {changes.get('identifier')!r} is already used by another estimate."
-        ) from None
+    # No savepoint here any more. It existed because a renamed identifier could collide
+    # with an existing one, which was an expected outcome of an edit rather than a bug.
+    # Since revision ``c8d5f3a1e207`` identifiers are not unique, so that collision
+    # cannot happen and an IntegrityError from this flush would be a genuine fault —
+    # which should surface as a 500 rather than be reported as a duplicate claim ID.
+    await session.flush()
     return estimate
 
 
