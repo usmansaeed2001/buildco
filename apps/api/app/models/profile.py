@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Uuid, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -39,7 +39,9 @@ class Profile(Base, UUIDPrimaryKey, TimestampMixin):
         String(200), server_default=text("''"), default="", nullable=False
     )
     phone: Mapped[str | None] = mapped_column(String(40))
-    avatar_url: Mapped[str | None] = mapped_column(String(1000))
+    #: Unbounded: a Google signed photo URL (``a-/ALV-...``) has no documented
+    #: length limit and has been seen past 1200 characters.
+    avatar_url: Mapped[str | None] = mapped_column(Text)
 
     role: Mapped[str] = mapped_column(
         String(20), server_default=text("'member'"), default=Role.MEMBER, nullable=False

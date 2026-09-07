@@ -202,7 +202,7 @@ function Thumbnail({
           type="button"
           onClick={onDelete}
           aria-label={`Delete ${attachment.file_name}`}
-          className="absolute -top-1.5 -right-1.5 hidden size-5 items-center justify-center rounded-full bg-gray-900 text-xs text-white group-focus-within:flex group-hover:flex"
+          className="absolute -top-1.5 -right-1.5 hidden size-5 items-center justify-center rounded-full bg-gray-900 text-xs text-surface group-focus-within:flex group-hover:flex"
         >
           &#10005;
         </button>

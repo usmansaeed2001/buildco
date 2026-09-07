@@ -21,10 +21,10 @@ type Tone = "neutral" | "brand" | "success" | "warning" | "danger";
 
 const TONES: Record<Tone, string> = {
   neutral: "bg-gray-100 text-gray-600 ring-gray-200",
-  brand: "bg-brand-50 text-brand-600 ring-brand-100",
-  success: "bg-success-50 text-success-700 ring-success-500/20",
-  warning: "bg-warning-100 text-warning-600 ring-warning-500/20",
-  danger: "bg-danger-50 text-danger-600 ring-danger-500/20",
+  brand: "bg-brand-50 text-brand-600 dark:text-brand-300 ring-brand-100",
+  success: "bg-success-50 text-success-700 dark:text-success-400 ring-success-500/20",
+  warning: "bg-warning-100 text-warning-600 dark:text-warning-400 ring-warning-500/20",
+  danger: "bg-danger-50 text-danger-600 dark:text-danger-400 ring-danger-500/20",
 };
 
 export function Badge({

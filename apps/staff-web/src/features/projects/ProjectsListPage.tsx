@@ -161,8 +161,8 @@ function Chip({
       className={cn(
         "rounded-full px-3 py-1 text-sm font-medium transition-colors",
         active
-          ? "bg-gray-900 text-white"
-          : "bg-white text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
+          ? "bg-gray-900 text-surface"
+          : "bg-surface text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
       )}
     >
       {children}

@@ -2,9 +2,9 @@
  * Preview the report, then save it as a PDF.
  *
  * The previewed node is the one that gets rasterised, so there is no second layout to
- * drift. It is scaled down visually with a CSS transform — which html2canvas-pro ignores,
- * because it reads geometry from the element's own box rather than from its rendered
- * appearance.
+ * drift. It is scaled down visually with a CSS transform so the fixed 794px page fits
+ * the modal; `downloadNodeAsPdf` lifts that transform for the duration of the capture,
+ * because rasterising through it corrupts the text (see `suspendScaling`).
  */
 import { useRef, useState } from "react";
 import { Button } from "@/components/Button";
@@ -34,11 +34,25 @@ export function ReportModal({
     setFailure(null);
 
     try {
-      const { pageCount } = await downloadNodeAsPdf(
+      const { pageCount, imagesOmitted } = await downloadNodeAsPdf(
         node.current,
         reportFileName(report.identifier),
       );
-      toast.success(`Report saved — ${pageCount} ${pageCount === 1 ? "page" : "pages"}.`);
+      const pages = `${pageCount} ${pageCount === 1 ? "page" : "pages"}`;
+
+      if (imagesOmitted > 0) {
+        // Not a success toast. The preview above showed these photos, so a plain
+        // "saved" would leave the reader to discover the empty boxes themselves.
+        setFailure(
+          `Report saved — ${pages} — but ${imagesOmitted} ${
+            imagesOmitted === 1 ? "photo could" : "photos could"
+          } not be embedded and ${imagesOmitted === 1 ? "is" : "are"} blank in the PDF. ` +
+            "The signed links may have expired; reopen the estimate and try again.",
+        );
+        return;
+      }
+
+      toast.success(`Report saved — ${pages}.`);
       onClose();
     } catch (caught) {
       // The legacy version caught nothing, so a rasterisation failure left the button
@@ -78,8 +92,8 @@ export function ReportModal({
       )}
 
       <div className="overflow-x-auto bg-gray-100 p-3">
-        {/* The report is a fixed 794px wide. Scaling it visually keeps it inside the
-            modal without changing the geometry html2canvas-pro measures. */}
+        {/* The report is a fixed 794px wide, so it is scaled to fit the modal. The
+            capture lifts this transform rather than measuring through it. */}
         <div className="origin-top-left scale-[0.72]" style={{ width: 794, height: "auto" }}>
           <EstimateReport ref={node} {...report} />
         </div>

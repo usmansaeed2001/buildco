@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { server } from "./msw/server";
 import { resetFactories } from "./factories";
+import { setPreference } from "@/lib/theme";
 
 /**
  * jsdom ships `<dialog>` the element but not its behaviour: `showModal`, `show` and
@@ -43,6 +44,10 @@ afterEach(() => {
   server.resetHandlers();
   resetFactories();
   localStorage.clear();
+  // The theme store is a module singleton, so a test that switches to dark leaks it into
+  // every test that runs after it. `localStorage.clear()` alone does not undo that — the
+  // preference is also held in memory.
+  setPreference("system");
 });
 
 afterAll(() => server.close());

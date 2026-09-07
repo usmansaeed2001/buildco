@@ -61,7 +61,7 @@ export function Modal({
         if (event.target === dialog.current) onClose();
       }}
       className={cn(
-        "m-auto w-[calc(100%-2rem)] rounded-card bg-surface p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/40",
+        "m-auto w-[calc(100%-2rem)] rounded-card bg-surface p-0 text-gray-900 shadow-xl backdrop:bg-black/45 dark:backdrop:bg-black/65",
         widths[size],
       )}
       aria-label={title}

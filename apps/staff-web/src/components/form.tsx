@@ -9,7 +9,7 @@ import { useId, type ComponentPropsWithRef, type InputHTMLAttributes, type React
 import { cn } from "@/lib/cn";
 
 const CONTROL =
-  "w-full rounded-md border-0 bg-white px-3 py-1.5 text-sm text-gray-900 ring-1 ring-inset " +
+  "w-full rounded-md border-0 bg-surface px-3 py-1.5 text-sm text-gray-900 ring-1 ring-inset " +
   "ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-brand-500 " +
   "disabled:bg-gray-50 disabled:text-gray-500 aria-[invalid=true]:ring-danger-500";
 
@@ -34,7 +34,7 @@ export function Field({
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="text-sm font-medium text-gray-700">
         {label}
-        {required && <span className="ml-0.5 text-danger-600">*</span>}
+        {required && <span className="ml-0.5 text-danger-600 dark:text-danger-400">*</span>}
       </label>
       {children({
         id,
@@ -42,7 +42,7 @@ export function Field({
         ...(describedBy ? { "aria-describedby": describedBy } : {}),
       })}
       {error ? (
-        <p id={`${id}-error`} className="text-xs text-danger-600">
+        <p id={`${id}-error`} className="text-xs text-danger-600 dark:text-danger-400">
           {error}
         </p>
       ) : hint ? (

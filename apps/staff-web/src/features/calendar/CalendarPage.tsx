@@ -188,8 +188,8 @@ export function CalendarPage() {
               className={cn(
                 "rounded-md px-3 py-1.5 text-sm font-medium capitalize",
                 view === value
-                  ? "bg-gray-900 text-white"
-                  : "bg-white text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
+                  ? "bg-gray-900 text-surface"
+                  : "bg-surface text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
               )}
             >
               {value}
@@ -209,8 +209,8 @@ export function CalendarPage() {
             className={cn(
               "rounded-full px-3 py-1 text-sm font-medium transition-colors",
               scope === option.value
-                ? "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200"
-                : "bg-white text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
+                ? "bg-brand-50 text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200"
+                : "bg-surface text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
             )}
           >
             {option.label}
@@ -400,7 +400,7 @@ function YearView({
                   className={cn(
                     "flex aspect-square flex-col items-center justify-center rounded text-[10px] hover:bg-gray-100",
                     day.inMonth ? "text-gray-700" : "text-gray-300",
-                    day.isToday && "bg-brand-50 font-semibold text-brand-700",
+                    day.isToday && "bg-brand-50 font-semibold text-brand-700 dark:text-brand-300",
                   )}
                 >
                   {day.date.getDate()}

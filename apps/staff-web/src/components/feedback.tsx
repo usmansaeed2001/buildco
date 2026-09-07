@@ -107,10 +107,10 @@ export function Alert({
   children: ReactNode;
 }) {
   const tones = {
-    danger: "bg-danger-50 text-danger-600 ring-danger-500/20",
-    warning: "bg-warning-50 text-warning-600 ring-warning-500/20",
-    success: "bg-success-50 text-success-700 ring-success-500/20",
-    info: "bg-brand-50 text-brand-700 ring-brand-100",
+    danger: "bg-danger-50 text-danger-600 dark:text-danger-400 ring-danger-500/20",
+    warning: "bg-warning-50 text-warning-600 dark:text-warning-400 ring-warning-500/20",
+    success: "bg-success-50 text-success-700 dark:text-success-400 ring-success-500/20",
+    info: "bg-brand-50 text-brand-700 dark:text-brand-300 ring-brand-100",
   } as const;
 
   return (

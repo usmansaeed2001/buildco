@@ -146,7 +146,7 @@ export function MilestoneList({
                   disabled={!canManage}
                   aria-label={`Mark ${milestone.label} as paid`}
                   onChange={() => void togglePaid(milestone)}
-                  className="size-4 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  className="size-4 shrink-0 rounded border-gray-300 text-brand-600 dark:text-brand-300 focus:ring-brand-500"
                 />
 
                 <div className="min-w-0 flex-1">
@@ -173,7 +173,7 @@ export function MilestoneList({
                     type="button"
                     aria-label={`Delete ${milestone.label}`}
                     onClick={() => setPendingDelete(milestone)}
-                    className="shrink-0 rounded p-1 text-xs text-gray-400 hover:bg-danger-50 hover:text-danger-600"
+                    className="shrink-0 rounded p-1 text-xs text-gray-400 hover:bg-danger-50 hover:text-danger-600 hover:dark:text-danger-400"
                   >
                     &#10005;
                   </button>

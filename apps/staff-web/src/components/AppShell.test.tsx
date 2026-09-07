@@ -8,7 +8,7 @@
  * owns: the toggle exists, it reveals a second navigation, and it closes on navigate.
  */
 import { screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/utils";
 import { makeUser } from "@/test/factories";
 import { AppShell } from "./AppShell";
@@ -60,5 +60,51 @@ describe("AppShell", () => {
 
     const drawer = screen.getAllByRole("navigation", { name: "Main" })[1]!;
     expect(within(drawer).queryByRole("link", { name: "Team" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The header toggle.
+ *
+ * `matchMedia` is stubbed to "light" so the starting theme is deterministic — without it
+ * jsdom has no `matchMedia` at all and the store falls back to light anyway, but stating
+ * it keeps the test honest about what it depends on.
+ */
+describe("the theme toggle", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.documentElement.dataset["theme"] = "light";
+  });
+
+  it("names the theme it will switch to, and switches to it", async () => {
+    const { user } = renderShell();
+
+    await user.click(screen.getByRole("button", { name: "Switch to dark theme" }));
+
+    expect(document.documentElement.dataset["theme"]).toBe("dark");
+    expect(screen.getByRole("button", { name: "Switch to light theme" })).toBeVisible();
+  });
+
+  it("offers a way back to the system theme only once the OS has been overridden", async () => {
+    const { user } = renderShell();
+
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    expect(screen.queryByRole("menuitem", { name: "Match system theme" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "Switch to dark theme" }));
+    await user.click(screen.getByRole("button", { name: "Account" }));
+
+    await user.click(screen.getByRole("menuitem", { name: "Match system theme" }));
+
+    expect(localStorage.getItem("buildco_theme")).toBeNull();
+    expect(document.documentElement.dataset["theme"]).toBe("light");
   });
 });

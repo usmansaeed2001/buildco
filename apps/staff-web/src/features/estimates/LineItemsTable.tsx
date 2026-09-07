@@ -227,7 +227,7 @@ function LineItemRows({
       }`}
       className={
         fileCount
-          ? "rounded p-1 text-xs text-brand-600 hover:bg-brand-50"
+          ? "rounded p-1 text-xs text-brand-600 dark:text-brand-300 hover:bg-brand-50"
           : "rounded p-1 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
       }
     >
@@ -333,7 +333,7 @@ function LineItemRows({
               aria-label={`${notesOpen ? "Hide" : "Show"} notes for ${label}`}
               className={
                 hasNotes
-                  ? "rounded p-1 text-xs text-brand-600 hover:bg-brand-50"
+                  ? "rounded p-1 text-xs text-brand-600 dark:text-brand-300 hover:bg-brand-50"
                   : "rounded p-1 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
               }
             >
@@ -344,7 +344,7 @@ function LineItemRows({
               type="button"
               onClick={onDelete}
               aria-label={`Delete ${label}`}
-              className="rounded p-1 text-xs text-gray-400 hover:bg-danger-50 hover:text-danger-600"
+              className="rounded p-1 text-xs text-gray-400 hover:bg-danger-50 hover:text-danger-600 hover:dark:text-danger-400"
             >
               &#10005;
             </button>

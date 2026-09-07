@@ -66,7 +66,7 @@ export function ProjectDetailPage() {
     return (
       <div className="flex flex-col items-center gap-4">
         <ErrorState error={error} {...(notFound ? {} : { onRetry: () => void refetch() })} />
-        <Link to="/projects" className="text-sm text-brand-700 underline">
+        <Link to="/projects" className="text-sm text-brand-700 dark:text-brand-300 underline">
           Back to projects
         </Link>
       </div>
@@ -236,7 +236,7 @@ function Detail({
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-danger-600 hover:bg-danger-50"
+                className="text-danger-600 dark:text-danger-400 hover:bg-danger-50"
                 onClick={() => setConfirmingDelete(true)}
               >
                 Delete project

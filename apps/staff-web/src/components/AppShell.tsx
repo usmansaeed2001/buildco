@@ -21,8 +21,11 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { useAuth, useIsElevated } from "@/auth/useAuth";
 import { RoleBadge } from "./Badge";
 import { Menu } from "./Menu";
+import { ThemeToggle } from "./ThemeToggle";
 import { BrandMark } from "@/features/auth/AuthLayout";
 import { cn } from "@/lib/cn";
+import { setPreference } from "@/lib/theme";
+import { useThemePreference } from "@/lib/useTheme";
 import type { Role } from "@/domain/enums";
 
 interface NavItem {
@@ -52,7 +55,7 @@ export function AppShell() {
     cn(
       "rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
       isActive
-        ? "bg-brand-50 text-brand-700"
+        ? "bg-brand-50 text-brand-700 dark:text-brand-300"
         : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
     );
 
@@ -86,6 +89,7 @@ export function AppShell() {
               do it is hidden. */}
           <div className="flex-1 md:hidden" />
 
+          <ThemeToggle className="-mr-1" />
           <AccountMenu />
         </div>
 
@@ -124,6 +128,7 @@ function MenuIcon({ open }: { open: boolean }) {
 
 function AccountMenu() {
   const { profile, signOut } = useAuth();
+  const preference = useThemePreference();
   const navigate = useNavigate();
 
   if (!profile) return null;
@@ -156,6 +161,23 @@ function AccountMenu() {
           <MenuLink to="/settings" onSelect={close}>
             Settings
           </MenuLink>
+
+          {/* Only offered once the header toggle has overridden the OS. Shown always, it
+              would be an item that does nothing for everyone who never touched the
+              toggle. */}
+          {preference !== "system" && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setPreference("system");
+                close();
+              }}
+              className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Match system theme
+            </button>
+          )}
 
           <button
             type="button"
@@ -223,7 +245,7 @@ export function Avatar({
       aria-hidden="true"
       className={cn(
         size,
-        "flex shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700 ring-1 ring-brand-100",
+        "flex shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700 dark:text-brand-300 ring-1 ring-brand-100",
       )}
     >
       {name.trim().charAt(0).toUpperCase() || "?"}

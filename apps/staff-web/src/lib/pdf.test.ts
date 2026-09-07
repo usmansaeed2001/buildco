@@ -40,10 +40,27 @@ function canvasOfScaledHeight(heightMm: number) {
   };
 }
 
+const fetchMock = vi.fn();
+
 beforeEach(() => {
   vi.clearAllMocks();
   html2canvas.mockResolvedValue(canvasOfScaledHeight(CONTENT_HEIGHT));
+  fetchMock.mockResolvedValue({ ok: true });
+  vi.stubGlobal("fetch", fetchMock);
 });
+
+/**
+ * A node holding one photo at `src`, with `decode()` stubbed — jsdom neither loads
+ * images nor implements `decode`.
+ */
+function nodeWithPhoto(src: string, decode: () => Promise<void> = () => Promise.resolve()) {
+  const node = document.createElement("div");
+  const image = document.createElement("img");
+  image.src = src;
+  Object.defineProperty(image, "decode", { value: decode });
+  node.append(image);
+  return node;
+}
 
 describe("downloadNodeAsPdf", () => {
   it("produces a single page for content that fits", async () => {
@@ -101,6 +118,96 @@ describe("downloadNodeAsPdf", () => {
       "tainted canvas",
     );
     expect(save).not.toHaveBeenCalled();
+  });
+});
+
+describe("photo preparation", () => {
+  it("re-requests a cross-origin photo under CORS rules, bypassing the cache", async () => {
+    // GCS only sends Access-Control-Allow-Origin when the request carries an Origin,
+    // and sends no `Vary: Origin`. The preview's plain <img> therefore leaves a
+    // header-less response in the cache, which is what html2canvas-pro's own CORS load
+    // would otherwise be handed — so the photo silently rasterises as an empty box.
+    const result = await downloadNodeAsPdf(
+      nodeWithPhoto("https://storage.googleapis.com/bucket/photo.jpg?sig=abc"),
+      "x.pdf",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://storage.googleapis.com/bucket/photo.jpg?sig=abc",
+      { mode: "cors", cache: "reload", credentials: "omit" },
+    );
+    expect(result.imagesOmitted).toBe(0);
+  });
+
+  it("leaves same-origin photos alone", async () => {
+    await downloadNodeAsPdf(nodeWithPhoto("http://localhost:5173/local.png"), "x.pdf");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a photo the bucket will not serve instead of silently dropping it", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const result = await downloadNodeAsPdf(
+      nodeWithPhoto("https://storage.googleapis.com/bucket/photo.jpg"),
+      "x.pdf",
+    );
+
+    // The PDF is still worth saving; the caller is told what is missing from it.
+    expect(save).toHaveBeenCalled();
+    expect(result.imagesOmitted).toBe(1);
+  });
+
+  it("reports a photo that fails to decode", async () => {
+    const result = await downloadNodeAsPdf(
+      nodeWithPhoto("https://storage.googleapis.com/bucket/photo.jpg", () =>
+        Promise.reject(new Error("broken")),
+      ),
+      "x.pdf",
+    );
+
+    expect(result.imagesOmitted).toBe(1);
+  });
+});
+
+describe("scaling", () => {
+  it("lifts an ancestor transform for the capture and puts it back", async () => {
+    // The preview scales the 794px page down with `transform: scale(0.72)` to fit the
+    // modal. html2canvas-pro measures word advances through that transform but lays
+    // boxes out unscaled, so every word after the first drifts left onto the one
+    // before it and the whole report rasterises as overlapping text.
+    const wrapper = document.createElement("div");
+    wrapper.style.transform = "scale(0.72)";
+    const node = document.createElement("div");
+    wrapper.append(node);
+    document.body.append(wrapper);
+
+    let duringCapture: string | undefined;
+    html2canvas.mockImplementation(() => {
+      duringCapture = wrapper.style.transform;
+      return Promise.resolve(canvasOfScaledHeight(CONTENT_HEIGHT));
+    });
+
+    await downloadNodeAsPdf(node, "x.pdf");
+
+    expect(duringCapture).toBe("none");
+    expect(wrapper.style.transform).toBe("scale(0.72)");
+    wrapper.remove();
+  });
+
+  it("restores the transform even when the capture fails", async () => {
+    const wrapper = document.createElement("div");
+    wrapper.style.transform = "scale(0.72)";
+    const node = document.createElement("div");
+    wrapper.append(node);
+    document.body.append(wrapper);
+
+    html2canvas.mockRejectedValue(new Error("tainted canvas"));
+
+    await expect(downloadNodeAsPdf(node, "x.pdf")).rejects.toThrow("tainted canvas");
+
+    expect(wrapper.style.transform).toBe("scale(0.72)");
+    wrapper.remove();
   });
 });
 

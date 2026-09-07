@@ -86,8 +86,8 @@ export function WorkStatusStepper({
                   isCurrent
                     ? "bg-brand-600 text-white"
                     : isDone
-                      ? "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100"
-                      : "bg-white text-gray-500 ring-1 ring-inset ring-gray-300",
+                      ? "bg-brand-50 text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-100"
+                      : "bg-surface text-gray-500 ring-1 ring-inset ring-gray-300",
                   !readOnly && !isCurrent && "hover:bg-gray-50",
                   readOnly && "cursor-default",
                 )}
@@ -117,7 +117,7 @@ export function WorkStatusStepper({
       )}
 
       {shown === "on_hold" && (
-        <p className="text-xs text-warning-600">
+        <p className="text-xs text-warning-600 dark:text-warning-400">
           This project is on hold. Pick a stage above, or resume, to continue.
         </p>
       )}

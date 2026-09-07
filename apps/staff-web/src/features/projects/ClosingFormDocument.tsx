@@ -44,7 +44,13 @@ export function ClosingFormDocument({
     onChange?.(key, event.target.value);
 
   return (
+    // A light island: `data-theme="light"` re-declares the palette variables for this
+    // subtree (see `src/styles/index.css`), so the form renders and prints as the
+    // black-on-white legal document it is even while the rest of the app is dark. Nothing
+    // in here may use a `dark:` utility — the variant matches by ancestor and would still
+    // fire inside the island.
     <div
+      data-theme="light"
       data-print-document
       className="mx-auto bg-white p-8 text-gray-900"
       style={{ maxWidth: 720 }}

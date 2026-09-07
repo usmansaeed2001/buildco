@@ -69,7 +69,7 @@ export function RoomRail({
                   className={cn(
                     "group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm",
                     index === activeIndex
-                      ? "bg-brand-50 text-brand-800"
+                      ? "bg-brand-50 text-brand-800 dark:text-brand-300"
                       : "text-gray-700 hover:bg-gray-100",
                   )}
                 >

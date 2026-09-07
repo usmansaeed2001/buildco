@@ -6,6 +6,8 @@ import uuid
 
 from app.models.enums import UserStatus
 from app.models.profile import Profile
+from app.services import user_service
+from app.services.integrations.firebase import VerifiedIdentity
 
 # ── Profiles ──────────────────────────────────────────────────────────────────
 
@@ -300,3 +302,28 @@ async def test_establishing_a_session_twice_provisions_only_once(anon_client):
 
 async def test_a_session_cannot_be_established_without_a_token(anon_client):
     assert (await anon_client.post("/api/v1/auth/session")).status_code == 401
+
+
+async def test_provisioning_accepts_an_over_long_google_photo_url(db):
+    """A signed Google photo URL has no length limit we control.
+
+    ``avatar_url`` was ``varchar(1000)``; the ``a-/ALV-...`` form regularly runs past
+    that, and because provisioning copies ``identity.picture`` straight onto the new
+    row, the whole first sign-in failed on the INSERT rather than just losing the
+    picture. The column is now unbounded text.
+    """
+    picture = "https://lh3.googleusercontent.com/a-/ALV-" + "x" * 1200
+
+    resolved = await user_service.resolve_profile(
+        db,
+        VerifiedIdentity(
+            uid="uid-long-photo",
+            email="long.photo@buildcogrp.com",
+            email_verified=True,
+            name="Long Photo",
+            picture=picture,
+        ),
+    )
+
+    assert resolved.created is True
+    assert resolved.profile.avatar_url == picture

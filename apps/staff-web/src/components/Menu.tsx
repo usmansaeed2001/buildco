@@ -103,7 +103,7 @@ export function MenuItem({
       className={cn(
         "block w-full px-3 py-2 text-left text-sm disabled:opacity-50",
         tone === "danger"
-          ? "text-danger-700 hover:bg-danger-50"
+          ? "text-danger-700 dark:text-danger-400 hover:bg-danger-50"
           : "text-gray-700 hover:bg-gray-50",
       )}
     >

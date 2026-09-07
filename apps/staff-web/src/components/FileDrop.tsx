@@ -58,7 +58,7 @@ export function FileDrop({
         disabled
           ? "cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400"
           : over
-            ? "border-brand-500 bg-brand-50 text-brand-700"
+            ? "border-brand-500 bg-brand-50 text-brand-700 dark:text-brand-300"
             : "border-gray-300 text-gray-600 hover:border-gray-400 hover:bg-gray-50",
       )}
     >

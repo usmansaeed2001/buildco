@@ -174,7 +174,7 @@ export function BudgetSummary({
       )}
 
       {overBudget && (
-        <p className="text-xs text-danger-600">
+        <p className="text-xs text-danger-600 dark:text-danger-400">
           Costs exceed revenue by {formatMoney(totalCost.minus(revenue))}.
         </p>
       )}
@@ -200,8 +200,8 @@ function Line({
         className={cn(
           "tnum",
           strong && "font-semibold",
-          tone === "danger" && "text-danger-600",
-          tone === "success" && "text-success-700",
+          tone === "danger" && "text-danger-600 dark:text-danger-400",
+          tone === "success" && "text-success-700 dark:text-success-400",
           !tone && "text-gray-900",
         )}
       >

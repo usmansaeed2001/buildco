@@ -205,7 +205,7 @@ export function MeetingModal({
             {editing && canManage && (
               <Button
                 variant="ghost"
-                className="text-danger-600 hover:bg-danger-50"
+                className="text-danger-600 dark:text-danger-400 hover:bg-danger-50"
                 disabled={busy}
                 onClick={() => setConfirmingDelete(true)}
               >
@@ -360,7 +360,7 @@ export function MeetingModal({
                     type="checkbox"
                     checked={attendees.includes(user.id)}
                     onChange={() => toggleAttendee(user.id)}
-                    className="size-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                    className="size-4 rounded border-gray-300 text-brand-600 dark:text-brand-300 focus:ring-brand-500"
                   />
                   {displayName(user)}
                 </label>
