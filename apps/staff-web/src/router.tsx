@@ -14,6 +14,7 @@ import { AppShell } from "@/components/AppShell";
 import { RedirectIfSignedIn, RequireAuth, RequireElevated } from "@/auth/guards";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { SignupPage } from "@/features/auth/SignupPage";
+import { ForgotPasswordPage } from "@/features/auth/ForgotPasswordPage";
 import { SetupPage } from "@/features/auth/SetupPage";
 import { HomePage } from "@/features/home/HomePage";
 import { NotFoundPage } from "@/features/home/NotFoundPage";
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
     children: [
       { path: "/login", element: <LoginPage /> },
       { path: "/signup", element: <SignupPage /> },
+      { path: "/forgot-password", element: <ForgotPasswordPage /> },
     ],
   },
 

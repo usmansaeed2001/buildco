@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { describeAuthError, getFirebaseAuth } from "@/auth/firebase";
-import { useAuth } from "@/auth/useAuth";
 import { Button } from "@/components/Button";
 import { Alert } from "@/components/feedback";
 import { Field, Input } from "@/components/form";
@@ -16,7 +15,6 @@ const MIN_PASSWORD_LENGTH = 6;
 
 export function SignupPage() {
   const navigate = useNavigate();
-  const { setGoogleAccessToken } = useAuth();
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -59,8 +57,7 @@ export function SignupPage() {
     setMessage(null);
     setBusy(true);
     try {
-      const { accessToken } = await signInWithGoogle();
-      setGoogleAccessToken(accessToken);
+      await signInWithGoogle();
       navigate("/", { replace: true });
     } catch (caught) {
       setMessage(describeAuthError(caught));

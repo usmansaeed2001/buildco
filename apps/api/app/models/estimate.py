@@ -51,8 +51,11 @@ class Estimate(Base, UUIDPrimaryKey, TimestampMixin):
     client_name: Mapped[str] = mapped_column(
         String(300), server_default=text("''"), default="", nullable=False
     )
-    #: Human-facing claim reference, e.g. ``CLM-482913``. Unique per estimate.
-    identifier: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    #: Human-facing claim reference, e.g. ``CLM-482913``. Indexed but **not unique**:
+    #: an original estimate and a supplement filed against the same insurance claim
+    #: legitimately share one, and plenty of rows carry no claim number at all. See
+    #: revision ``c8d5f3a1e207`` for what the live data showed.
+    identifier: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     pm_name: Mapped[str] = mapped_column(
         String(200), server_default=text("''"), default="", nullable=False
     )

@@ -2,7 +2,7 @@
  * Preview the report, then save it as a PDF.
  *
  * The previewed node is the one that gets rasterised, so there is no second layout to
- * drift. It is scaled down visually with a CSS transform — which html2canvas ignores,
+ * drift. It is scaled down visually with a CSS transform — which html2canvas-pro ignores,
  * because it reads geometry from the element's own box rather than from its rendered
  * appearance.
  */
@@ -79,7 +79,7 @@ export function ReportModal({
 
       <div className="overflow-x-auto bg-gray-100 p-3">
         {/* The report is a fixed 794px wide. Scaling it visually keeps it inside the
-            modal without changing the geometry html2canvas measures. */}
+            modal without changing the geometry html2canvas-pro measures. */}
         <div className="origin-top-left scale-[0.72]" style={{ width: 794, height: "auto" }}>
           <EstimateReport ref={node} {...report} />
         </div>

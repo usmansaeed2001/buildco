@@ -682,12 +682,13 @@ async def test_a_claim_id_with_spaces_is_accepted(owner_client):
     assert estimate["identifier"] == "Self Pay"
 
 
-async def test_a_duplicate_claim_id_is_refused_rather_than_silently_renumbered(owner_client):
-    """The branch this whole change exists for.
+async def test_two_estimates_may_share_a_claim_id(owner_client):
+    """A supplement is filed against the same insurance claim as the original.
 
-    The retry loop mints a fresh identifier on a collision, which is right for a generated
-    one and wrong for a typed one — the caller would get a 201 for a claim ID they never
-    asked for and would not notice until the field had changed under them.
+    This used to be a 409. Checked against the live data before migrating, 44 of 154
+    estimates shared an identifier with another — mostly blanks and "Self Pay", but six
+    genuine claim numbers appearing twice, which is a supplement doing exactly what a
+    supplement does. See revision ``c8d5f3a1e207``.
     """
     await owner_client.post(
         "/api/v1/estimates", json={"project_name": "First", "identifier": "DUP-1"}
@@ -697,11 +698,12 @@ async def test_a_duplicate_claim_id_is_refused_rather_than_silently_renumbered(o
         "/api/v1/estimates", json={"project_name": "Second", "identifier": "DUP-1"}
     )
 
-    assert response.status_code == 409
-    assert "DUP-1" in response.json()["error"]["message"]
-    # And nothing was created under a substituted identifier.
+    assert response.status_code == 201
+    # Kept verbatim on both — no silent renumbering in either direction.
+    assert response.json()["identifier"] == "DUP-1"
     listed = (await owner_client.get("/api/v1/estimates")).json()
-    assert [e["project_name"] for e in listed["items"]] == ["First"]
+    assert sorted(e["project_name"] for e in listed["items"]) == ["First", "Second"]
+    assert {e["identifier"] for e in listed["items"]} == {"DUP-1"}
 
 
 async def test_a_claim_id_can_be_changed_after_the_fact(owner_client):
@@ -716,7 +718,9 @@ async def test_a_claim_id_can_be_changed_after_the_fact(owner_client):
     assert updated["identifier"] == "KWSKWS26030022"
 
 
-async def test_renaming_a_claim_id_to_one_already_in_use_is_a_409(owner_client):
+async def test_renaming_a_claim_id_onto_one_already_in_use_is_allowed(owner_client):
+    """The edit counterpart of the rule above: linking a supplement to its original
+    after the fact is the same act as typing the shared claim ID at creation."""
     await owner_client.post(
         "/api/v1/estimates", json={"project_name": "First", "identifier": "TAKEN"}
     )
@@ -726,7 +730,8 @@ async def test_renaming_a_claim_id_to_one_already_in_use_is_a_409(owner_client):
         f"/api/v1/estimates/{second['id']}", json={"identifier": "TAKEN"}
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 200
+    assert response.json()["identifier"] == "TAKEN"
 
 
 async def test_blanking_a_claim_id_is_refused_rather_than_regenerating(owner_client):

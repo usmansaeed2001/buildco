@@ -14,7 +14,7 @@ import { signInWithGoogle } from "./googleSignIn";
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { error: sessionError, setGoogleAccessToken } = useAuth();
+  const { error: sessionError } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,8 +67,7 @@ export function LoginPage() {
     setBlocked(false);
     setBusy(true);
     try {
-      const { accessToken } = await signInWithGoogle();
-      setGoogleAccessToken(accessToken);
+      await signInWithGoogle();
       navigate(destination, { replace: true });
     } catch (caught) {
       setMessage(describeAuthError(caught));
@@ -111,18 +110,28 @@ export function LoginPage() {
           )}
         </Field>
 
-        <Field label="Password" required>
-          {(props) => (
-            <Input
-              {...props}
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          )}
-        </Field>
+        <div className="flex flex-col gap-1.5">
+          <Field label="Password" required>
+            {(props) => (
+              <Input
+                {...props}
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            )}
+          </Field>
+          <div className="text-right">
+            <Link
+              to="/forgot-password"
+              className="text-xs font-medium text-brand-600 hover:text-brand-700"
+            >
+              Forgot your password?
+            </Link>
+          </div>
+        </div>
 
         <Button type="submit" variant="primary" busy={busy} className="w-full">
           Sign in
