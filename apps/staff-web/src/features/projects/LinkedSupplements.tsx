@@ -101,7 +101,7 @@ export function LinkedSupplements({
               <div className="min-w-0 flex-1">
                 <Link
                   to={`/estimates/${supplement.estimate_id}`}
-                  className="block truncate text-sm font-medium text-gray-900 hover:text-brand-700 hover:underline"
+                  className="block truncate text-sm font-medium text-gray-900 hover:text-brand-700 hover:dark:text-brand-300 hover:underline"
                 >
                   {supplement.estimate?.project_name ?? "Estimate"}
                 </Link>

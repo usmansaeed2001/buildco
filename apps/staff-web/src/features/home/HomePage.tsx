@@ -26,7 +26,7 @@ export function HomePage() {
           to="/estimates"
           title="Supplements"
           description="Build and submit restoration estimates."
-          accent="text-brand-600"
+          accent="text-brand-600 dark:text-brand-300"
           ring="hover:ring-brand-500/40"
           icon={
             <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm7 1.5V8h3.5M9 12h6M9 16h6" />
@@ -36,7 +36,7 @@ export function HomePage() {
           to="/projects"
           title="Projects"
           description="Track jobs, milestones, and payments."
-          accent="text-success-600"
+          accent="text-success-600 dark:text-success-400"
           ring="hover:ring-success-500/40"
           icon={<path d="M3 9.5 12 4l9 5.5M5 11v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8M9.5 20v-6h5v6" />}
         />

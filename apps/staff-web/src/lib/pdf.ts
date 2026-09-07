@@ -29,35 +29,141 @@ const MARGIN_MM = 10;
 export interface PdfResult {
   pageCount: number;
   fileName: string;
+  /**
+   * Photos that could not be embedded, and so appear in the PDF as empty boxes.
+   *
+   * Reported rather than thrown: a report whose photos failed is still worth having,
+   * but the person downloading it needs to be told, because the preview they just
+   * approved showed those photos perfectly.
+   */
+  imagesOmitted: number;
 }
 
 /**
- * Wait for every `<img>` inside `node` to be decoded and ready to paint.
+ * Get every `<img>` inside `node` into a state html2canvas-pro can actually rasterise.
+ * Returns how many could not be.
  *
- * html2canvas-pro rasterises synchronously from whatever the DOM holds at the moment it
- * runs. An image still in flight is captured as an empty box — with no error anywhere —
- * so a report generated on a warm cache looks perfect and the same report on a cold load
- * silently loses its photos. Since these are signed Cloud Storage URLs fetched fresh,
- * the cold path is the common one.
+ * Two separate things go wrong here, both of which produce a silently empty box:
  *
- * A failed image resolves rather than rejects: one broken photo should cost that photo,
- * not the whole PDF.
+ * **The bitmap is not decoded yet.** html2canvas-pro rasterises from whatever the DOM
+ * holds at the moment it runs, so an image still in flight is captured as blank. Since
+ * these are signed Cloud Storage URLs fetched fresh, the cold path is the common one.
+ * `decode()` resolves only once the bitmap is ready to paint, which `complete` and the
+ * load event do not guarantee.
+ *
+ * **The cached response has no CORS header.** This is the subtle one. GCS adds
+ * `Access-Control-Allow-Origin` only when the request carries an `Origin`, and does not
+ * send `Vary: Origin`. The preview — and the line-item thumbnails in the editor behind
+ * it — load these URLs from a plain `<img>`, which sends no `Origin`, so what lands in
+ * the HTTP cache is a response with no CORS header at all. html2canvas-pro then loads
+ * its own copy under CORS rules (it must: the canvas is read back with `toDataURL`, so
+ * a tainted one would throw), Chrome hands it that same cached entry, the CORS check
+ * fails against a response that never had the header, and the photo is dropped. The
+ * bucket's CORS policy is correct and irrelevant — the request never reaches it.
+ *
+ * So each cross-origin image is re-requested with `cache: "reload"`, which bypasses the
+ * cache and stores the response it gets back. That request does carry an `Origin`, so
+ * the entry it replaces the poisoned one with has the header, and the load
+ * html2canvas-pro makes a moment later hits it. It costs one extra download per photo
+ * on an explicit user action, which is the right trade for photos that actually appear.
+ *
+ * A failure here costs that photo, not the whole PDF — but it is counted and returned,
+ * rather than swallowed as the empty box it used to be.
  */
-async function whenImagesAreReady(node: HTMLElement): Promise<void> {
+async function prepareImages(node: HTMLElement): Promise<{ omitted: number }> {
   const images = Array.from(node.querySelectorAll("img"));
+  let omitted = 0;
 
   await Promise.all(
     images.map(async (image) => {
+      const source = image.currentSrc || image.src;
+      if (!source) return;
+
+      // Same-origin and `data:`/`blob:` images are never subject to any of this.
+      let crossOrigin = false;
       try {
-        // `decode()` resolves only once the bitmap is ready to paint, which `complete`
-        // and the load event do not guarantee.
+        crossOrigin = new URL(source, location.href).origin !== location.origin;
+      } catch {
+        return;
+      }
+
+      if (crossOrigin) {
+        try {
+          // `credentials: "omit"` to match how html2canvas-pro loads it — an anonymous
+          // request. A credentialled one would be validated against different rules and
+          // cached under a different key, leaving the entry it reads untouched.
+          const response = await fetch(source, {
+            mode: "cors",
+            cache: "reload",
+            credentials: "omit",
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        } catch {
+          // The bucket will not serve this origin, or the signed URL has expired. The
+          // photo will rasterise empty however long we wait for it.
+          omitted += 1;
+          return;
+        }
+      }
+
+      try {
         await image.decode();
       } catch {
-        // Broken, blocked by CORS, or an expired signed URL. Nothing to do about it
-        // here — the box rasterises empty and the rest of the report still renders.
+        omitted += 1;
       }
     }),
   );
+
+  return { omitted };
+}
+
+/**
+ * Temporarily strip any CSS scaling from `node` and its ancestors.
+ *
+ * html2canvas-pro reads element geometry from the untransformed box but measures each
+ * *word* with a DOM range, which does go through an ancestor `transform`. Under the
+ * preview's `scale(0.72)` wrapper, every word advance therefore came back 28% short
+ * while the boxes stayed full size, and each word after the first drifted left onto the
+ * one before it — the whole report rasterised as overlapping text.
+ *
+ * So the scaling is lifted for the duration of the capture and put back afterwards.
+ * Doing it here rather than in the caller keeps the rule with the code that depends on
+ * it: any node handed to this function is rasterised at its own scale, whatever the
+ * page has wrapped it in.
+ */
+function suspendScaling(node: HTMLElement): () => void {
+  const restore: Array<() => void> = [];
+
+  for (let element: HTMLElement | null = node; element; element = element.parentElement) {
+    const computed = getComputedStyle(element);
+    // `zoom` is reported as a number and the other two as "none" when unset — and as
+    // "" by any engine that does not implement the property at all, jsdom included.
+    const isUnset = (value: string | undefined, unset: string) =>
+      !value || value === unset;
+    if (
+      isUnset(computed.transform, "none") &&
+      isUnset(computed.scale, "none") &&
+      isUnset(computed.zoom, "1")
+    ) {
+      continue;
+    }
+
+    const previous = element.getAttribute("style");
+    restore.push(() => {
+      if (previous === null) element.removeAttribute("style");
+      else element.setAttribute("style", previous);
+    });
+
+    // `important` because the scaling usually comes from a class, which an inline
+    // declaration of equal weight would not beat.
+    element.style.setProperty("transform", "none", "important");
+    element.style.setProperty("scale", "none", "important");
+    element.style.setProperty("zoom", "1", "important");
+  }
+
+  return () => {
+    for (const undo of restore) undo();
+  };
 }
 
 /**
@@ -80,16 +186,22 @@ export async function downloadNodeAsPdf(
     import("jspdf"),
   ]);
 
-  await whenImagesAreReady(node);
+  const { omitted } = await prepareImages(node);
 
-  const canvas = await html2canvas(node, {
-    scale,
-    // The report is rendered off-screen; without this it rasterises as transparent and
-    // the PDF comes out with black text on black.
-    backgroundColor: "#ffffff",
-    useCORS: true,
-    logging: false,
-  });
+  const restoreScaling = suspendScaling(node);
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = await html2canvas(node, {
+      scale,
+      // The report is rendered off-screen; without this it rasterises as transparent and
+      // the PDF comes out with black text on black.
+      backgroundColor: "#ffffff",
+      useCORS: true,
+      logging: false,
+    });
+  } finally {
+    restoreScaling();
+  }
 
   const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
 
@@ -119,7 +231,7 @@ export async function downloadNodeAsPdf(
   }
 
   pdf.save(fileName);
-  return { pageCount, fileName };
+  return { pageCount, fileName, imagesOmitted: omitted };
 }
 
 /** `CLM-100200-buildco.pdf`, matching the legacy naming. */

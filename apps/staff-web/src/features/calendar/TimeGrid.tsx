@@ -112,7 +112,7 @@ export function TimeGrid({
                 className={cn(
                   "text-sm font-semibold",
                   localDayKey(day) === localDayKey(new Date())
-                    ? "text-brand-700"
+                    ? "text-brand-700 dark:text-brand-300"
                     : "text-gray-900",
                 )}
               >
@@ -273,7 +273,7 @@ function DayColumn({
           }}
           className="pointer-events-none absolute inset-x-1 z-20 rounded border border-dashed border-brand-500 bg-brand-500/20"
         >
-          <span className="px-1 text-[10px] font-medium text-brand-700">
+          <span className="px-1 text-[10px] font-medium text-brand-700 dark:text-brand-300">
             {label(day, Math.min(drag.fromMinutes, drag.toMinutes))} –{" "}
             {label(day, Math.max(drag.fromMinutes, drag.toMinutes))}
           </span>

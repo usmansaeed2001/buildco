@@ -67,7 +67,7 @@ export function EstimateEditorPage() {
       <div className="flex flex-col items-center gap-4">
         <ErrorState error={error} {...(notFound ? {} : { onRetry: () => void refetch() })} />
         {notFound && (
-          <Link to="/estimates" className="text-sm text-brand-700 underline">
+          <Link to="/estimates" className="text-sm text-brand-700 dark:text-brand-300 underline">
             Back to supplements
           </Link>
         )}
@@ -430,7 +430,7 @@ function SaveIndicator({ state, editable }: { state: SaveState; editable: boolea
       // Announced without stealing focus, so a screen-reader user learns the save
       // failed without being yanked out of the cell they are typing in.
       role="status"
-      className={state === "error" ? "text-xs text-danger-600" : "text-xs text-gray-400"}
+      className={state === "error" ? "text-xs text-danger-600 dark:text-danger-400" : "text-xs text-gray-400"}
     >
       {text}
     </span>

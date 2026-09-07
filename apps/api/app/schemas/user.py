@@ -53,7 +53,9 @@ class AvatarUploadOut(ORMSchema):
 
 
 class AvatarSaveRequest(Schema):
-    avatar_url: str = Field(min_length=1, max_length=1000)
+    # The column is unbounded text; the cap here only keeps an absurd body out of
+    # the database, well above any URL a provider or our storage layer produces.
+    avatar_url: str = Field(min_length=1, max_length=4096)
 
 
 class SessionOut(ORMSchema):

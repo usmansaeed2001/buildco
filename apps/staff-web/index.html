@@ -12,6 +12,33 @@
       href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..800&family=Inter:wght@300..700&family=Sora:wght@400;600;700&display=swap"
     />
     <title>BuildCo</title>
+
+    <!--
+      Resolve the theme before first paint.
+
+      This duplicates `resolve` from `src/lib/theme.ts` on purpose: the module version runs
+      after the bundle has parsed, which is several hundred milliseconds of white page for
+      anyone on dark. Blocking here is worth it — the script is a few lines and touches
+      only `localStorage` and one media query. Keep the storage key in step with `KEY`
+      there.
+    -->
+    <script>
+      (function () {
+        var theme;
+        try {
+          theme = localStorage.getItem("buildco_theme");
+        } catch (error) {
+          // Storage blocked. Fall through to the OS preference.
+        }
+        if (theme !== "light" && theme !== "dark") {
+          theme =
+            window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

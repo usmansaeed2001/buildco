@@ -72,7 +72,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               "pointer-events-auto rounded-md px-3.5 py-2.5 text-sm shadow-lg ring-1 ring-inset",
               toast.tone === "success" && "bg-success-600 text-white ring-white/10",
               toast.tone === "error" && "bg-danger-600 text-white ring-white/10",
-              toast.tone === "info" && "bg-gray-900 text-white ring-white/10",
+              toast.tone === "info" && "bg-gray-900 text-surface ring-gray-500/25",
             )}
           >
             {toast.message}

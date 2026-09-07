@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* `dark:` keys off an explicit attribute rather than `prefers-color-scheme`, because the
+ * header toggle has to be able to override the OS. `applyTheme` in `src/lib/theme.ts`
+ * resolves "system" to a concrete value and stamps it here; nothing reads the media query
+ * directly. Note the variant matches by ancestor, so it is *not* suppressed inside a
+ * `data-theme="light"` island — the island re-declares the variables (see below), which
+ * covers the print document; don't put accent `dark:` classes inside one.
+ */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /* The design system, in one place.
  *
  * The legacy app had no shared stylesheet: every HTML file restyled from scratch and
@@ -8,11 +17,31 @@
  * staff already use — so the rewrite looks familiar while finally having one source of
  * truth. The dark login/launcher identity from `index.html`/`home.html` is deliberately
  * not carried over; those screens are restyled to match everything else.
+ *
+ * **Dark mode is a repaint of these variables, not a second set of classes.** Tailwind v4
+ * compiles `text-gray-500` to `color: var(--color-gray-500)`, so redefining the ~20
+ * variables below under `[data-theme="dark"]` re-themes all ~600 colour utilities in the
+ * app at once. Two rules follow from that, and breaking either is what makes a hand-rolled
+ * dark mode look broken:
+ *
+ * - **The grey ramp inverts.** `gray-900` is "the strongest text" and `gray-50` is "the
+ *   faintest fill" — in dark those are near-white and near-black respectively. So write
+ *   `text-gray-900` for primary text and `bg-gray-50` for a subtle fill and both themes
+ *   follow. Never write a literal `bg-white`/`text-white` for a *surface*; use
+ *   `bg-surface` (and `text-surface` for text sitting on a `bg-gray-900` fill, which is
+ *   the inverse chip pattern).
+ * - **The accents do not invert.** A brand button must stay blue on both themes, so
+ *   `brand-500/600/700` and the semantic 500/600/700 keep their light values. That leaves
+ *   them too dark to *read* on a dark ground, so accent text pairs with the `dark:`
+ *   variant and the `-300`/`-400` steps: `text-danger-600 dark:text-danger-400`.
  */
 @theme {
   /* ── Brand ──────────────────────────────────────────────────────────────── */
   --color-brand-50: #eff6ff;
   --color-brand-100: #dbeafe;
+  /* The light steps exist for dark mode only: `brand-600` is a button fill and has to
+   * stay saturated there, which leaves it unreadable as text on a dark ground. */
+  --color-brand-300: #93c5fd;
   --color-brand-500: #3b82f6;
   --color-brand-600: #2563eb;
   --color-brand-700: #1d4ed8;
@@ -20,16 +49,19 @@
   /* ── Semantic. Separate from the brand hue, so "this is fine" never reads as
    * "this is a link". ─────────────────────────────────────────────────────── */
   --color-success-50: #ecfdf5;
+  --color-success-400: #6ee7b7;
   --color-success-500: #10b981;
   --color-success-600: #059669;
   --color-success-700: #047857;
 
   --color-warning-50: #fffbeb;
+  --color-warning-400: #fcd34d;
   --color-warning-100: #fef3c7;
   --color-warning-500: #f59e0b;
   --color-warning-600: #d97706;
 
   --color-danger-50: #fef2f2;
+  --color-danger-400: #fca5a5;
   --color-danger-500: #ef4444;
   --color-danger-600: #dc2626;
 
@@ -57,6 +89,79 @@
   --font-display: "Sora", "Archivo", ui-sans-serif, system-ui, sans-serif;
 
   --radius-card: 10px;
+}
+
+/**
+ * The two palettes.
+ *
+ * `[data-theme="light"]` repeats the light values that `@theme` already put on `:root`.
+ * That looks redundant, and on the root element it is — but it makes a *light island*
+ * possible inside a dark page: `<div data-theme="light">` re-declares the variables for
+ * its subtree, which is how the signed closing form keeps printing as black-on-white
+ * regardless of what the person filling it in has the app set to.
+ */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-canvas: #f8f9fa;
+  --color-surface: #ffffff;
+
+  --color-gray-50: oklch(98.5% 0.002 247.839);
+  --color-gray-100: oklch(96.7% 0.003 264.542);
+  --color-gray-200: oklch(92.8% 0.006 264.531);
+  --color-gray-300: oklch(87.2% 0.01 258.338);
+  --color-gray-400: oklch(70.7% 0.022 261.325);
+  --color-gray-500: oklch(55.1% 0.027 264.364);
+  --color-gray-600: oklch(44.6% 0.03 256.802);
+  --color-gray-700: oklch(37.3% 0.034 259.733);
+  --color-gray-800: oklch(27.8% 0.033 256.848);
+  --color-gray-900: oklch(21% 0.034 264.665);
+
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-success-50: #ecfdf5;
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-danger-50: #fef2f2;
+}
+
+/**
+ * Dark.
+ *
+ * The greys are the same hue as the light ramp (264, a cool neutral) read in reverse, so
+ * every `text-gray-900` / `bg-gray-50` pairing in the app keeps its intended contrast
+ * order without touching the markup. Lightness is chosen against `--color-surface` at
+ * 21.5%: `gray-500`, which carries most of the secondary text in this app, lands around
+ * 7:1, and `gray-400` — the deliberately faint step — still clears 4.5:1.
+ *
+ * The 50/100 tints are re-mixed rather than inverted. Inverting `brand-50` would give a
+ * pale blue that glows on a dark ground; a badge wants a dark, desaturated wash of the
+ * hue instead, with the readable text supplied by `dark:text-brand-300`.
+ */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-canvas: oklch(17% 0.012 264);
+  --color-surface: oklch(21.5% 0.013 264);
+
+  --color-gray-50: oklch(26% 0.012 264);
+  --color-gray-100: oklch(29% 0.013 264);
+  --color-gray-200: oklch(34% 0.014 264);
+  --color-gray-300: oklch(41% 0.016 264);
+  --color-gray-400: oklch(60% 0.022 264);
+  --color-gray-500: oklch(72% 0.024 264);
+  --color-gray-600: oklch(80% 0.022 264);
+  --color-gray-700: oklch(87% 0.018 264);
+  --color-gray-800: oklch(93% 0.012 264);
+  --color-gray-900: oklch(97% 0.006 264);
+
+  --color-brand-50: oklch(28% 0.06 262);
+  --color-brand-100: oklch(34% 0.08 262);
+  --color-success-50: oklch(28% 0.05 160);
+  --color-warning-50: oklch(29% 0.05 75);
+  --color-warning-100: oklch(33% 0.07 75);
+  --color-danger-50: oklch(28% 0.06 25);
 }
 
 /* Tabular figures wherever money lines up in a column. Without this, proportional

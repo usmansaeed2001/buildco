@@ -93,7 +93,7 @@ export function EstimateToolbar({
         <Button
           size="sm"
           variant="ghost"
-          className="text-danger-600 hover:bg-danger-50"
+          className="text-danger-600 dark:text-danger-400 hover:bg-danger-50"
           onClick={() => setConfirmingDelete(true)}
         >
           Delete

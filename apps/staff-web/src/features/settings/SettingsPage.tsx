@@ -246,7 +246,7 @@ function RateList({ items, canEdit }: { items: CatalogueItemOut[]; canEdit: bool
                           type="button"
                           aria-label={`Remove ${item.name}`}
                           onClick={() => setPendingDelete(item)}
-                          className="rounded p-1 text-xs text-gray-400 hover:bg-danger-50 hover:text-danger-600"
+                          className="rounded p-1 text-xs text-gray-400 hover:bg-danger-50 hover:text-danger-600 hover:dark:text-danger-400"
                         >
                           &#10005;
                         </button>
@@ -390,7 +390,7 @@ function ListSetting({
         {values.map((value) => (
           <span
             key={value}
-            className="flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-xs text-brand-700"
+            className="flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-xs text-brand-700 dark:text-brand-300"
           >
             {value}
             {canEdit && (
@@ -398,7 +398,7 @@ function ListSetting({
                 type="button"
                 aria-label={`Remove ${value}`}
                 onClick={() => void save(values.filter((item) => item !== value))}
-                className="text-brand-500 hover:text-brand-800"
+                className="text-brand-500 dark:text-brand-300 hover:text-brand-800 hover:dark:text-brand-300"
               >
                 &#10005;
               </button>
@@ -474,7 +474,7 @@ function Notifications({
               checked={prefs[key] ?? true}
               disabled={!canEdit || update.isPending}
               onChange={(event) => void toggle(key, event.target.checked)}
-              className="size-4 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+              className="size-4 shrink-0 rounded border-gray-300 text-brand-600 dark:text-brand-300 focus:ring-brand-500"
             />
             <label htmlFor={`pref-${key}`} className="min-w-0 flex-1">
               <span className="block text-sm text-gray-900">{label}</span>

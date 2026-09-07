@@ -63,7 +63,7 @@ export function ForgotPasswordPage() {
       title="Reset your password"
       {...(sent ? {} : { subtitle: "We'll email you a link to set a new one." })}
       footer={
-        <Link to="/login" className="font-medium text-brand-600 hover:text-brand-700">
+        <Link to="/login" className="font-medium text-brand-600 dark:text-brand-300 hover:text-brand-700 hover:dark:text-brand-300">
           Back to sign in
         </Link>
       }

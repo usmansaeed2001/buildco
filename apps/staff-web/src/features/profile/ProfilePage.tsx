@@ -111,7 +111,7 @@ function Profile({ me }: { me: UserOut }) {
         <div className="flex items-center gap-4">
           <Avatar url={me.avatar_url} name={displayName(me)} size="size-16" />
           <div>
-            <label className="cursor-pointer text-sm text-brand-700 underline">
+            <label className="cursor-pointer text-sm text-brand-700 dark:text-brand-300 underline">
               <input
                 type="file"
                 accept="image/*"

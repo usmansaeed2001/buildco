@@ -167,7 +167,7 @@ function TeamRow({
           <Button
             size="sm"
             variant="ghost"
-            className="text-danger-600 hover:bg-danger-50"
+            className="text-danger-600 dark:text-danger-400 hover:bg-danger-50"
             disabled={!removal.allowed || ban.isPending}
             title={removal.allowed ? undefined : removal.reason}
             onClick={() => setConfirming(true)}
@@ -227,7 +227,7 @@ function AccessRequests({ requests }: { requests: ApprovalRequestOut[] }) {
 
   return (
     <Card className="flex flex-col gap-2 border-warning-500/20 p-5">
-      <h2 className="text-xs font-medium tracking-wide text-warning-600 uppercase">
+      <h2 className="text-xs font-medium tracking-wide text-warning-600 dark:text-warning-400 uppercase">
         Access requests
       </h2>
       <p className="text-sm text-gray-600">

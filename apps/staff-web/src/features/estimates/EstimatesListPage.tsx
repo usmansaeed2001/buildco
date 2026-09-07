@@ -361,8 +361,8 @@ function Chip({
       className={cn(
         "flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors",
         active
-          ? "bg-gray-900 text-white"
-          : "bg-white text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
+          ? "bg-gray-900 text-surface"
+          : "bg-surface text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
       )}
     >
       {children}
@@ -456,7 +456,7 @@ export function EstimateCard({ estimate }: { estimate: EstimateOut }) {
             className="block truncate text-lg leading-tight font-bold tracking-tight after:absolute after:inset-0 after:content-[''] focus-visible:outline-none"
           >
             {named ? (
-              <span className="text-gray-900 transition-colors group-hover:text-brand-700">
+              <span className="text-gray-900 transition-colors group-hover:text-brand-700 group-hover:dark:text-brand-300">
                 {named}
               </span>
             ) : (
@@ -478,7 +478,7 @@ export function EstimateCard({ estimate }: { estimate: EstimateOut }) {
               {displayName(estimate.creator)} · edited {formatRelative(estimate.updated_at)}
             </p>
             {daysLeft !== null && (
-              <p className="mt-0.5 text-xs text-warning-600">
+              <p className="mt-0.5 text-xs text-warning-600 dark:text-warning-400">
                 {daysLeft} {daysLeft === 1 ? "day" : "days"} left
               </p>
             )}

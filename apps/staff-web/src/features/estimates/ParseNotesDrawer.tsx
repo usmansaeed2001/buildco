@@ -223,8 +223,8 @@ export function ParseNotesDrawer({
                       className={cn(
                         "rounded px-2 py-1 text-xs font-medium",
                         language === option.code
-                          ? "bg-gray-900 text-white"
-                          : "bg-white text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
+                          ? "bg-gray-900 text-surface"
+                          : "bg-surface text-gray-600 ring-1 ring-inset ring-gray-300 hover:bg-gray-50",
                       )}
                     >
                       {option.label}

@@ -6,7 +6,7 @@ import type { AccountStatusOut } from "@/api/types";
 import { describeAuthError, getFirebaseAuth } from "@/auth/firebase";
 import { useAuth } from "@/auth/useAuth";
 import { Button } from "@/components/Button";
-import { Alert } from "@/components/feedback";
+import { Alert, LoadingState } from "@/components/feedback";
 import { Field, Input } from "@/components/form";
 import { AuthLayout } from "./AuthLayout";
 import { signInWithGoogle } from "./googleSignIn";
@@ -80,10 +80,10 @@ export function LoginPage() {
       title="Sign in"
       footer={
         <>
-          Need an account?{" "}
-          <Link to="/signup" className="font-medium text-brand-600 hover:text-brand-700">
-            Create one
-          </Link>
+            Need an account?{" "}
+            <Link to="/signup" className="font-medium text-brand-600 dark:text-brand-300 hover:text-brand-700 hover:dark:text-brand-300">
+              Create one
+            </Link>
         </>
       }
     >
@@ -96,54 +96,64 @@ export function LoginPage() {
       {sessionError && <Alert tone="danger">{sessionError}</Alert>}
       {message && <Alert tone="danger">{message}</Alert>}
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <Field label="Email" required>
-          {(props) => (
-            <Input
-              {...props}
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          )}
-        </Field>
-
-        <div className="flex flex-col gap-1.5">
-          <Field label="Password" required>
+      {/* While the sign-in is in flight the form is replaced outright rather than just
+          disabled. Provisioning takes a few seconds, and leaving a filled-in form on
+          screen reads as "nothing happened" — inviting a second submit. `busy` stays
+          true through the redirect and is only cleared when sign-in fails. */}
+      {busy ? (
+        <LoadingState label="Signing you in…" />
+      ) : (
+        <>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <Field label="Email" required>
             {(props) => (
               <Input
                 {...props}
-                type="password"
-                autoComplete="current-password"
+                type="email"
+                autoComplete="email"
                 required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
             )}
           </Field>
-          <div className="text-right">
-            <Link
-              to="/forgot-password"
-              className="text-xs font-medium text-brand-600 hover:text-brand-700"
-            >
-              Forgot your password?
-            </Link>
+
+          <div className="flex flex-col gap-1.5">
+            <Field label="Password" required>
+              {(props) => (
+                <Input
+                  {...props}
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              )}
+            </Field>
+            <div className="text-right">
+              <Link
+                to="/forgot-password"
+                className="text-xs font-medium text-brand-600 dark:text-brand-300 hover:text-brand-700 hover:dark:text-brand-300"
+              >
+                Forgot your password?
+              </Link>
+            </div>
           </div>
-        </div>
 
-        <Button type="submit" variant="primary" busy={busy} className="w-full">
-          Sign in
+          <Button type="submit" variant="primary" className="w-full">
+            Sign in
+          </Button>
+        </form>
+
+        <Divider />
+
+        <Button variant="secondary" onClick={handleGoogle} className="w-full">
+          <GoogleMark />
+          Continue with Google
         </Button>
-      </form>
-
-      <Divider />
-
-      <Button variant="secondary" onClick={handleGoogle} disabled={busy} className="w-full">
-        <GoogleMark />
-        Continue with Google
-      </Button>
+        </>
+      )}
     </AuthLayout>
   );
 }
