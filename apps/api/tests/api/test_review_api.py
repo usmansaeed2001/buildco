@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from app.models.estimate import Estimate
 from app.services import estimate_service
 
@@ -78,6 +80,63 @@ async def test_submitting_emails_the_reviewer(owner_client, notifications, revie
     reviewer_mail = [s for s in notifications.sent if s.recipient == reviewer.email]
     assert len(reviewer_mail) == 1
     assert reviewer_mail[0].template == "estimate_review_request.html"
+
+
+@pytest.fixture
+def slack_posts(monkeypatch) -> list[dict[str, object]]:  # type: ignore[no-untyped-def]
+    from app.services.integrations import slack
+
+    posts: list[dict[str, object]] = []
+
+    async def fake_post(**kwargs):  # type: ignore[no-untyped-def]
+        posts.append(kwargs)
+        return True
+
+    monkeypatch.setattr(slack, "post_estimate_submitted", fake_post)
+    return posts
+
+
+async def test_submitting_posts_to_slack_once(owner_client, owner, reviewer, slack_posts):
+    estimate = (
+        await owner_client.post(
+            "/api/v1/estimates", json={"project_name": "Roof", "client_name": ""}
+        )
+    ).json()
+
+    await owner_client.post(f"/api/v1/estimates/{estimate['id']}/submit", json={})
+
+    assert slack_posts == [
+        {
+            "project_name": "Roof",
+            "identifier": estimate["identifier"],
+            "client_name": "",
+            "submitted_by": owner.full_name,
+            "recipient_email": reviewer.email,
+        }
+    ]
+
+
+async def test_a_refused_submission_posts_nothing_to_slack(owner_client, slack_posts):
+    estimate = (await owner_client.post("/api/v1/estimates", json={"project_name": "X"})).json()
+
+    response = await owner_client.post(f"/api/v1/estimates/{estimate['id']}/submit", json={})
+
+    assert response.status_code == 409
+    assert slack_posts == []
+
+
+async def test_review_decisions_post_nothing_to_slack(
+    owner_client, anon_client, db, reviewer, slack_posts
+):
+    estimate = await submitted_estimate(owner_client, db)
+    slack_posts.clear()
+
+    base = f"/api/v1/public/reviews/{estimate.approval_token}"
+    changes = await anon_client.post(f"{base}/request-changes", json={"notes": "Fix"})
+    approved = await anon_client.post(f"{base}/approve")
+
+    assert (changes.status_code, approved.status_code) == (200, 200)
+    assert slack_posts == []
 
 
 async def test_an_estimate_awaiting_a_decision_cannot_be_resubmitted(owner_client, reviewer):

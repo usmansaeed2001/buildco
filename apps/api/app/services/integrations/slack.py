@@ -36,7 +36,7 @@ async def post_message(text: str, blocks: list[dict[str, object]] | None = None)
         if response.status_code >= 400:
             log.error("slack_post_failed", status=response.status_code, body=response.text[:300])
             return False
-    except httpx.HTTPError as exc:
+    except Exception as exc:  # "never raises" covers bad URLs, not just transport errors
         log.error("slack_post_error", error=str(exc))
         return False
 
@@ -44,18 +44,26 @@ async def post_message(text: str, blocks: list[dict[str, object]] | None = None)
     return True
 
 
-async def post_estimate_submitted(
+#: Static on purpose: the legacy app sent this exact string, and the Zap and anyone
+#: pattern-matching the channel see both apps' messages side by side.
+ESTIMATE_SUBMITTED_TEXT = "📋 *New Supplement Estimate Submitted for Review*"
+
+
+def build_estimate_submitted_payload(
     *,
     project_name: str,
     identifier: str,
-    client_name: str,
+    client_name: str | None,
     submitted_by: str,
     recipient_email: str,
-) -> bool:
-    """The one Slack message the system currently sends."""
-    return await post_message(
-        text=f"📋 New supplement estimate submitted for review: {project_name}",
-        blocks=[
+) -> dict[str, object]:
+    """The webhook body, byte-for-byte what ``submit.js`` sends.
+
+    User data is deliberately not mrkdwn-escaped, matching the legacy message.
+    """
+    return {
+        "text": ESTIMATE_SUBMITTED_TEXT,
+        "blocks": [
             {
                 "type": "section",
                 "text": {
@@ -70,4 +78,23 @@ async def post_estimate_submitted(
                 },
             }
         ],
+    }
+
+
+async def post_estimate_submitted(
+    *,
+    project_name: str,
+    identifier: str,
+    client_name: str | None,
+    submitted_by: str,
+    recipient_email: str,
+) -> bool:
+    """The one Slack message the system currently sends."""
+    payload = build_estimate_submitted_payload(
+        project_name=project_name,
+        identifier=identifier,
+        client_name=client_name,
+        submitted_by=submitted_by,
+        recipient_email=recipient_email,
     )
+    return await post_message(text=payload["text"], blocks=payload["blocks"])  # type: ignore[arg-type]
