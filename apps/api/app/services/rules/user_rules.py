@@ -9,8 +9,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from app.models.enums import ELEVATED_ROLES, Role
+
+#: How long the link in an invitation email stays usable. Long enough to survive a
+#: weekend in someone's inbox, short enough that a forwarded or leaked email goes stale.
+INVITATION_TTL = timedelta(days=7)
 
 # ── Snapshot ──────────────────────────────────────────────────────────────────
 
@@ -92,6 +97,31 @@ def can_remove_user(actor: UserSnapshot, target: UserSnapshot) -> Decision:
     if actor.role == Role.ADMIN and target.role != Role.MEMBER:
         return _refuse("Admins can only remove members.")
     return ALLOWED
+
+
+def can_invite_user(actor: UserSnapshot, role: Role) -> Decision:
+    """Whether ``actor`` may add someone to the team with ``role``.
+
+    The same ceiling as ``can_assign_role``, for the same reason: inviting someone as an
+    owner *is* granting ownership, so it must not be a way round the rule that only an
+    owner does that. Resending and revoking an invitation are checked against the
+    invitation's own role, so an admin cannot manage an owner invitation either.
+    """
+    if not actor.is_elevated:
+        return _refuse("Only owners and admins can add people to the team.")
+    if role == Role.OWNER and not actor.is_owner:
+        return _refuse("Only owners can invite another owner.")
+    return ALLOWED
+
+
+def invitation_is_live(invited_at: datetime | None, now: datetime) -> bool:
+    """Whether an invitation sent at ``invited_at`` can still be accepted by its link.
+
+    Both arguments must be timezone-aware; the caller owns the clock.
+    """
+    if invited_at is None:
+        return False
+    return now - invited_at <= INVITATION_TTL
 
 
 def can_review_approval_requests(actor: UserSnapshot) -> Decision:

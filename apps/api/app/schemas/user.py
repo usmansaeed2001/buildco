@@ -24,6 +24,10 @@ class UserOut(ORMSchema):
     #: Present so an admin screen can tell a migrated user from one who has actually
     #: signed in since the move to Firebase.
     firebase_uid: str | None = None
+    invited_at: datetime | None = None
+    #: Invited by an admin and not signed in yet. The roster shows these apart, with
+    #: resend and revoke in place of remove.
+    invite_pending: bool = False
 
 
 class UserUpdate(Schema):
@@ -35,6 +39,23 @@ class UserUpdate(Schema):
 
 class RoleUpdate(Schema):
     role: Role
+
+
+class InviteCreate(Schema):
+    """Adding someone to the team before they have an account."""
+
+    email: EmailStr
+    #: Optional. Left blank, it is filled from their sign-in the first time they join.
+    full_name: str = Field(default="", max_length=200)
+    role: Role = Role.MEMBER
+
+
+class SessionRequest(Schema):
+    """Optional body for ``POST /auth/session``."""
+
+    #: The token from an invitation email, when the person signing in arrived by that
+    #: link. Proves they can read the invited mailbox — see ``resolve_profile``.
+    invite_token: str | None = Field(default=None, max_length=128)
 
 
 class AvatarUploadRequest(Schema):

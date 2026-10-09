@@ -59,8 +59,10 @@ function useMeetingMutation<TVariables, TData>(
   });
 }
 
-export type MeetingCreateBody = Omit<MeetingCreate, "attendee_ids"> & {
+export type MeetingCreateBody = Omit<MeetingCreate, "attendee_ids" | "attendee_emails"> & {
   attendee_ids?: string[];
+  /** People outside the team, by address. They get the email and .ics but no account. */
+  attendee_emails?: string[];
 };
 
 export function useCreateMeeting() {

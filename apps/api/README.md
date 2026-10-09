@@ -107,7 +107,7 @@ marked **public**.
 
 | Method | Path | Role | Notes |
 |---|---|---|---|
-| POST | `/auth/session` | token | Exchange a Firebase token for a profile. Provisions new users, links migrated ones, makes the first user ever the owner. Call once after sign-in. |
+| POST | `/auth/session` | token | Exchange a Firebase token for a profile. Provisions new users, links migrated ones, makes the first user ever the owner. Call once after sign-in. Optional body `{invite_token}` accepts an invitation. |
 | GET | `/auth/status?email=` | **public** | Pre-sign-in check: `active` / `banned` / `not_found`. Files one access request for a removed user. |
 | GET | `/users/me` | any | |
 | PATCH | `/users/me` | any | `full_name`, `phone` |
@@ -116,9 +116,26 @@ marked **public**.
 | GET | `/users` | any | Team roster |
 | PATCH | `/users/{id}/role` | owner/admin | |
 | POST | `/users/{id}/ban` | owner/admin | Also disables the Firebase user |
+| POST | `/users/invite` | owner/admin | `{email, role, full_name?}`. Creates the profile and emails a join link. Only an owner may invite an owner. 409 if the address is already on the team, already invited, or was removed. |
+| POST | `/users/{id}/invite/resend` | owner/admin | Fresh link; the previous one stops working |
+| DELETE | `/users/{id}/invite` | owner/admin | Withdraws a pending invitation (deletes the profile). 409 once they have signed in — use the ban |
 | GET | `/approval-requests` | owner/admin | `?status=pending` |
 | POST | `/approval-requests/{id}/approve` | owner/admin | Restores access |
 | POST | `/approval-requests/{id}/deny` | owner/admin | |
+
+**Invitations.** An invited person is a `profiles` row created up front — `active`, with
+the chosen role and no `firebase_uid` — so they are in the roster and assignable before
+they have signed in (`invite_pending: true` on `UserOut`). They make their own account,
+by password or Google, and `resolve_profile` links it on first sign-in.
+
+Linking on a matching address alone would not be safe here: Firebase creates a password
+account for any address without confirming it, so an invitation could be claimed by
+whoever signed up with the invited address first, role included. A pending invitation
+therefore links only with proof of the mailbox — either the identity provider vouches
+for it (`email_verified`, which a Google sign-in always is) or the caller presents the
+token from the invitation email. The token is single-use, valid for 7 days, and stored
+only as a SHA-256 hash. Users migrated from Supabase have no invitation and link exactly
+as before.
 
 ### Estimates
 
@@ -169,11 +186,17 @@ money.
 
 | Method | Path | Role |
 |---|---|---|
-| GET | `/meetings` | any — `?from=&to=&project_id=` |
-| POST | `/meetings` | owner/admin — Meet link, ICS, invites |
-| GET | `/meetings/{id}` | any |
-| PATCH | `/meetings/{id}` | owner/admin — re-invites only on a material change |
-| DELETE | `/meetings/{id}` | owner/admin — sends a cancellation ICS |
+| GET | `/meetings` | any — `?from=&to=&project_id=&scope=`. Non-elevated callers see only what they created or were invited to |
+| POST | `/meetings` | any — Meet link, ICS, invites |
+| GET | `/meetings/{id}` | any + visibility (404 otherwise) |
+| PATCH | `/meetings/{id}` | creator or owner/admin — re-invites only on a material change |
+| DELETE | `/meetings/{id}` | creator or owner/admin — sends a cancellation ICS |
+
+Attendees come in two kinds. `attendee_ids` invites team members; `attendee_emails`
+(up to 50) invites anyone else by address — a guest is an attendee row with no
+`user_id`, gets the same email and .ics, and has no view of the meeting in the app. An
+address that belongs to a team member is recorded as that member, not as a guest. On
+`PATCH` the two lists are independent: sending one leaves the other untouched.
 
 ### Public review
 

@@ -98,6 +98,11 @@ export interface paths {
          *     the ``handle_new_user()`` Postgres trigger, which does not survive the move off
          *     Supabase Auth.
          *
+         *     It is also where an invitation is accepted. Someone who arrived by the link in an
+         *     invitation email sends its ``invite_token`` in the body, and is linked to the profile
+         *     — and the role — an admin created for them. The body is optional; everyone else
+         *     sends none.
+         *
          *     This route resolves the identity itself rather than depending on
          *     ``get_current_user``, because it needs to know whether the profile was created or
          *     merely linked in order to report it.
@@ -255,6 +260,74 @@ export interface paths {
          */
         post: operations["ban_user_api_v1_users__user_id__ban_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Invite User
+         * @description Add someone to the team and email them an invitation.
+         *
+         *     Their profile exists — with the chosen role — from this call on, so they show in the
+         *     roster as invited and can be assigned work before they have signed in. They join by
+         *     following the emailed link and creating an account with that address.
+         *
+         *     Only an owner may invite another owner (``user_rules.can_invite_user``). An address
+         *     that is already on the team, already invited, or was removed is a 409 saying which.
+         */
+        post: operations["invite_user_api_v1_users_invite_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{user_id}/invite/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend Invitation
+         * @description Email a pending invitation again, with a fresh link. The old link stops working.
+         */
+        post: operations["resend_invitation_api_v1_users__user_id__invite_resend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{user_id}/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Invitation
+         * @description Withdraw a pending invitation. 409 once the person has signed in — remove them
+         *     with ``POST /users/{id}/ban`` instead.
+         */
+        delete: operations["revoke_invitation_api_v1_users__user_id__invite_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -865,6 +938,9 @@ export interface paths {
          *     provider carrying the ``calendar.events`` scope — to attach a Google Meet
          *     conference. Without it the meeting is still created and invited, just without a
          *     video link.
+         *
+         *     ``attendee_ids`` invites team members; ``attendee_emails`` invites anyone else by
+         *     address. Both receive the same email and .ics.
          */
         post: operations["create_meeting_api_v1_meetings_post"];
         delete?: never;
@@ -1265,7 +1341,10 @@ export interface components {
             /** Url */
             url?: string | null;
         };
-        /** AttendeeOut */
+        /**
+         * AttendeeOut
+         * @description One invitee. ``user_id`` and ``profile`` are null for a guest invited by email.
+         */
         AttendeeOut: {
             /**
              * Id
@@ -1575,6 +1654,24 @@ export interface components {
             environment: string;
         };
         /**
+         * InviteCreate
+         * @description Adding someone to the team before they have an account.
+         */
+        InviteCreate: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /**
+             * Full Name
+             * @default
+             */
+            full_name: string;
+            /** @default member */
+            role: components["schemas"]["Role"];
+        };
+        /**
          * ItemCategory
          * @enum {string}
          */
@@ -1690,6 +1787,8 @@ export interface components {
             project_id?: string | null;
             /** Attendee Ids */
             attendee_ids?: string[];
+            /** Attendee Emails */
+            attendee_emails?: string[];
             /** Google Access Token */
             google_access_token?: string | null;
         };
@@ -1752,7 +1851,10 @@ export interface components {
         MeetingScope: "mine" | "invited" | "all";
         /**
          * MeetingUpdate
-         * @description Partial update. Supplying ``attendee_ids`` replaces the attendee list wholesale.
+         * @description Partial update.
+         *
+         *     ``attendee_ids`` and ``attendee_emails`` are independent: supplying one replaces that
+         *     half of the attendee list wholesale and leaves the other half alone.
          */
         MeetingUpdate: {
             /** Title */
@@ -1771,6 +1873,8 @@ export interface components {
             project_id?: string | null;
             /** Attendee Ids */
             attendee_ids?: string[] | null;
+            /** Attendee Emails */
+            attendee_emails?: string[] | null;
             /** Google Access Token */
             google_access_token?: string | null;
         };
@@ -2281,6 +2385,14 @@ export interface components {
              */
             linked: boolean;
         };
+        /**
+         * SessionRequest
+         * @description Optional body for ``POST /auth/session``.
+         */
+        SessionRequest: {
+            /** Invite Token */
+            invite_token?: string | null;
+        };
         /** SubmitForReviewOut */
         SubmitForReviewOut: {
             estimate: components["schemas"]["EstimateOut"];
@@ -2429,6 +2541,13 @@ export interface components {
             created_at: string;
             /** Firebase Uid */
             firebase_uid?: string | null;
+            /** Invited At */
+            invited_at?: string | null;
+            /**
+             * Invite Pending
+             * @default false
+             */
+            invite_pending: boolean;
         };
         /**
          * UserStatus
@@ -2546,7 +2665,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SessionRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -2823,6 +2946,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    invite_user_api_v1_users_invite_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resend_invitation_api_v1_users__user_id__invite_resend_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_invitation_api_v1_users__user_id__invite_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ack"];
                 };
             };
             /** @description Validation Error */

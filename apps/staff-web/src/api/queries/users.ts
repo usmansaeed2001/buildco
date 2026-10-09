@@ -11,7 +11,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { queryKeys } from "./keys";
-import type { ApprovalRequestOut, UserOut, UserUpdate } from "../types";
+import type { Ack, ApprovalRequestOut, InviteCreate, UserOut, UserUpdate } from "../types";
 import type { Role } from "@/domain/enums";
 
 export function useUsers() {
@@ -71,6 +71,51 @@ export function useBanUser() {
   return useMutation({
     mutationFn: (userId: string) =>
       apiFetch<UserOut>(`/users/${userId}/ban`, { method: "POST" }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.users }),
+  });
+}
+
+/** `full_name` and `role` have server-side defaults, so only the address is required. */
+export type InviteBody = Pick<InviteCreate, "email"> &
+  Partial<Pick<InviteCreate, "full_name" | "role">>;
+
+/**
+ * Add someone to the team and email them an invitation.
+ *
+ * Their profile exists from this call on — with the chosen role, marked
+ * `invite_pending` — so the roster is invalidated and they appear at once, assignable
+ * before they have signed in. A 409 means the address is already on the team, already
+ * invited, or was removed; the message says which.
+ */
+export function useInviteUser() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: InviteBody) =>
+      apiFetch<UserOut>("/users/invite", { method: "POST", body }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.users }),
+  });
+}
+
+/** Emails the invitation again with a fresh link. The earlier link stops working. */
+export function useResendInvite() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch<UserOut>(`/users/${userId}/invite/resend`, { method: "POST" }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.users }),
+  });
+}
+
+/** Withdraws a pending invitation. The profile is deleted, so the address can be
+ *  invited again — unlike a ban, which is for someone who has actually joined. */
+export function useRevokeInvite() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch<Ack>(`/users/${userId}/invite`, { method: "DELETE" }),
     onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.users }),
   });
 }

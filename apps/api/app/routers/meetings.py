@@ -98,13 +98,17 @@ async def create_meeting(
     provider carrying the ``calendar.events`` scope — to attach a Google Meet
     conference. Without it the meeting is still created and invited, just without a
     video link.
+
+    ``attendee_ids`` invites team members; ``attendee_emails`` invites anyone else by
+    address. Both receive the same email and .ics.
     """
-    payload = body.model_dump(exclude={"attendee_ids", "google_access_token"})
+    payload = body.model_dump(exclude={"attendee_ids", "attendee_emails", "google_access_token"})
     meeting, bundle = await meeting_service.create_meeting(
         db,
         actor,
         data=payload,
         attendee_ids=body.attendee_ids,
+        attendee_emails=list(body.attendee_emails),
         google_access_token=body.google_access_token,
     )
     _send_invites(background, bundle, f"📅 Meeting invite: {meeting.title}", "meeting_invite.html")
@@ -130,9 +134,16 @@ async def update_meeting(
     """
     meeting = await meeting_service.get_meeting(db, actor, meeting_id)
     meeting_service.require_manageable(actor, meeting)
-    changes = body.model_dump(exclude_unset=True, exclude={"attendee_ids", "google_access_token"})
+    changes = body.model_dump(
+        exclude_unset=True, exclude={"attendee_ids", "attendee_emails", "google_access_token"}
+    )
     meeting, bundle = await meeting_service.update_meeting(
-        db, actor, meeting, changes=changes, attendee_ids=body.attendee_ids
+        db,
+        actor,
+        meeting,
+        changes=changes,
+        attendee_ids=body.attendee_ids,
+        attendee_emails=None if body.attendee_emails is None else list(body.attendee_emails),
     )
     if bundle is not None:
         _send_invites(

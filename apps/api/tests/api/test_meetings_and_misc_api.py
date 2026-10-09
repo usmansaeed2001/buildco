@@ -5,6 +5,10 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
+from app.models.enums import Role, UserStatus
+from app.models.profile import Profile
 from app.services.integrations import calendar
 from app.services.integrations.calendar import IcsAttendee
 
@@ -306,6 +310,206 @@ async def test_cancelling_a_meeting_notifies_attendees(owner_client, member, not
 
     assert response.status_code == 200
     assert any("cancelled" in s.subject.lower() for s in notifications.sent)
+
+
+# ── Guests invited by email ───────────────────────────────────────────────────
+
+GUEST = "adjuster@insurer.example.com"
+
+
+def recipients_of(notifications) -> set[str]:
+    """Every address any recorded message went to."""
+    return {r for s in notifications.sent for r in (s.recipient or "").split(",") if r}
+
+
+@pytest.fixture
+async def colleague(session_factory) -> Profile:
+    """A team member with a deliverable-looking address.
+
+    The shared fixtures live on ``@buildco.test``, a reserved domain the API rightly
+    refuses as an email address — fine for an id, useless for typing into a guest field.
+    """
+    async with session_factory() as session:
+        profile = Profile(
+            id=uuid.uuid4(),
+            firebase_uid=f"fb-{uuid.uuid4().hex[:12]}",
+            email="mia@buildco.example.com",
+            full_name="Mia Member",
+            role=Role.MEMBER.value,
+            status=UserStatus.ACTIVE.value,
+        )
+        session.add(profile)
+        await session.commit()
+        await session.refresh(profile)
+        return profile
+
+
+async def test_someone_outside_the_team_can_be_invited_by_email(owner_client, notifications):
+    """A guest is an attendee row with no ``user_id`` — there is no account behind it."""
+    meeting = await make_meeting(owner_client, attendee_emails=[GUEST])
+
+    assert [(a["email"], a["user_id"], a["profile"]) for a in meeting["attendees"]] == [
+        (GUEST, None, None)
+    ]
+    assert GUEST in recipients_of(notifications)
+
+
+async def test_a_member_can_invite_a_guest_to_their_own_meeting(member_client, notifications):
+    """Scheduling is open to everyone, and inviting an outsider is part of scheduling."""
+    meeting = await make_meeting(member_client, attendee_emails=[GUEST])
+
+    assert [a["email"] for a in meeting["attendees"]] == [GUEST]
+    assert GUEST in recipients_of(notifications)
+
+
+async def test_members_and_guests_are_invited_together(owner_client, member, notifications):
+    meeting = await make_meeting(
+        owner_client, attendee_ids=[str(member.id)], attendee_emails=[GUEST]
+    )
+
+    assert {a["email"] for a in meeting["attendees"]} == {member.email, GUEST}
+    assert recipients_of(notifications) == {member.email, GUEST}
+
+
+async def test_a_team_members_address_is_invited_as_that_member(owner_client, client_as, colleague):
+    """Typing a colleague's email must not produce a second-class invite.
+
+    Visibility is decided by ``user_id``, so a guest row for a team member would email
+    them a meeting the app then hid from them.
+    """
+    meeting = await make_meeting(owner_client, attendee_emails=[colleague.email.upper()])
+
+    assert [a["user_id"] for a in meeting["attendees"]] == [str(colleague.id)]
+    async with client_as(colleague) as client:
+        titles = [m["title"] for m in (await client.get("/api/v1/meetings")).json()]
+    assert titles == ["Site walkthrough"]
+
+
+async def test_the_same_person_is_not_invited_twice(owner_client, colleague):
+    meeting = await make_meeting(
+        owner_client,
+        attendee_ids=[str(colleague.id)],
+        attendee_emails=[colleague.email, GUEST, GUEST.upper()],
+    )
+
+    assert sorted(a["email"] for a in meeting["attendees"]) == sorted([colleague.email, GUEST])
+
+
+async def test_a_malformed_guest_address_is_rejected(owner_client):
+    response = await owner_client.post(
+        "/api/v1/meetings",
+        json={
+            "title": "Site walkthrough",
+            "start_time": START.isoformat(),
+            "end_time": END.isoformat(),
+            "attendee_emails": ["not-an-address"],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+async def test_adding_a_guest_later_sends_the_invite(owner_client, member, notifications):
+    meeting = await make_meeting(owner_client, attendee_ids=[str(member.id)])
+    notifications.sent.clear()
+
+    response = await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}", json={"attendee_emails": [GUEST]}
+    )
+
+    # The member half of the list was not sent, so it must be left exactly as it was.
+    assert {a["email"] for a in response.json()["attendees"]} == {member.email, GUEST}
+    assert recipients_of(notifications) == {member.email, GUEST}
+
+
+async def test_changing_the_members_leaves_the_guests_alone(owner_client, member):
+    meeting = await make_meeting(owner_client, attendee_emails=[GUEST])
+
+    response = await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}", json={"attendee_ids": [str(member.id)]}
+    )
+
+    assert {a["email"] for a in response.json()["attendees"]} == {member.email, GUEST}
+
+
+async def test_a_guest_can_be_removed(owner_client, member):
+    meeting = await make_meeting(
+        owner_client, attendee_ids=[str(member.id)], attendee_emails=[GUEST]
+    )
+
+    response = await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}", json={"attendee_emails": []}
+    )
+
+    assert [a["email"] for a in response.json()["attendees"]] == [member.email]
+
+
+async def test_resending_the_same_guests_does_not_re_invite(owner_client, notifications):
+    """Same people, different order and case — nothing an attendee would care about."""
+    other = "pa@insurer.example.com"
+    meeting = await make_meeting(owner_client, attendee_emails=[GUEST, other])
+    notifications.sent.clear()
+
+    await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}", json={"attendee_emails": [other.upper(), GUEST]}
+    )
+
+    assert notifications.sent == []
+
+
+async def test_recolouring_a_meeting_keeps_its_guests_and_emails_nobody(
+    owner_client, notifications
+):
+    meeting = await make_meeting(owner_client, attendee_emails=[GUEST])
+    notifications.sent.clear()
+
+    response = await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}", json={"color": "#10B981"}
+    )
+
+    assert [a["email"] for a in response.json()["attendees"]] == [GUEST]
+    assert notifications.sent == []
+
+
+async def test_moving_a_meeting_re_invites_its_guests(owner_client, notifications):
+    """Guests have no profile, which is exactly how an update could forget them."""
+    meeting = await make_meeting(owner_client, attendee_emails=[GUEST])
+    notifications.sent.clear()
+
+    await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}",
+        json={
+            "start_time": (START + timedelta(hours=2)).isoformat(),
+            "end_time": (END + timedelta(hours=2)).isoformat(),
+        },
+    )
+
+    assert GUEST in recipients_of(notifications)
+
+
+async def test_cancelling_a_meeting_notifies_its_guests(owner_client, notifications):
+    meeting = await make_meeting(owner_client, attendee_emails=[GUEST])
+    notifications.sent.clear()
+
+    await owner_client.delete(f"/api/v1/meetings/{meeting['id']}")
+
+    assert GUEST in recipients_of(notifications)
+    assert any("cancelled" in s.subject.lower() for s in notifications.sent)
+
+
+async def test_the_number_of_guests_is_capped(owner_client):
+    """Anyone signed in may schedule, so this bounds the mail one request can send."""
+    response = await owner_client.post(
+        "/api/v1/meetings",
+        json={
+            "title": "Everyone",
+            "start_time": START.isoformat(),
+            "end_time": END.isoformat(),
+            "attendee_emails": [f"guest{n}@insurer.example.com" for n in range(51)],
+        },
+    )
+
+    assert response.status_code == 422
 
 
 # ── ICS generation ────────────────────────────────────────────────────────────

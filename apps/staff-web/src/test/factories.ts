@@ -48,6 +48,8 @@ export function makeUser(overrides: Partial<UserOut> = {}): UserOut {
     status: "active",
     created_at: "2026-01-05T10:00:00Z",
     firebase_uid: "firebase-uid",
+    invited_at: null,
+    invite_pending: false,
     ...overrides,
   };
 }

@@ -5,10 +5,11 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Header, Path, Query
+from fastapi import APIRouter, BackgroundTasks, Header, Path, Query, status
 
 from app.deps import CurrentUser, DbSession, Elevated
 from app.models.enums import ApprovalRequestStatus
+from app.models.profile import Profile
 from app.schemas.common import Ack
 from app.schemas.user import (
     AccountStatusOut,
@@ -16,8 +17,10 @@ from app.schemas.user import (
     AvatarSaveRequest,
     AvatarUploadOut,
     AvatarUploadRequest,
+    InviteCreate,
     RoleUpdate,
     SessionOut,
+    SessionRequest,
     UserOut,
     UserUpdate,
 )
@@ -36,6 +39,7 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
 async def establish_session(
     db: DbSession,
     background: BackgroundTasks,
+    body: SessionRequest | None = None,
     authorization: Annotated[str | None, Header()] = None,
 ) -> SessionOut:
     """Exchange a Firebase ID token for the caller's application profile.
@@ -45,6 +49,11 @@ async def establish_session(
     the first person ever to sign in the owner role — all logic that used to live in
     the ``handle_new_user()`` Postgres trigger, which does not survive the move off
     Supabase Auth.
+
+    It is also where an invitation is accepted. Someone who arrived by the link in an
+    invitation email sends its ``invite_token`` in the body, and is linked to the profile
+    — and the role — an admin created for them. The body is optional; everyone else
+    sends none.
 
     This route resolves the identity itself rather than depending on
     ``get_current_user``, because it needs to know whether the profile was created or
@@ -57,7 +66,9 @@ async def establish_session(
     token = "" if settings.auth_disabled else _extract_bearer(authorization)
     identity = await get_auth_provider().verify_id_token(token)
 
-    resolved = await user_service.resolve_profile(db, identity)
+    resolved = await user_service.resolve_profile(
+        db, identity, invite_token=body.invite_token if body else None
+    )
 
     if resolved.created:
         background.add_task(
@@ -213,6 +224,84 @@ async def ban_user(
         pref="member_removed",
     )
     return UserOut.model_validate(target)
+
+
+# ── Invitations ───────────────────────────────────────────────────────────────
+
+
+def _send_invitation(
+    background: BackgroundTasks, invited: Profile, inviter: Profile, token: str
+) -> None:
+    """Queue the invitation email. The token leaves the process only inside this link."""
+    background.add_task(
+        notifications.notify_one,
+        invited.email,
+        "You've been invited to join BuildCo",
+        "notice.html",
+        {
+            "badge": "Invitation",
+            "tone": "blue",
+            "headline": "You've been invited to BuildCo",
+            "body": (
+                f"{inviter.display_name} has added you to the BuildCo team. "
+                "Use the button below to create your account and get started."
+            ),
+            "rows": [
+                ("Email", invited.email),
+                ("Role", invited.role.title()),
+                ("Invited by", inviter.display_name),
+            ],
+            "cta_url": user_service.invitation_url(token, invited.email),
+            "cta_label": "Join BuildCo",
+            "footer_note": (
+                "This link works for 7 days and only for this email address. "
+                "You can also sign in with Google using the same address."
+            ),
+        },
+    )
+
+
+@users_router.post("/invite", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+async def invite_user(
+    body: InviteCreate, db: DbSession, background: BackgroundTasks, actor: Elevated
+) -> UserOut:
+    """Add someone to the team and email them an invitation.
+
+    Their profile exists — with the chosen role — from this call on, so they show in the
+    roster as invited and can be assigned work before they have signed in. They join by
+    following the emailed link and creating an account with that address.
+
+    Only an owner may invite another owner (``user_rules.can_invite_user``). An address
+    that is already on the team, already invited, or was removed is a 409 saying which.
+    """
+    invited, token = await user_service.invite_user(
+        db, actor, email=body.email, full_name=body.full_name, role=body.role
+    )
+    _send_invitation(background, invited, actor, token)
+    return UserOut.model_validate(invited)
+
+
+@users_router.post("/{user_id}/invite/resend", response_model=UserOut)
+async def resend_invitation(
+    db: DbSession,
+    background: BackgroundTasks,
+    actor: Elevated,
+    user_id: Annotated[uuid.UUID, Path()],
+) -> UserOut:
+    """Email a pending invitation again, with a fresh link. The old link stops working."""
+    invited, token = await user_service.resend_invitation(db, actor, user_id)
+    _send_invitation(background, invited, actor, token)
+    return UserOut.model_validate(invited)
+
+
+@users_router.delete("/{user_id}/invite", response_model=Ack)
+async def revoke_invitation(
+    db: DbSession, actor: Elevated, user_id: Annotated[uuid.UUID, Path()]
+) -> Ack:
+    """Withdraw a pending invitation. 409 once the person has signed in — remove them
+    with ``POST /users/{id}/ban`` instead."""
+    await user_service.revoke_invitation(db, actor, user_id)
+    return Ack()
 
 
 # ── Access requests ───────────────────────────────────────────────────────────
