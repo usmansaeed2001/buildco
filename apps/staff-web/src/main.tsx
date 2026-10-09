@@ -4,9 +4,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router-dom";
 import { ApiError } from "./api/client";
 import { AuthProvider } from "./auth/AuthProvider";
+import { captureInviteFromUrl } from "./auth/invite";
 import { ToastProvider } from "./components/Toast";
 import { router } from "./router";
 import "./styles/index.css";
+
+// Before anything renders: AuthProvider may post the session on its very first effect,
+// and an invitation link's token has to be in place by then.
+captureInviteFromUrl();
 
 const queryClient = new QueryClient({
   defaultOptions: {

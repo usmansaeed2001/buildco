@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders } from "@/test/utils";
 import { makeMeeting, makeUser } from "@/test/factories";
 import { server } from "@/test/msw/server";
@@ -141,6 +141,100 @@ describe("MeetingModal", () => {
       expect(created[0]!.attendee_ids).toEqual([MEMBER_USER.id]);
     });
 
+    describe("guests", () => {
+      const GUEST = "adjuster@insurer.com";
+
+      it("invites someone outside the team by email", async () => {
+        const { created } = serveMutations();
+        const { user } = renderModal();
+
+        await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
+        await user.type(screen.getByLabelText("Invite by email"), GUEST);
+        await user.click(screen.getByRole("button", { name: "Add" }));
+
+        // Added to the list, and the field is cleared for the next one.
+        expect(within(screen.getByRole("list", { name: "Guests" })).getByText(GUEST)).toBeVisible();
+        expect(screen.getByLabelText("Invite by email")).toHaveValue("");
+
+        await user.click(screen.getByRole("button", { name: "Create meeting" }));
+        await waitFor(() => expect(created).toHaveLength(1));
+        expect(created[0]!.attendee_emails).toEqual([GUEST]);
+      });
+
+      it("adds a guest on Enter without closing the dialog", async () => {
+        const { created } = serveMutations();
+        const { user } = renderModal();
+
+        await user.type(screen.getByLabelText("Invite by email"), `${GUEST}{Enter}`);
+
+        expect(within(screen.getByRole("list", { name: "Guests" })).getByText(GUEST)).toBeVisible();
+        expect(created).toEqual([]);
+      });
+
+      it("takes several pasted addresses at once, without duplicates", async () => {
+        const { user } = renderModal();
+        serveMutations();
+
+        await user.type(
+          screen.getByLabelText("Invite by email"),
+          `${GUEST}, pa@insurer.com ${GUEST.toUpperCase()}{Enter}`,
+        );
+
+        const listed = within(screen.getByRole("list", { name: "Guests" }))
+          .getAllByRole("listitem")
+          .map((item) => item.textContent);
+        expect(listed).toEqual([`${GUEST}×`, "pa@insurer.com×"]);
+      });
+
+      it("refuses something that is not an address, and says which", async () => {
+        serveMutations();
+        const { user } = renderModal();
+
+        await user.type(screen.getByLabelText("Invite by email"), "not-an-address{Enter}");
+
+        expect(screen.getByText('"not-an-address" is not an email address.')).toBeVisible();
+        expect(screen.queryByRole("list", { name: "Guests" })).not.toBeInTheDocument();
+      });
+
+      it("includes an address that was typed but never added", async () => {
+        // The easiest way to believe you invited someone you did not.
+        const { created } = serveMutations();
+        const { user } = renderModal();
+
+        await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
+        await user.type(screen.getByLabelText("Invite by email"), GUEST);
+        await user.click(screen.getByRole("button", { name: "Create meeting" }));
+
+        await waitFor(() => expect(created).toHaveLength(1));
+        expect(created[0]!.attendee_emails).toEqual([GUEST]);
+      });
+
+      it("does not save while the guest field holds something invalid", async () => {
+        const { created } = serveMutations();
+        const { user } = renderModal();
+
+        await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
+        await user.type(screen.getByLabelText("Invite by email"), "adjuster@");
+        await user.click(screen.getByRole("button", { name: "Create meeting" }));
+
+        expect(screen.getByText('"adjuster@" is not an email address.')).toBeVisible();
+        expect(created).toEqual([]);
+      });
+
+      it("removes a guest", async () => {
+        const { created } = serveMutations();
+        const { user } = renderModal();
+
+        await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
+        await user.type(screen.getByLabelText("Invite by email"), `${GUEST}{Enter}`);
+        await user.click(screen.getByRole("button", { name: `Remove ${GUEST}` }));
+        await user.click(screen.getByRole("button", { name: "Create meeting" }));
+
+        await waitFor(() => expect(created).toHaveLength(1));
+        expect(created[0]!.attendee_emails).toEqual([]);
+      });
+    });
+
     it("creates without a Google token, and says a Meet link is not included", async () => {
       // Absent is the normal case, not a degraded one.
       const { created } = serveMutations();
@@ -233,6 +327,78 @@ describe("MeetingModal", () => {
 
       await waitFor(() => expect(patched).toHaveLength(1));
       expect(patched[0]!.attendee_ids).toEqual([]);
+    });
+
+    describe("guests", () => {
+      const withGuest = () =>
+        existing({
+          attendees: [
+            { id: "a1", user_id: MEMBER_USER.id, email: MEMBER_USER.email, name: "Sam Member" },
+            { id: "a2", user_id: null, email: "Adjuster@Insurer.com", name: "" },
+          ],
+        });
+
+      it("shows the guests already on the meeting, apart from the team", async () => {
+        serveMutations();
+        renderModal({ meeting: withGuest() });
+
+        const guests = within(screen.getByRole("list", { name: "Guests" }));
+        expect(guests.getByText("adjuster@insurer.com")).toBeVisible();
+        // A team member is a ticked box, never a guest chip.
+        expect(guests.queryByText(MEMBER_USER.email)).not.toBeInTheDocument();
+        expect(await screen.findByLabelText("Sam Member")).toBeChecked();
+      });
+
+      it("sends only the guest list when a guest is added", async () => {
+        // The member half is untouched, so it must not be resent — the two lists are
+        // independent, and resending one would look like a change to the server.
+        const { patched } = serveMutations();
+        const { user } = renderModal({ meeting: withGuest() });
+
+        await user.type(screen.getByLabelText("Invite by email"), "pa@insurer.com{Enter}");
+        await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+        await waitFor(() => expect(patched).toHaveLength(1));
+        expect(patched[0]).toEqual({
+          attendee_emails: ["adjuster@insurer.com", "pa@insurer.com"],
+        });
+      });
+
+      it("sends an empty guest list when the last guest is removed", async () => {
+        const { patched } = serveMutations();
+        const { user } = renderModal({ meeting: withGuest() });
+
+        await user.click(screen.getByRole("button", { name: "Remove adjuster@insurer.com" }));
+        await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+        await waitFor(() => expect(patched).toHaveLength(1));
+        expect(patched[0]).toEqual({ attendee_emails: [] });
+      });
+
+      it("does not resend the guests when only the team changed", async () => {
+        const { patched } = serveMutations();
+        const { user } = renderModal({ meeting: withGuest() });
+        await screen.findByLabelText("Sam Member");
+
+        await user.click(screen.getByLabelText("Sam Member"));
+        await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+        await waitFor(() => expect(patched).toHaveLength(1));
+        expect(patched[0]).toEqual({ attendee_ids: [] });
+      });
+
+      it("lists guests read-only for someone who cannot manage the meeting", () => {
+        serveMutations();
+        renderModal({ meeting: withGuest(), canManage: false });
+
+        expect(
+          within(screen.getByRole("list", { name: "Guests" })).getByText("adjuster@insurer.com"),
+        ).toBeVisible();
+        expect(screen.queryByLabelText("Invite by email")).not.toBeInTheDocument();
+        expect(
+          screen.queryByRole("button", { name: "Remove adjuster@insurer.com" }),
+        ).not.toBeInTheDocument();
+      });
     });
 
     it("offers the Meet link when there is one", () => {

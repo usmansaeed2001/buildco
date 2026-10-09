@@ -6,8 +6,10 @@ import { describe, expect, it } from "vitest";
 import {
   assignableRoles,
   canAssignRole,
+  canInviteUser,
   canRemoveUser,
   canReviewApprovalRequests,
+  invitableRoles,
   type UserSnapshot,
 } from "./userRules";
 
@@ -102,5 +104,45 @@ describe("assignableRoles", () => {
 
   it("offers an admin nothing for an existing owner", () => {
     expect(assignableRoles(admin, otherOwner)).toEqual([]);
+  });
+});
+
+describe("canInviteUser", () => {
+  it.each([
+    ["owner", "owner", true],
+    ["owner", "admin", true],
+    ["owner", "member", true],
+    ["admin", "owner", false],
+    ["admin", "admin", true],
+    ["admin", "member", true],
+    ["member", "owner", false],
+    ["member", "admin", false],
+    ["member", "member", false],
+  ] as const)("%s inviting a new %s → %s", (actorRole, role, allowed) => {
+    // The same ceiling as role assignment, so an invitation is not a way round it.
+    const actor = { owner, admin, member }[actorRole];
+    expect(canInviteUser(actor, role).allowed).toBe(allowed);
+  });
+
+  it("tells an admin why they cannot invite an owner", () => {
+    expect(canInviteUser(admin, "owner").reason).toMatch(/Only owners can invite another owner/);
+  });
+
+  it("tells a member why they cannot invite anyone", () => {
+    expect(canInviteUser(member, "member").reason).toMatch(/owners and admins/);
+  });
+});
+
+describe("invitableRoles", () => {
+  it("offers an owner every role", () => {
+    expect(invitableRoles(owner)).toEqual(["owner", "admin", "member"]);
+  });
+
+  it("withholds owner from an admin", () => {
+    expect(invitableRoles(admin)).toEqual(["admin", "member"]);
+  });
+
+  it("offers a member nothing", () => {
+    expect(invitableRoles(member)).toEqual([]);
   });
 });

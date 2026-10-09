@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import urlencode
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import Forbidden, NotFound
+from app.config import get_settings
+from app.errors import Conflict, Forbidden, NotFound
 from app.logging import get_logger
 from app.models.approval_request import ApprovalRequest
 from app.models.enums import ApprovalRequestStatus, Role, UserStatus
@@ -32,20 +36,94 @@ class ResolvedSession:
     created: bool = False
     #: The profile already existed and was linked to its Firebase uid by this call.
     linked: bool = False
+    #: The link above was someone accepting an invitation, not a migrated user returning.
+    accepted_invite: bool = False
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Attach UTC to a naive datetime. SQLite, which the tests default to, has no
+    timezone type and hands back naive values for columns Postgres returns aware."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+# ── Invitation tokens ─────────────────────────────────────────────────────────
+
+
+def _hash_invite_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _issue_invite_token(profile: Profile, actor: Profile) -> str:
+    """Stamp a fresh invitation on ``profile`` and return the token to email.
+
+    The raw token exists only in this return value and in the email it goes into.
+    Issuing again replaces the hash, so an earlier link stops working — which is what
+    "resend" has to mean if the first email went to the wrong place.
+    """
+    token = secrets.token_urlsafe(32)
+    profile.invited_at = datetime.now(UTC)
+    profile.invited_by = actor.id
+    profile.invite_token_hash = _hash_invite_token(token)
+    return token
+
+
+def invitation_url(token: str, email: str) -> str:
+    """The link an invitation email points at.
+
+    It lands on the sign-up screen with the address filled in. The web app lifts
+    ``invite`` out of the URL on load and sends it with ``POST /auth/session``.
+    """
+    query = urlencode({"invite": token, "email": email})
+    return f"{get_settings().site_url}/signup?{query}"
+
+
+def _require_invite_proof(
+    profile: Profile, identity: VerifiedIdentity, invite_token: str | None
+) -> None:
+    """Refuse to hand a pending invitation to someone who has not proved the address.
+
+    Linking by email alone is safe only when the email is known to be theirs. Firebase
+    creates a password account for any address without confirming it, so without this an
+    invitation could be claimed by whoever signed up with the invited address first —
+    and an invitation carries a role.
+
+    Two proofs are accepted: the identity provider vouches for the address
+    (``email_verified``, which a Google sign-in always is), or the caller presents the
+    token that was emailed to it.
+    """
+    if identity.email_verified:
+        return
+
+    stored = profile.invite_token_hash or ""
+    presented = _hash_invite_token(invite_token) if invite_token else ""
+    if presented and secrets.compare_digest(stored, presented):
+        invited_at = _as_utc(profile.invited_at) if profile.invited_at else None
+        if user_rules.invitation_is_live(invited_at, datetime.now(UTC)):
+            return
+        raise Forbidden(
+            "This invitation has expired. Ask the person who invited you to send it again."
+        )
+
+    raise Forbidden(
+        "This address has a pending BuildCo invitation. Open the link in your invitation "
+        "email to finish joining, or continue with Google."
+    )
 
 
 # ── Sign-in provisioning ──────────────────────────────────────────────────────
 
 
-async def resolve_profile(session: AsyncSession, identity: VerifiedIdentity) -> ResolvedSession:
+async def resolve_profile(
+    session: AsyncSession, identity: VerifiedIdentity, *, invite_token: str | None = None
+) -> ResolvedSession:
     """Map a verified Firebase identity onto an application profile.
 
     Three cases, in order:
 
     1. **Known uid** — the normal path after the first sign-in.
     2. **Known email, no uid** — a user migrated from Supabase signing in for the
-       first time, or one whose ``firebase_uid`` backfill missed them. The uid is
-       recorded now, so case 1 applies from then on.
+       first time, one whose ``firebase_uid`` backfill missed them, or someone an admin
+       invited. The uid is recorded now, so case 1 applies from then on.
     3. **Unknown** — a genuinely new person. A profile is created. The very first
        profile in the system becomes the owner, which is the logic that used to live
        in the ``handle_new_user()`` Postgres trigger; that trigger fired on Supabase's
@@ -53,6 +131,11 @@ async def resolve_profile(session: AsyncSession, identity: VerifiedIdentity) -> 
 
     Matching in case 2 is case-insensitive on email, because Firebase preserves the
     casing a user typed while the migrated rows carry whatever Supabase stored.
+
+    A pending invitation is the one part of case 2 that asks for more than a matching
+    address — see ``_require_invite_proof``. ``invite_token`` is only ever supplied by
+    ``POST /auth/session``; a migrated user's profile has no invitation and links exactly
+    as it always has.
     """
     by_uid = await session.scalar(select(Profile).where(Profile.firebase_uid == identity.uid))
     if by_uid is not None:
@@ -63,14 +146,28 @@ async def resolve_profile(session: AsyncSession, identity: VerifiedIdentity) -> 
             select(Profile).where(func.lower(Profile.email) == identity.email.lower())
         )
         if by_email is not None:
+            accepted_invite = by_email.invite_token_hash is not None
+            if accepted_invite:
+                _require_invite_proof(by_email, identity, invite_token)
+                by_email.invite_token_hash = None
+                # The admin may not have known their name, and never had their picture.
+                if not by_email.full_name and identity.name:
+                    by_email.full_name = identity.name
+                if not by_email.avatar_url and identity.picture:
+                    by_email.avatar_url = identity.picture
+
             by_email.firebase_uid = identity.uid
             await session.flush()
             log.info(
                 "profile_linked_to_firebase",
                 profile_id=str(by_email.id),
                 email=by_email.email,
+                accepted_invite=accepted_invite,
             )
-            return ResolvedSession(profile=by_email, linked=True)
+            if accepted_invite:
+                # Convenience only, as everywhere — the database stays authoritative.
+                await get_auth_provider().set_role_claim(identity.uid, by_email.role)
+            return ResolvedSession(profile=by_email, linked=True, accepted_invite=accepted_invite)
 
     if not identity.email:
         # Every profile is keyed by email; an identity without one cannot be
@@ -187,6 +284,8 @@ async def ban_user(session: AsyncSession, actor: Profile, target_id: uuid.UUID) 
     target.status = UserStatus.BANNED.value
     target.removed_by = actor.id
     target.removed_at = datetime.now(UTC)
+    # A removed person's invitation link must not outlive the removal.
+    target.invite_token_hash = None
     await session.flush()
 
     if target.firebase_uid:
@@ -194,6 +293,108 @@ async def ban_user(session: AsyncSession, actor: Profile, target_id: uuid.UUID) 
 
     log.info("user_banned", actor=str(actor.id), target=str(target.id))
     return target
+
+
+# ── Invitations ───────────────────────────────────────────────────────────────
+
+
+async def invite_user(
+    session: AsyncSession,
+    actor: Profile,
+    *,
+    email: str,
+    role: Role,
+    full_name: str = "",
+) -> tuple[Profile, str]:
+    """Add someone to the team before they have an account.
+
+    Creates their profile now, with the role they will have, and returns it with the
+    token to email them. Nothing is created in Firebase: they make their own account —
+    password or Google — and ``resolve_profile`` links it to this row on first sign-in.
+
+    The profile is ``active`` from this moment, not from when they join. That is
+    deliberate: they appear in the roster straight away, so work can be assigned to them
+    and they can be invited to meetings before they have signed in once.
+
+    An address already on file is a 409 with the reason, never a silent second
+    invitation — each of the three cases has a different next step for the admin.
+    """
+    decision = user_rules.can_invite_user(snapshot(actor), role)
+    if not decision:
+        raise Forbidden(decision.reason)
+
+    address = email.strip().lower()
+    existing = await session.scalar(select(Profile).where(func.lower(Profile.email) == address))
+    if existing is not None:
+        if existing.is_banned:
+            raise Conflict(
+                f"{address} was removed from the team. When they next try to sign in, an "
+                "access request appears here for you to approve."
+            )
+        if existing.invite_pending:
+            raise Conflict(f"{address} has already been invited. Resend the invitation instead.")
+        raise Conflict(f"{address} is already on the team.")
+
+    profile = Profile(
+        email=address,
+        full_name=full_name.strip(),
+        role=role.value,
+        status=UserStatus.ACTIVE.value,
+    )
+    token = _issue_invite_token(profile, actor)
+    session.add(profile)
+    await session.flush()
+
+    log.info("user_invited", actor=str(actor.id), target=str(profile.id), role=role.value)
+    return profile, token
+
+
+async def _pending_invitation(
+    session: AsyncSession, actor: Profile, target_id: uuid.UUID
+) -> Profile:
+    """Load a profile whose invitation ``actor`` may still act on."""
+    target = await get_by_id(session, target_id)
+    if not target.invite_pending:
+        raise Conflict("There is no pending invitation for this person.")
+
+    decision = user_rules.can_invite_user(snapshot(actor), Role(target.role))
+    if not decision:
+        raise Forbidden(decision.reason)
+    return target
+
+
+async def resend_invitation(
+    session: AsyncSession, actor: Profile, target_id: uuid.UUID
+) -> tuple[Profile, str]:
+    """Issue a fresh token for a pending invitation. The previous link stops working."""
+    target = await _pending_invitation(session, actor, target_id)
+    if target.is_banned:
+        # A fresh link would let them finish signing up straight into a 401.
+        raise Conflict("This person was removed from the team, so they cannot be re-invited.")
+    token = _issue_invite_token(target, actor)
+    await session.flush()
+
+    log.info("invitation_resent", actor=str(actor.id), target=str(target.id))
+    return target, token
+
+
+async def revoke_invitation(session: AsyncSession, actor: Profile, target_id: uuid.UUID) -> None:
+    """Withdraw a pending invitation by deleting the profile it created.
+
+    Deleted rather than banned, because nobody was ever behind it: a ban would leave a
+    "removed" member who never existed, and would stop the same address being invited
+    again once the typo is corrected. It is safe to delete — every foreign key to
+    ``profiles`` is ``SET NULL`` or ``CASCADE``, so a project assigned to them in the
+    meantime just becomes unassigned.
+
+    Only reachable while the invitation is pending. Once they have signed in they are a
+    member with history, and removal goes through ``ban_user``.
+    """
+    target = await _pending_invitation(session, actor, target_id)
+    await session.delete(target)
+    await session.flush()
+
+    log.info("invitation_revoked", actor=str(actor.id), target=str(target_id))
 
 
 # ── Access requests ───────────────────────────────────────────────────────────

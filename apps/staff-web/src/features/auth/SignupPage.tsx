@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { describeAuthError, getFirebaseAuth } from "@/auth/firebase";
 import { Button } from "@/components/Button";
@@ -15,9 +15,15 @@ const MIN_PASSWORD_LENGTH = 6;
 
 export function SignupPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+
+  // An invitation link lands here as `/signup?invite=<token>&email=<address>`. The token
+  // itself is already held by `auth/invite.ts`; this screen only needs to know one is in
+  // play, and to save the invitee retyping the one address it works for.
+  const invited = params.has("invite");
 
   const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(params.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,6 +83,12 @@ export function SignupPage() {
         </>
       }
     >
+      {invited && (
+        <Alert tone="info">
+          You have been invited to join the BuildCo team. Create your account with the address
+          the invitation was sent to, or continue with Google using that same address.
+        </Alert>
+      )}
       {message && <Alert tone="danger">{message}</Alert>}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">

@@ -29,6 +29,7 @@ import {
 import { apiFetch, ApiError, configureApi } from "@/api/client";
 import type { SessionOut, UserOut } from "@/api/types";
 import { getFirebaseAuth, isFirebaseConfigured } from "./firebase";
+import { clearInviteToken, pendingInviteToken } from "./invite";
 
 export interface AuthState {
   /** Still resolving the initial session. Render nothing meaningful until false. */
@@ -140,7 +141,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Provision or link the profile. Idempotent: `created` is true only the first
         // time, and on an empty database the first caller becomes the owner.
-        const session = await apiFetch<SessionOut>("/auth/session", { method: "POST" });
+        //
+        // Someone who arrived by an invitation link sends its token along, which is
+        // what lets the API hand them the profile — and role — an admin set up.
+        const inviteToken = pendingInviteToken();
+        const session = await apiFetch<SessionOut>("/auth/session", {
+          method: "POST",
+          ...(inviteToken ? { body: { invite_token: inviteToken } } : {}),
+        });
+        // Spent, whether or not it was needed. Left in place on failure, so a retry
+        // after "that address is already registered — sign in instead" still carries it.
+        clearInviteToken();
         provisioned.current.add(user.uid);
         setProfile(session.user);
         setIsNewAccount(session.created);

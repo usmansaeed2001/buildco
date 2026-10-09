@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -44,6 +45,61 @@ async def _resolve_attendees(session: AsyncSession, attendee_ids: list[uuid.UUID
     return list(rows)
 
 
+def _normalise_emails(emails: Iterable[str]) -> list[str]:
+    """Lower-cased, trimmed and de-duplicated, keeping the order they were given in."""
+    seen: dict[str, None] = {}
+    for raw in emails:
+        email = raw.strip().lower()
+        if email:
+            seen.setdefault(email, None)
+    return list(seen)
+
+
+async def _resolve_invitees(
+    session: AsyncSession, attendee_ids: list[uuid.UUID], attendee_emails: Iterable[str]
+) -> tuple[list[Profile], list[str]]:
+    """Split a requested attendee list into team members and outside guests.
+
+    An address that belongs to someone on the team is promoted to a member attendee
+    rather than kept as a guest. Typing a colleague's email instead of ticking their name
+    should not produce a second-class invite: as a guest row they would get the email
+    but the meeting would be invisible to them in the app, since visibility is decided
+    by ``user_id``. It also keeps one person from being invited twice.
+    """
+    members = {p.id: p for p in await _resolve_attendees(session, attendee_ids)}
+    guests: list[str] = []
+
+    emails = _normalise_emails(attendee_emails)
+    if emails:
+        known = await session.scalars(select(Profile).where(func.lower(Profile.email).in_(emails)))
+        by_email = {p.email.lower(): p for p in known}
+        for email in emails:
+            profile = by_email.get(email)
+            if profile is None:
+                guests.append(email)
+            else:
+                members.setdefault(profile.id, profile)
+
+    return list(members.values()), guests
+
+
+def _attendee_rows(members: list[Profile], guests: list[str]) -> list[MeetingAttendee]:
+    """Build the rows for a meeting's attendee list.
+
+    ``profile`` is set on every row, ``None`` included: selectin loaders run on a query
+    and these objects have not been queried, so serialising one would otherwise
+    lazy-load from async context.
+    """
+    rows = [
+        MeetingAttendee(user_id=p.id, email=p.email, name=p.display_name, profile=p)
+        for p in members
+    ]
+    rows.extend(
+        MeetingAttendee(user_id=None, email=email, name="", profile=None) for email in guests
+    )
+    return rows
+
+
 def _as_utc(value: datetime) -> datetime:
     """Make a datetime comparable regardless of where it came from.
 
@@ -73,14 +129,20 @@ def _format_window(start: datetime, end: datetime) -> str:
 
 def _build_bundle(
     meeting: Meeting,
-    attendees: list[Profile],
     organiser: Profile,
     *,
     cancelled: bool = False,
     updated: bool = False,
     sequence: int = 0,
 ) -> InviteBundle:
+    """Prepare the invite for everyone on the meeting — team members and guests alike.
+
+    Addressed from the attendee rows' own ``email`` and ``name`` rather than from
+    ``profiles``: a guest has no profile at all, and going through the profile is how
+    updates and cancellations would skip anyone who was not a team member.
+    """
     settings = get_settings()
+    attendees = [a for a in meeting.attendees if a.email]
     ics = calendar.build_ics(
         event_uid=_ics_uid(meeting.id),
         title=meeting.title,
@@ -89,7 +151,7 @@ def _build_bundle(
         start_time=meeting.start_time,
         end_time=meeting.end_time,
         organiser_email=settings.notify_from_email,
-        attendees=[IcsAttendee(email=a.email, name=a.display_name) for a in attendees],
+        attendees=[IcsAttendee(email=a.email, name=a.name) for a in attendees],
         meet_link=meeting.meet_link,
         cancelled=cancelled,
         sequence=sequence,
@@ -100,7 +162,7 @@ def _build_bundle(
     )
 
     return InviteBundle(
-        recipients=[a.email for a in attendees if a.email],
+        recipients=[a.email for a in attendees],
         ics=ics,
         ics_filename=f"{safe_title}{'-cancelled' if cancelled else ''}.ics",
         context={
@@ -223,12 +285,16 @@ async def create_meeting(
     *,
     data: dict[str, Any],
     attendee_ids: list[uuid.UUID],
+    attendee_emails: list[str] | None = None,
     google_access_token: str | None,
 ) -> tuple[Meeting, InviteBundle]:
     """Create a meeting, attach a Meet conference if possible, and prepare invites.
 
     A failure to create the Meet link does not fail the meeting — ``create_meet_event``
     returns empty fields and the invite simply goes out without a video link.
+
+    ``attendee_emails`` invites people outside the team. They are recorded as attendee
+    rows with no ``user_id`` and are emailed exactly as members are.
     """
     event = await calendar.create_meet_event(
         access_token=google_access_token,
@@ -252,25 +318,18 @@ async def create_meeting(
     session.add(meeting)
     await session.flush()
 
-    attendees = await _resolve_attendees(session, attendee_ids)
-    for profile in attendees:
-        meeting.attendees.append(
-            MeetingAttendee(
-                user_id=profile.id,
-                email=profile.email,
-                name=profile.display_name,
-                profile=profile,
-            )
-        )
+    members, guests = await _resolve_invitees(session, attendee_ids, attendee_emails or [])
+    meeting.attendees.extend(_attendee_rows(members, guests))
     await session.flush()
 
     log.info(
         "meeting_created",
         meeting_id=str(meeting.id),
-        attendees=len(attendees),
+        attendees=len(members),
+        guests=len(guests),
         has_meet_link=bool(event.meet_link),
     )
-    return meeting, _build_bundle(meeting, attendees, actor)
+    return meeting, _build_bundle(meeting, actor)
 
 
 async def update_meeting(
@@ -280,6 +339,7 @@ async def update_meeting(
     *,
     changes: dict[str, Any],
     attendee_ids: list[uuid.UUID] | None,
+    attendee_emails: list[str] | None = None,
 ) -> tuple[Meeting, InviteBundle | None]:
     """Update a meeting, re-inviting attendees when something they care about moved.
 
@@ -287,6 +347,11 @@ async def update_meeting(
     Renaming a meeting or recolouring it does not email everybody — the legacy code
     re-sent on every update that touched attendees at all, which trained people to
     ignore the invites.
+
+    ``attendee_ids`` (team members) and ``attendee_emails`` (outside guests) are
+    independent partials: ``None`` leaves that half of the list as it is. The list only
+    counts as changed when the people on it differ, so re-sending the same addresses in
+    a different order or case emails nobody.
     """
     invite_worthy = {"start_time", "end_time", "location", "title"}
     changed_fields = {field for field, value in changes.items() if getattr(meeting, field) != value}
@@ -305,27 +370,30 @@ async def update_meeting(
         setattr(meeting, field, value)
 
     attendees_changed = False
-    if attendee_ids is not None:
+    if attendee_ids is not None or attendee_emails is not None:
         existing = list(
             await session.scalars(
                 select(MeetingAttendee).where(MeetingAttendee.meeting_id == meeting.id)
             )
         )
-        existing_ids = {a.user_id for a in existing if a.user_id}
-        if existing_ids != set(attendee_ids):
+        existing_ids = [a.user_id for a in existing if a.user_id is not None]
+        existing_guests = [a.email for a in existing if a.user_id is None]
+        members, guests = await _resolve_invitees(
+            session,
+            attendee_ids if attendee_ids is not None else existing_ids,
+            attendee_emails if attendee_emails is not None else existing_guests,
+        )
+        same_members = {p.id for p in members} == set(existing_ids)
+        same_guests = set(guests) == set(_normalise_emails(existing_guests))
+        if not (same_members and same_guests):
             attendees_changed = True
+            # Deleted and flushed before the replacements go in: a member who stays on
+            # the list would otherwise collide with their own outgoing row on
+            # ``uq_meeting_attendee``, since a flush writes inserts ahead of deletes.
             for row in existing:
                 await session.delete(row)
             await session.flush()
-            for profile in await _resolve_attendees(session, attendee_ids):
-                meeting.attendees.append(
-                    MeetingAttendee(
-                        user_id=profile.id,
-                        email=profile.email,
-                        name=profile.display_name,
-                        profile=profile,
-                    )
-                )
+            meeting.attendees.extend(_attendee_rows(members, guests))
 
     await session.flush()
     await session.refresh(meeting)
@@ -333,13 +401,12 @@ async def update_meeting(
     if not (changed_fields & invite_worthy or attendees_changed):
         return meeting, None
 
-    attendees = [a.profile for a in meeting.attendees if a.profile is not None]
     # SEQUENCE must increase for calendar clients to accept the revision. Seconds
     # since the meeting row was created gives a monotonic value without another column.
     sequence = max(1, int((meeting.updated_at - meeting.created_at).total_seconds()))
 
-    log.info("meeting_updated", meeting_id=str(meeting.id), reinvited=len(attendees))
-    return meeting, _build_bundle(meeting, attendees, actor, updated=True, sequence=sequence)
+    log.info("meeting_updated", meeting_id=str(meeting.id), reinvited=len(meeting.attendees))
+    return meeting, _build_bundle(meeting, actor, updated=True, sequence=sequence)
 
 
 async def delete_meeting(
@@ -354,9 +421,8 @@ async def delete_meeting(
     The cancellation bundle is built *before* the row is deleted, since it needs the
     attendee list and the event details that are about to disappear.
     """
-    attendees = [a.profile for a in meeting.attendees if a.profile is not None]
     sequence = max(1, int((meeting.updated_at - meeting.created_at).total_seconds()) + 1)
-    bundle = _build_bundle(meeting, attendees, actor, cancelled=True, sequence=sequence)
+    bundle = _build_bundle(meeting, actor, cancelled=True, sequence=sequence)
 
     await calendar.delete_event(google_access_token, meeting.google_event_id)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -86,6 +87,52 @@ def test_nobody_may_remove_themselves():
 
 def test_a_member_may_not_remove_anyone():
     assert not user_rules.can_remove_user(MEMBER, OTHER_ADMIN)
+
+
+# ── Invitations ───────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("actor", "role", "allowed"),
+    [
+        (OWNER, Role.OWNER, True),
+        (OWNER, Role.ADMIN, True),
+        (OWNER, Role.MEMBER, True),
+        (ADMIN, Role.OWNER, False),
+        (ADMIN, Role.ADMIN, True),
+        (ADMIN, Role.MEMBER, True),
+        (MEMBER, Role.OWNER, False),
+        (MEMBER, Role.ADMIN, False),
+        (MEMBER, Role.MEMBER, False),
+    ],
+)
+def test_who_may_invite_whom(actor, role, allowed):
+    """The same ceiling as role assignment, so an invitation is not a way round it."""
+    assert bool(user_rules.can_invite_user(actor, role)) is allowed
+
+
+def test_an_admin_inviting_an_owner_is_told_why_not():
+    decision = user_rules.can_invite_user(ADMIN, Role.OWNER)
+
+    assert "Only owners can invite another owner" in decision.reason
+
+
+def test_a_member_inviting_anyone_is_told_why_not():
+    decision = user_rules.can_invite_user(MEMBER, Role.MEMBER)
+
+    assert "owners and admins" in decision.reason
+
+
+def test_an_invitation_link_lasts_a_week():
+    sent = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
+
+    assert user_rules.invitation_is_live(sent, sent)
+    assert user_rules.invitation_is_live(sent, sent + timedelta(days=7))
+    assert not user_rules.invitation_is_live(sent, sent + timedelta(days=7, seconds=1))
+
+
+def test_a_profile_that_was_never_invited_has_no_live_invitation():
+    assert not user_rules.invitation_is_live(None, datetime(2026, 10, 1, tzinfo=UTC))
 
 
 # ── Access requests ───────────────────────────────────────────────────────────
