@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlparse
+
+from sqlalchemy import select
 
 from app.models.enums import UserStatus
 from app.models.profile import Profile
 from app.services import user_service
+from app.services.integrations import firebase
 from app.services.integrations.firebase import VerifiedIdentity
 
 # ── Profiles ──────────────────────────────────────────────────────────────────
@@ -327,3 +333,363 @@ async def test_provisioning_accepts_an_over_long_google_photo_url(db):
 
     assert resolved.created is True
     assert resolved.profile.avatar_url == picture
+
+
+# ── Invitations ───────────────────────────────────────────────────────────────
+
+INVITEE = "new.hire@buildco.example.com"
+BEARER = {"Authorization": "Bearer any-token"}
+
+
+async def invite(client, **overrides):
+    return await client.post(
+        "/api/v1/users/invite", json={"email": INVITEE, "role": "member", **overrides}
+    )
+
+
+def emailed_link(notifications) -> str:
+    """The join link from the most recent invitation email."""
+    sent = [s for s in notifications.sent if s.context.get("cta_label") == "Join BuildCo"]
+    return sent[-1].context["cta_url"]
+
+
+def emailed_token(notifications) -> str:
+    """The only place an invitation token exists in the clear."""
+    return parse_qs(urlparse(emailed_link(notifications)).query)["invite"][0]
+
+
+async def stored(session_factory, email: str = INVITEE) -> Profile | None:
+    """Read a profile in its own session, so no test sees a stale copy."""
+    async with session_factory() as session:
+        return await session.scalar(select(Profile).where(Profile.email == email))
+
+
+def sign_in_as(monkeypatch, *, email: str = INVITEE, verified: bool, uid: str = "uid-new-hire"):
+    """Make the next token verify as this identity.
+
+    The fake provider returns one fixed, *verified* dev owner. Invitations turn on
+    exactly the two things that fixes — whose address it is, and whether the provider
+    vouches for it — so the cached provider instance the routers share is patched.
+    """
+
+    async def verify(token: str) -> VerifiedIdentity:
+        return VerifiedIdentity(uid=uid, email=email, email_verified=verified, name="Nia Hire")
+
+    monkeypatch.setattr(firebase.get_auth_provider(), "verify_id_token", verify)
+
+
+async def test_an_owner_can_add_someone_with_a_role(owner_client):
+    response = await invite(owner_client, role="admin", full_name="Nia Hire")
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["email"] == INVITEE
+    assert body["role"] == "admin"
+    assert body["invite_pending"] is True
+    assert body["firebase_uid"] is None
+
+
+async def test_an_invited_person_is_on_the_roster_before_they_join(owner_client):
+    """Deliberate: work can be assigned to them, and meetings sent, before first sign-in."""
+    await invite(owner_client)
+
+    roster = (await owner_client.get("/api/v1/users")).json()
+
+    assert [(u["status"], u["invite_pending"]) for u in roster if u["email"] == INVITEE] == [
+        ("active", True)
+    ]
+
+
+async def test_the_invitation_is_emailed_with_a_join_link(owner_client, owner, notifications):
+    await invite(owner_client, role="admin")
+
+    sent = notifications.sent[-1]
+    link = urlparse(emailed_link(notifications))
+    assert sent.recipient == INVITEE
+    assert "invited" in sent.subject.lower()
+    assert f"{link.scheme}://{link.netloc}{link.path}" == "http://testserver/signup"
+    assert parse_qs(link.query)["email"] == [INVITEE]
+    assert ("Role", "Admin") in sent.context["rows"]
+    assert ("Invited by", owner.display_name) in sent.context["rows"]
+
+
+async def test_only_a_hash_of_the_token_is_stored(owner_client, notifications, session_factory):
+    """The token is a credential for a role. Reading the table must not be enough to use it."""
+    await invite(owner_client)
+
+    token = emailed_token(notifications)
+    profile = await stored(session_factory)
+
+    assert profile.invite_token_hash == hashlib.sha256(token.encode()).hexdigest()
+    assert token not in (profile.invite_token_hash or "")
+
+
+async def test_a_member_cannot_add_people(member_client):
+    assert (await invite(member_client)).status_code == 403
+
+
+async def test_an_admin_cannot_invite_an_owner(client_as, admin):
+    """Otherwise an invitation would be a way round "only owners grant ownership"."""
+    async with client_as(admin) as client:
+        response = await invite(client, role="owner")
+
+    assert response.status_code == 403
+    assert "Only owners can invite another owner" in response.json()["error"]["message"]
+
+
+async def test_an_admin_can_invite_another_admin(client_as, admin):
+    async with client_as(admin) as client:
+        response = await invite(client, role="admin")
+
+    assert response.status_code == 201
+
+
+async def test_someone_already_on_the_team_cannot_be_invited(owner_client, session_factory):
+    async with session_factory() as session:
+        session.add(
+            Profile(
+                id=uuid.uuid4(),
+                firebase_uid="fb-existing",
+                email=INVITEE,
+                role="member",
+                status=UserStatus.ACTIVE.value,
+            )
+        )
+        await session.commit()
+
+    # Upper-cased: the same person must not be invitable under a different casing.
+    response = await invite(owner_client, email=INVITEE.upper())
+
+    assert response.status_code == 409
+    assert "already on the team" in response.json()["error"]["message"]
+
+
+async def test_inviting_the_same_address_twice_points_at_resend(owner_client, notifications):
+    await invite(owner_client)
+    notifications.sent.clear()
+
+    response = await invite(owner_client)
+
+    assert response.status_code == 409
+    assert "Resend the invitation" in response.json()["error"]["message"]
+    assert notifications.sent == []
+
+
+async def test_a_malformed_address_cannot_be_invited(owner_client):
+    assert (await invite(owner_client, email="not-an-address")).status_code == 422
+
+
+# Accepting ───────────────────────────────────────────────────────────────────
+
+
+async def test_following_the_link_joins_with_the_invited_role(
+    owner_client, anon_client, notifications, monkeypatch, session_factory
+):
+    """A password sign-up is unverified, so the emailed token is what proves the address."""
+    await invite(owner_client, role="admin")
+    token = emailed_token(notifications)
+    sign_in_as(monkeypatch, verified=False)
+
+    response = await anon_client.post(
+        "/api/v1/auth/session", headers=BEARER, json={"invite_token": token}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["linked"] is True
+    assert body["created"] is False
+    assert body["user"]["role"] == "admin"
+    assert body["user"]["invite_pending"] is False
+    # Left blank by the admin, so it is taken from the sign-in.
+    assert body["user"]["full_name"] == "Nia Hire"
+
+    profile = await stored(session_factory)
+    assert profile.firebase_uid == "uid-new-hire"
+    # Cleared on acceptance: that is what makes the link single-use.
+    assert profile.invite_token_hash is None
+
+
+async def test_an_invitation_cannot_be_claimed_by_signing_up_with_the_address(
+    owner_client, anon_client, monkeypatch, session_factory
+):
+    """The reason the token exists.
+
+    Firebase creates a password account for any address without confirming it. Linking
+    a pending invitation on the address alone would hand its role to whoever signed up
+    with it first.
+    """
+    await invite(owner_client, role="admin")
+    sign_in_as(monkeypatch, verified=False, uid="uid-squatter")
+
+    response = await anon_client.post("/api/v1/auth/session", headers=BEARER)
+
+    assert response.status_code == 403
+    assert "invitation email" in response.json()["error"]["message"]
+    profile = await stored(session_factory)
+    assert profile.firebase_uid is None
+    assert profile.invite_pending is True
+
+
+async def test_a_wrong_token_does_not_accept_the_invitation(
+    owner_client, anon_client, monkeypatch, session_factory
+):
+    await invite(owner_client)
+    sign_in_as(monkeypatch, verified=False)
+
+    response = await anon_client.post(
+        "/api/v1/auth/session", headers=BEARER, json={"invite_token": "not-the-token"}
+    )
+
+    assert response.status_code == 403
+    assert (await stored(session_factory)).firebase_uid is None
+
+
+async def test_a_google_sign_in_joins_without_the_link(owner_client, anon_client, monkeypatch):
+    """The provider vouches for the address, which is the same proof the token gives."""
+    await invite(owner_client, role="admin")
+    sign_in_as(monkeypatch, verified=True)
+
+    response = await anon_client.post("/api/v1/auth/session", headers=BEARER)
+
+    assert response.status_code == 200
+    assert response.json()["user"]["role"] == "admin"
+    assert response.json()["user"]["invite_pending"] is False
+
+
+async def test_an_expired_link_is_refused_and_says_so(
+    owner_client, anon_client, notifications, monkeypatch, session_factory
+):
+    await invite(owner_client)
+    token = emailed_token(notifications)
+    async with session_factory() as session:
+        profile = await session.scalar(select(Profile).where(Profile.email == INVITEE))
+        profile.invited_at = datetime.now(UTC) - timedelta(days=8)
+        await session.commit()
+    sign_in_as(monkeypatch, verified=False)
+
+    response = await anon_client.post(
+        "/api/v1/auth/session", headers=BEARER, json={"invite_token": token}
+    )
+
+    assert response.status_code == 403
+    assert "expired" in response.json()["error"]["message"]
+
+
+async def test_a_migrated_user_still_links_by_address_alone(db):
+    """Invitations must not change how a pre-existing profile with no uid signs in.
+
+    A user carried over from Supabase has no invitation, so nothing asks them for a
+    token — even though their first Firebase sign-in may well be unverified.
+    """
+    db.add(
+        Profile(
+            id=uuid.uuid4(),
+            email="veteran@buildco.example.com",
+            full_name="Vera Veteran",
+            role="admin",
+            status=UserStatus.ACTIVE.value,
+        )
+    )
+    await db.flush()
+
+    resolved = await user_service.resolve_profile(
+        db,
+        VerifiedIdentity(uid="uid-veteran", email="veteran@buildco.example.com"),
+    )
+
+    assert resolved.linked is True
+    assert resolved.accepted_invite is False
+    assert resolved.profile.firebase_uid == "uid-veteran"
+
+
+# Resending and revoking ──────────────────────────────────────────────────────
+
+
+async def test_resending_replaces_the_link(owner_client, anon_client, notifications, monkeypatch):
+    """If the first email went astray, the link in it must stop working."""
+    invited = (await invite(owner_client)).json()
+    first = emailed_token(notifications)
+
+    response = await owner_client.post(f"/api/v1/users/{invited['id']}/invite/resend")
+    second = emailed_token(notifications)
+
+    assert response.status_code == 200
+    assert second != first
+    assert [s.recipient for s in notifications.sent][-2:] == [INVITEE, INVITEE]
+
+    sign_in_as(monkeypatch, verified=False)
+    stale = await anon_client.post(
+        "/api/v1/auth/session", headers=BEARER, json={"invite_token": first}
+    )
+    fresh = await anon_client.post(
+        "/api/v1/auth/session", headers=BEARER, json={"invite_token": second}
+    )
+    assert (stale.status_code, fresh.status_code) == (403, 200)
+
+
+async def test_there_is_nothing_to_resend_once_they_have_joined(owner_client, member):
+    response = await owner_client.post(f"/api/v1/users/{member.id}/invite/resend")
+
+    assert response.status_code == 409
+
+
+async def test_a_member_cannot_resend_an_invitation(owner_client, member_client):
+    invited = (await invite(owner_client)).json()
+
+    response = await member_client.post(f"/api/v1/users/{invited['id']}/invite/resend")
+
+    assert response.status_code == 403
+
+
+async def test_revoking_an_invitation_removes_it_entirely(owner_client, session_factory):
+    """Deleted, not banned — nobody was ever behind it, and a typo must be correctable."""
+    invited = (await invite(owner_client)).json()
+
+    response = await owner_client.delete(f"/api/v1/users/{invited['id']}/invite")
+
+    assert response.status_code == 200
+    assert await stored(session_factory) is None
+    # The address is free again.
+    assert (await invite(owner_client)).status_code == 201
+
+
+async def test_a_revoked_link_no_longer_joins_with_the_invited_role(
+    owner_client, anon_client, notifications, monkeypatch
+):
+    """With the invitation gone, the link is just a sign-up link: an ordinary member."""
+    invited = (await invite(owner_client, role="admin")).json()
+    token = emailed_token(notifications)
+    await owner_client.delete(f"/api/v1/users/{invited['id']}/invite")
+    sign_in_as(monkeypatch, verified=False)
+
+    response = await anon_client.post(
+        "/api/v1/auth/session", headers=BEARER, json={"invite_token": token}
+    )
+
+    assert response.json()["user"]["role"] == "member"
+
+
+async def test_someone_who_has_joined_cannot_be_revoked(owner_client, member, session_factory):
+    """They are a member with history now. Removal goes through the ban, which is
+    reversible and leaves their work attributed."""
+    response = await owner_client.delete(f"/api/v1/users/{member.id}/invite")
+
+    assert response.status_code == 409
+    assert await stored(session_factory, member.email) is not None
+
+
+async def test_an_admin_cannot_revoke_an_owners_invitation(owner_client, client_as, admin):
+    invited = (await invite(owner_client, role="owner")).json()
+
+    async with client_as(admin) as client:
+        response = await client.delete(f"/api/v1/users/{invited['id']}/invite")
+
+    assert response.status_code == 403
+
+
+async def test_removing_an_invited_person_kills_their_link(owner_client, session_factory):
+    invited = (await invite(owner_client)).json()
+
+    await owner_client.post(f"/api/v1/users/{invited['id']}/ban")
+
+    assert (await stored(session_factory)).invite_token_hash is None

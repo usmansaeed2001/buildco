@@ -76,6 +76,24 @@ export function canRemoveUser(actor: UserSnapshot, target: UserSnapshot): Decisi
   return ALLOWED;
 }
 
+/**
+ * Whether `actor` may add someone to the team with `role`.
+ *
+ * The same ceiling as `canAssignRole`, for the same reason: inviting someone as an owner
+ * *is* granting ownership, so it must not be a way round the rule that only an owner
+ * does that. Resending and revoking are checked against the invitation's own role.
+ */
+export function canInviteUser(actor: UserSnapshot, role: Role): Decision {
+  if (!isElevated(actor.role)) return refuse("Only owners and admins can add people to the team.");
+  if (role === "owner" && !isOwner(actor)) return refuse("Only owners can invite another owner.");
+  return ALLOWED;
+}
+
+/** The roles `actor` may invite someone as, for a dropdown that cannot 403. */
+export function invitableRoles(actor: UserSnapshot): Role[] {
+  return ROLES.filter((role) => canInviteUser(actor, role).allowed);
+}
+
 export function canReviewApprovalRequests(actor: UserSnapshot): Decision {
   if (!isElevated(actor.role)) {
     return refuse("Only owners and admins can review access requests.");

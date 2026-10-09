@@ -10,6 +10,12 @@
  * re-invites attendees **only on a material change** — time, location, title or the
  * attendee list. Sending the whole object every time would re-invite the team for a
  * colour change, which is what trained people to ignore the legacy invites.
+ *
+ * Attendees come in two kinds. **Team members** are ticked from the roster and sent as
+ * `attendee_ids`. **Guests** are anyone else, typed by address and sent as
+ * `attendee_emails` — an adjuster, a homeowner, a subcontractor. Both get the same
+ * email and .ics; a guest simply has no account, so they never see it in the app. The
+ * two lists are independent on the wire, so changing one never resends the other.
  */
 import { useState } from "react";
 import { ApiError } from "@/api/client";
@@ -33,7 +39,18 @@ import {
   toTimeInput,
 } from "@/domain/calendar";
 import { cn } from "@/lib/cn";
+import { isEmail, normaliseEmail } from "@/lib/email";
 import { displayName } from "@/lib/format";
+
+/** Mirrors `MAX_GUESTS` in the API's meeting schema. */
+const MAX_GUESTS = 50;
+
+/** The addresses of everyone on a meeting who is not a team member. */
+function guestsOf(meeting: MeetingOut | null): string[] {
+  return (meeting?.attendees ?? [])
+    .filter((attendee) => !attendee.user_id)
+    .map((attendee) => normaliseEmail(attendee.email));
+}
 
 export function MeetingModal({
   open,
@@ -99,6 +116,9 @@ export function MeetingModal({
         .map((attendee) => attendee.user_id)
         .filter((id): id is string => Boolean(id)),
   );
+  const [guests, setGuests] = useState<string[]>(() => guestsOf(meeting));
+  const [guestDraft, setGuestDraft] = useState("");
+  const [guestError, setGuestError] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -115,8 +135,48 @@ export function MeetingModal({
     );
   }
 
+  /**
+   * Fold whatever is in the guest field into the list.
+   *
+   * Returns the resulting list, or `null` when the field holds something that is not an
+   * address. It returns rather than only setting state because saving calls it too: an
+   * address typed but never "added" is the easiest way to believe you invited someone
+   * you did not, so a save commits the field first and uses the list it gets back.
+   */
+  function commitGuestDraft(): string[] | null {
+    // Pasting "a@x.com, b@y.com" is the natural way to add several at once.
+    const typed = guestDraft
+      .split(/[\s,;]+/)
+      .map(normaliseEmail)
+      .filter(Boolean);
+    if (typed.length === 0) return guests;
+
+    const bad = typed.find((value) => !isEmail(value));
+    if (bad) {
+      setGuestError(`"${bad}" is not an email address.`);
+      return null;
+    }
+
+    const next = [...new Set([...guests, ...typed])];
+    if (next.length > MAX_GUESTS) {
+      setGuestError(`A meeting can have at most ${MAX_GUESTS} guests.`);
+      return null;
+    }
+
+    setGuests(next);
+    setGuestDraft("");
+    setGuestError(null);
+    return next;
+  }
+
+  function removeGuest(email: string) {
+    setGuests((current) => current.filter((value) => value !== email));
+  }
+
   async function save() {
     if (!start || !end) return;
+    const guestList = commitGuestDraft();
+    if (guestList === null) return;
     setFailure(null);
 
     try {
@@ -140,6 +200,14 @@ export function MeetingModal({
           changes.attendee_ids = attendees;
         }
 
+        const currentGuests = guestsOf(meeting);
+        if (
+          currentGuests.length !== guestList.length ||
+          currentGuests.some((email) => !guestList.includes(email))
+        ) {
+          changes.attendee_emails = guestList;
+        }
+
         if (Object.keys(changes).length === 0) {
           onClose();
           return;
@@ -157,6 +225,7 @@ export function MeetingModal({
           color,
           project_id: projectId || null,
           attendee_ids: attendees,
+          attendee_emails: guestList,
           // Absent is the normal case, not a degraded one — the meeting is created
           // without a Meet link and everything else works.
           google_access_token: googleAccessToken,
@@ -371,6 +440,76 @@ export function MeetingModal({
               changing the colour does not.
             </p>
           </fieldset>
+
+          <div className="flex flex-col gap-1.5">
+            {!readOnly && (
+              <Field
+                label="Invite by email"
+                hint="For anyone outside the team. They get the same invite and calendar file."
+                error={guestError ?? undefined}
+              >
+                {(props) => (
+                  <div className="flex gap-2">
+                    <Input
+                      {...props}
+                      // Text, not `type="email"`: several addresses can be pasted at
+                      // once, and the browser's own email field rewrites such a value.
+                      type="text"
+                      inputMode="email"
+                      autoComplete="off"
+                      placeholder="adjuster@insurer.com"
+                      value={guestDraft}
+                      onChange={(event) => {
+                        setGuestDraft(event.target.value);
+                        setGuestError(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        // Enter adds the guest; it must not fall through to anything
+                        // that would close or submit the dialog.
+                        event.preventDefault();
+                        commitGuestDraft();
+                      }}
+                    />
+                    <Button
+                      className="shrink-0"
+                      disabled={guestDraft.trim().length === 0}
+                      onClick={() => commitGuestDraft()}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                )}
+              </Field>
+            )}
+
+            {readOnly && guests.length > 0 && (
+              <p className="text-sm font-medium text-gray-700">Guests</p>
+            )}
+
+            {guests.length > 0 && (
+              <ul aria-label="Guests" className="flex flex-wrap gap-1.5">
+                {guests.map((email) => (
+                  <li
+                    key={email}
+                    className="inline-flex items-center gap-1 rounded-full bg-gray-100 py-0.5 pr-1 pl-2.5 text-xs text-gray-700 ring-1 ring-inset ring-gray-200"
+                  >
+                    {email}
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${email}`}
+                        onClick={() => removeGuest(email)}
+                        className="rounded-full px-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           {!editing && !googleAccessToken && (
             <p className="text-xs text-gray-500">

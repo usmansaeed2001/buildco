@@ -55,6 +55,18 @@ class Profile(Base, UUIDPrimaryKey, TimestampMixin):
     )
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # ── Invitation ────────────────────────────────────────────────────────────
+    #: Set when an owner or admin added this person before they had an account. Kept
+    #: after they join, as the record of how they arrived.
+    invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")
+    )
+    #: SHA-256 of the token in the invitation email, never the token itself — it is a
+    #: credential for a role, so a read of this table must not be enough to use it.
+    #: Cleared when the invitation is accepted, which is what makes the link single-use.
+    invite_token_hash: Mapped[str | None] = mapped_column(String(64))
+
     remover: Mapped[Profile | None] = relationship(
         "Profile", remote_side="Profile.id", foreign_keys=[removed_by]
     )
@@ -72,6 +84,16 @@ class Profile(Base, UUIDPrimaryKey, TimestampMixin):
     @property
     def is_banned(self) -> bool:
         return self.status == UserStatus.BANNED
+
+    @property
+    def invite_pending(self) -> bool:
+        """Invited, and has not signed in yet.
+
+        Keyed on ``invited_at`` rather than on a missing ``firebase_uid`` alone: a user
+        migrated from Supabase who has not signed in since also has no uid, and they are
+        a long-standing member with history, not an invitation that can be revoked.
+        """
+        return self.invited_at is not None and self.firebase_uid is None
 
     def __repr__(self) -> str:
         return f"<Profile {self.email} role={self.role}>"

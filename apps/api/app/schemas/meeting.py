@@ -5,11 +5,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import Field, model_validator
+from pydantic import EmailStr, Field, model_validator
 
 from app.schemas.common import ActorRef, ORMSchema, Schema
 
 HEX_COLOR = r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+
+#: Ceiling on outside addresses per meeting. Anyone signed in may schedule a meeting,
+#: so this is also the most mail one request can send from the BuildCo sender.
+MAX_GUESTS = 50
 
 
 class MeetingBase(Schema):
@@ -21,6 +25,11 @@ class MeetingBase(Schema):
     color: str = Field(default="#3B82F6", pattern=HEX_COLOR)
     project_id: uuid.UUID | None = None
     attendee_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
+    #: People outside the team, invited by address alone. They get the email and the
+    #: .ics like anyone else but have no account, so the meeting never appears to them
+    #: in the app. An address that turns out to belong to a team member is treated as
+    #: that member — see ``meeting_service._resolve_invitees``.
+    attendee_emails: list[EmailStr] = Field(default_factory=list, max_length=MAX_GUESTS)
 
     @model_validator(mode="after")
     def _end_after_start(self) -> MeetingBase:
@@ -42,7 +51,11 @@ class MeetingCreate(MeetingBase):
 
 
 class MeetingUpdate(Schema):
-    """Partial update. Supplying ``attendee_ids`` replaces the attendee list wholesale."""
+    """Partial update.
+
+    ``attendee_ids`` and ``attendee_emails`` are independent: supplying one replaces that
+    half of the attendee list wholesale and leaves the other half alone.
+    """
 
     title: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=10_000)
@@ -52,10 +65,13 @@ class MeetingUpdate(Schema):
     color: str | None = Field(default=None, pattern=HEX_COLOR)
     project_id: uuid.UUID | None = None
     attendee_ids: list[uuid.UUID] | None = Field(default=None, max_length=100)
+    attendee_emails: list[EmailStr] | None = Field(default=None, max_length=MAX_GUESTS)
     google_access_token: str | None = Field(default=None, max_length=4000)
 
 
 class AttendeeOut(ORMSchema):
+    """One invitee. ``user_id`` and ``profile`` are null for a guest invited by email."""
+
     id: uuid.UUID
     user_id: uuid.UUID | None = None
     email: str

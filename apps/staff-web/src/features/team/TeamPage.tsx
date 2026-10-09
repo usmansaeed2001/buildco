@@ -9,6 +9,12 @@
  * Removing someone bans them and disables their Firebase user, and the backend rechecks
  * account status on every request — so it takes effect immediately rather than at token
  * expiry. The confirmation says so.
+ *
+ * **Adding someone** is an invitation: an address and a role, emailed from BuildCo. The
+ * person is in the roster from that moment — marked "Invited" until they first sign in —
+ * so work can be assigned to them straight away. While it is pending the row offers
+ * Resend and Revoke instead of Remove, because the two are different acts: revoking
+ * deletes an invitation nobody has taken up, removing bans a person who has history.
  */
 import { useState } from "react";
 import { ApiError } from "@/api/client";
@@ -16,36 +22,56 @@ import {
   useApprovalRequests,
   useAssignRole,
   useBanUser,
+  useResendInvite,
   useReviewApprovalRequest,
+  useRevokeInvite,
   useUsers,
 } from "@/api/queries/users";
 import type { ApprovalRequestOut, UserOut } from "@/api/types";
 import { useActor } from "@/auth/useAuth";
 import { Avatar } from "@/components/AppShell";
 import { Button } from "@/components/Button";
-import { RoleBadge } from "@/components/Badge";
+import { Badge, RoleBadge } from "@/components/Badge";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Card, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/feedback";
 import { Select } from "@/components/form";
 import { useToast } from "@/components/Toast";
 import type { Role } from "@/domain/enums";
-import { assignableRoles, canRemoveUser, type UserSnapshot } from "@/domain/userRules";
+import {
+  assignableRoles,
+  canInviteUser,
+  canRemoveUser,
+  type UserSnapshot,
+} from "@/domain/userRules";
 import { displayName, formatRelative } from "@/lib/format";
+import { InviteMemberModal } from "./InviteMemberModal";
 
 export function TeamPage() {
   const actor = useActor();
   const { data: users, isPending, error, refetch } = useUsers();
   const { data: requests } = useApprovalRequests("pending");
+  const [inviting, setInviting] = useState(false);
 
   if (!actor || isPending) return <LoadingState label="Loading the team…" />;
   if (error) return <ErrorState error={error} onRetry={() => void refetch()} />;
 
   const active = users.filter((user) => user.status === "active");
   const removed = users.filter((user) => user.status !== "active");
+  const invited = active.filter((user) => user.invite_pending).length;
+  const joined = active.length - invited;
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Team" subtitle={`${active.length} active`} />
+      <PageHeader
+        title="Team"
+        // Someone who has not signed in yet is not "active" in any sense a reader means.
+        subtitle={invited > 0 ? `${joined} active · ${invited} invited` : `${joined} active`}
+        actions={
+          <Button variant="primary" onClick={() => setInviting(true)}>
+            Add member
+          </Button>
+        }
+      />
 
       {(requests ?? []).length > 0 && (
         <AccessRequests requests={requests ?? []} />
@@ -54,6 +80,9 @@ export function TeamPage() {
       <Roster title="Members" users={active} actor={actor} />
 
       {removed.length > 0 && <Roster title="Removed" users={removed} actor={actor} removed />}
+
+      {/* Mounted only while open, so a second invitation starts from an empty form. */}
+      {inviting && <InviteMemberModal open actor={actor} onClose={() => setInviting(false)} />}
     </div>
   );
 }
@@ -98,12 +127,42 @@ function TeamRow({
   const toast = useToast();
   const assign = useAssignRole();
   const ban = useBanUser();
+  const resend = useResendInvite();
+  const revoke = useRevokeInvite();
   const [confirming, setConfirming] = useState(false);
+  const [confirmingRevoke, setConfirmingRevoke] = useState(false);
 
   const target: UserSnapshot = { id: user.id, role: user.role as Role };
   const roles = assignableRoles(actor, target);
   const removal = canRemoveUser(actor, target);
   const isSelf = actor.id === user.id;
+  const pending = user.invite_pending;
+  // Resend and revoke answer to the same rule as inviting did, on the invitation's own
+  // role — so an admin cannot manage an owner's invitation, and is told why.
+  const invitation = canInviteUser(actor, target.role);
+
+  async function resendInvite() {
+    try {
+      await resend.mutateAsync(user.id);
+      toast.success(`Invitation sent again to ${user.email}.`);
+    } catch (caught) {
+      toast.error(
+        caught instanceof ApiError ? caught.message : "The invitation could not be sent again.",
+      );
+    }
+  }
+
+  async function confirmRevoke() {
+    setConfirmingRevoke(false);
+    try {
+      await revoke.mutateAsync(user.id);
+      toast.success(`The invitation for ${user.email} has been withdrawn.`);
+    } catch (caught) {
+      toast.error(
+        caught instanceof ApiError ? caught.message : "The invitation could not be withdrawn.",
+      );
+    }
+  }
 
   async function changeRole(role: Role) {
     try {
@@ -133,8 +192,13 @@ function TeamRow({
           {displayName(user)}
           {isSelf && <span className="ml-1.5 text-xs font-normal text-gray-400">(you)</span>}
         </p>
-        <p className="truncate text-xs text-gray-500">{user.email}</p>
+        <p className="truncate text-xs text-gray-500">
+          {user.email}
+          {pending && !removed && ` · invited ${formatRelative(user.invited_at)}`}
+        </p>
       </div>
+
+      {pending && !removed && <Badge tone="warning">Invited</Badge>}
 
       {removed ? (
         <span className="text-xs text-gray-500">Removed</span>
@@ -164,18 +228,57 @@ function TeamRow({
             </Select>
           )}
 
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-danger-600 dark:text-danger-400 hover:bg-danger-50"
-            disabled={!removal.allowed || ban.isPending}
-            title={removal.allowed ? undefined : removal.reason}
-            onClick={() => setConfirming(true)}
-          >
-            Remove
-          </Button>
+          {pending ? (
+            <>
+              <Button
+                size="sm"
+                busy={resend.isPending}
+                disabled={!invitation.allowed || revoke.isPending}
+                title={invitation.allowed ? undefined : invitation.reason}
+                onClick={() => void resendInvite()}
+              >
+                Resend
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-danger-600 dark:text-danger-400 hover:bg-danger-50"
+                disabled={!invitation.allowed || revoke.isPending || resend.isPending}
+                title={invitation.allowed ? undefined : invitation.reason}
+                onClick={() => setConfirmingRevoke(true)}
+              >
+                Revoke
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-danger-600 dark:text-danger-400 hover:bg-danger-50"
+              disabled={!removal.allowed || ban.isPending}
+              title={removal.allowed ? undefined : removal.reason}
+              onClick={() => setConfirming(true)}
+            >
+              Remove
+            </Button>
+          )}
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmingRevoke}
+        title={`Withdraw the invitation for ${user.email}?`}
+        confirmLabel="Revoke"
+        busy={revoke.isPending}
+        onCancel={() => setConfirmingRevoke(false)}
+        onConfirm={() => void confirmRevoke()}
+      >
+        <p>
+          They come off the team list, and the link in their email no longer adds them with
+          this role. Anything already assigned to them becomes unassigned.
+        </p>
+        <p className="mt-2">You can invite the same address again afterwards.</p>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={confirming}
