@@ -10,9 +10,10 @@ from fastapi import APIRouter, BackgroundTasks, Path, Query, status
 
 from app.deps import CurrentUser, DbSession
 from app.models.enums import MeetingScope
+from app.routers.followups import schedule
 from app.schemas.common import Ack
 from app.schemas.meeting import MeetingCreate, MeetingOut, MeetingUpdate
-from app.services import meeting_service, notifications
+from app.services import actions, meeting_service, notifications
 from app.services.integrations.email import EmailAttachment
 from app.services.meeting_service import InviteBundle
 
@@ -102,17 +103,9 @@ async def create_meeting(
     ``attendee_ids`` invites team members; ``attendee_emails`` invites anyone else by
     address. Both receive the same email and .ics.
     """
-    payload = body.model_dump(exclude={"attendee_ids", "attendee_emails", "google_access_token"})
-    meeting, bundle = await meeting_service.create_meeting(
-        db,
-        actor,
-        data=payload,
-        attendee_ids=body.attendee_ids,
-        attendee_emails=list(body.attendee_emails),
-        google_access_token=body.google_access_token,
-    )
-    _send_invites(background, bundle, f"📅 Meeting invite: {meeting.title}", "meeting_invite.html")
-    return MeetingOut.model_validate(meeting)
+    result = await actions.create_meeting(db, actor, body)
+    schedule(background, result.follow_ups)
+    return MeetingOut.model_validate(result.meeting)
 
 
 @router.patch("/{meeting_id}", response_model=MeetingOut)
@@ -131,28 +124,13 @@ async def update_meeting(
 
     Attendees are re-invited only when the time, location, title, or attendee list
     actually changed — recolouring a meeting does not email everyone.
+
+    Someone who has been removed from the team cannot be added (422). If such a person
+    is already on the meeting, any change to its attendees takes them off it.
     """
-    meeting = await meeting_service.get_meeting(db, actor, meeting_id)
-    meeting_service.require_manageable(actor, meeting)
-    changes = body.model_dump(
-        exclude_unset=True, exclude={"attendee_ids", "attendee_emails", "google_access_token"}
-    )
-    meeting, bundle = await meeting_service.update_meeting(
-        db,
-        actor,
-        meeting,
-        changes=changes,
-        attendee_ids=body.attendee_ids,
-        attendee_emails=None if body.attendee_emails is None else list(body.attendee_emails),
-    )
-    if bundle is not None:
-        _send_invites(
-            background,
-            bundle,
-            f"📅 Meeting updated: {meeting.title}",
-            "meeting_invite.html",
-        )
-    return MeetingOut.model_validate(meeting)
+    result = await actions.update_meeting(db, actor, meeting_id, body)
+    schedule(background, result.follow_ups)
+    return MeetingOut.model_validate(result.meeting)
 
 
 @router.delete("/{meeting_id}", response_model=Ack)

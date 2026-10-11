@@ -88,7 +88,7 @@ export function ClosingFormDocument({
       </section>
 
       {form.fields.length > 0 && (
-        <div className="mb-6 grid gap-4 sm:grid-cols-2">
+        <div className="mb-6 grid gap-4 app-sm:grid-cols-2">
           {form.fields.map((field) => (
             <div key={field.key}>
               <p className="text-[10px] font-semibold tracking-wider text-gray-500 uppercase">
@@ -114,7 +114,7 @@ export function ClosingFormDocument({
       )}
 
       <div className="flex items-end justify-between gap-6 border-t border-gray-200 pt-4">
-        <div className="grid flex-1 gap-4 sm:grid-cols-2">
+        <div className="grid flex-1 gap-4 app-sm:grid-cols-2">
           {form.signatures.map((field) => (
             <div key={field.key}>
               <FieldValue

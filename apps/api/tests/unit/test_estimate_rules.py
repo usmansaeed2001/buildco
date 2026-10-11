@@ -11,6 +11,7 @@ from app.services.rules import estimate_rules
 from app.services.rules.estimate_rules import (
     ActorSnapshot,
     EstimateSnapshot,
+    TransitionNotAvailable,
     TransitionNotPermitted,
     UnknownTransition,
 )
@@ -29,6 +30,13 @@ def est(
     *, status: EstimateStatus = EstimateStatus.ACTIVE, created_by: uuid.UUID = MEMBER_ID
 ) -> EstimateSnapshot:
     return EstimateSnapshot(status=status, created_by=created_by)
+
+
+def resolve(action: str, actor: ActorSnapshot) -> estimate_rules.Transition:
+    """Resolve from a status the action is offered from, for tests about roles."""
+    transition = estimate_rules.TRANSITIONS.get(action)
+    status = min(transition.allowed_from) if transition else EstimateStatus.ACTIVE
+    return estimate_rules.resolve_transition(action, actor, status)
 
 
 # ── Visibility ────────────────────────────────────────────────────────────────
@@ -105,49 +113,110 @@ def test_only_elevated_roles_restore_from_the_trash():
     ],
 )
 def test_each_action_moves_to_its_declared_status(action, target):
-    assert estimate_rules.resolve_transition(action, OWNER).target == target
+    """From a status the action is offered from; the status matrix is pinned below."""
+    assert resolve(action, OWNER).target == target
 
 
 @pytest.mark.parametrize("action", ["lock", "unlock"])
 def test_only_the_owner_may_lock_or_unlock(action):
-    assert estimate_rules.resolve_transition(action, OWNER)
+    assert resolve(action, OWNER)
 
     for actor in (ADMIN, MEMBER):
         with pytest.raises(TransitionNotPermitted):
-            estimate_rules.resolve_transition(action, actor)
+            resolve(action, actor)
 
 
 @pytest.mark.parametrize("action", ["archive", "unarchive", "admin_approve"])
 def test_members_cannot_archive_or_approve(action):
     with pytest.raises(TransitionNotPermitted):
-        estimate_rules.resolve_transition(action, MEMBER)
+        resolve(action, MEMBER)
 
 
 @pytest.mark.parametrize("action", ["recall", "resubmit_ready"])
 def test_any_role_may_recall_or_resubmit(action):
     for actor in (OWNER, ADMIN, MEMBER):
-        assert estimate_rules.resolve_transition(action, actor)
+        assert resolve(action, actor)
 
 
 @pytest.mark.parametrize("action", ["recall", "resubmit_ready"])
 def test_withdrawing_invalidates_the_reviewers_link(action):
     """Otherwise an old email could still approve a document that has moved on."""
-    assert estimate_rules.resolve_transition(action, OWNER).clears_approval_token
+    assert resolve(action, OWNER).clears_approval_token
 
 
 @pytest.mark.parametrize("action", ["archive", "lock", "admin_approve"])
 def test_other_actions_leave_the_approval_token_alone(action):
-    assert not estimate_rules.resolve_transition(action, OWNER).clears_approval_token
+    assert not resolve(action, OWNER).clears_approval_token
 
 
 def test_an_unknown_action_is_rejected():
     with pytest.raises(UnknownTransition):
-        estimate_rules.resolve_transition("delete_everything", OWNER)
+        resolve("delete_everything", OWNER)
 
 
 def test_locking_notifies_admins_and_nothing_else_does():
     notifying = [name for name, t in estimate_rules.TRANSITIONS.items() if t.notifies_admins]
     assert notifying == ["lock"]
+
+
+# ── Which status each action may be taken from ────────────────────────────────
+
+#: Written out by hand, not derived from ``TRANSITIONS``, so that a change to the table
+#: has to be made twice to pass. It is the same matrix the browser draws its buttons
+#: from: ``availableTransitions`` in ``staff-web/src/domain/estimateRules.ts``.
+OFFERED_FROM: dict[str, set[EstimateStatus]] = {
+    "archive": {EstimateStatus.ACTIVE, EstimateStatus.REJECTED, EstimateStatus.APPROVED},
+    "unarchive": {EstimateStatus.ARCHIVED},
+    "lock": {EstimateStatus.ACTIVE},
+    "unlock": {EstimateStatus.LOCKED},
+    "recall": {EstimateStatus.SUBMITTED},
+    "resubmit_ready": {EstimateStatus.CHANGES_REQUESTED},
+    "admin_approve": {
+        EstimateStatus.ACTIVE,
+        EstimateStatus.SUBMITTED,
+        EstimateStatus.CHANGES_REQUESTED,
+        EstimateStatus.REJECTED,
+    },
+}
+
+
+def test_the_status_matrix_covers_every_action():
+    assert set(OFFERED_FROM) == set(estimate_rules.TRANSITIONS)
+
+
+@pytest.mark.parametrize("action", sorted(OFFERED_FROM))
+@pytest.mark.parametrize("status", list(EstimateStatus))
+def test_an_action_is_available_only_from_the_statuses_it_is_offered_from(action, status):
+    """The API used to accept any action from any status; only the browser held this."""
+    if status in OFFERED_FROM[action]:
+        assert estimate_rules.resolve_transition(action, OWNER, status).action == action
+    else:
+        with pytest.raises(TransitionNotAvailable):
+            estimate_rules.resolve_transition(action, OWNER, status)
+
+
+def test_an_admin_cannot_unarchive_a_locked_estimate():
+    """This was a way round the owner-only lock: unarchive moves to active."""
+    with pytest.raises(TransitionNotAvailable):
+        estimate_rules.resolve_transition("unarchive", ADMIN, EstimateStatus.LOCKED)
+
+
+def test_an_admin_cannot_archive_a_locked_estimate():
+    """The other half of the same way round: archive it, then unarchive it."""
+    with pytest.raises(TransitionNotAvailable):
+        estimate_rules.resolve_transition("archive", ADMIN, EstimateStatus.LOCKED)
+
+
+def test_a_member_cannot_recall_an_approved_estimate():
+    """Recall is open to every role, so the status is the only thing guarding it."""
+    with pytest.raises(TransitionNotAvailable):
+        estimate_rules.resolve_transition("recall", MEMBER, EstimateStatus.APPROVED)
+
+
+def test_the_role_is_refused_before_the_status_is_considered():
+    """Someone who can never lock is told so, not told to try from another status."""
+    with pytest.raises(TransitionNotPermitted):
+        estimate_rules.resolve_transition("lock", MEMBER, EstimateStatus.ARCHIVED)
 
 
 # ── Submission eligibility ────────────────────────────────────────────────────

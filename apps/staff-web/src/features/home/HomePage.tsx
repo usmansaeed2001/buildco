@@ -21,7 +21,7 @@ export function HomePage() {
         <p className="mt-1 text-sm text-gray-500">What would you like to work on today?</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 app-sm:grid-cols-2">
         <LauncherCard
           to="/estimates"
           title="Supplements"

@@ -16,7 +16,7 @@ import {
   useTrashEstimate,
 } from "@/api/queries/estimates";
 import type { EstimateOut, EstimateSort } from "@/api/types";
-import { useActor, useIsElevated } from "@/auth/useAuth";
+import { useActor } from "@/auth/useAuth";
 import { Button } from "@/components/Button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { KebabIcon, Menu, MenuItem, MenuSeparator } from "@/components/Menu";
@@ -26,6 +26,7 @@ import { Input, Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { useToast } from "@/components/Toast";
 import { ESTIMATE_FILTER_ORDER, ESTIMATE_STATUS_LABELS, type EstimateStatus } from "@/domain/enums";
+import { availableTransitions } from "@/domain/estimateRules";
 import { computeTotals } from "@/domain/estimateTotals";
 import type { StoredRoom } from "@/domain/estimateTotals";
 import { formatMoney } from "@/domain/money";
@@ -42,6 +43,8 @@ import { endOfLocalDay, startOfLocalDay } from "@/lib/dateRange";
 import { ApiError } from "@/api/client";
 import { EstimatesGridSkeleton } from "./EstimateCardSkeleton";
 import { NewEstimateModal, type NewEstimateValues } from "./NewEstimateModal";
+import { useStagedProposal } from "@/features/agent/AgentProvider";
+import type { Proposal } from "@/features/agent/protocol";
 import { TrashList } from "./TrashList";
 
 export function EstimatesListPage() {
@@ -95,6 +98,22 @@ export function EstimatesListPage() {
 
   const createEstimate = useCreateEstimate();
   const [creating, setCreating] = useState(false);
+
+  // The assistant stages a new supplement here, on the real form, and is told it is on
+  // screen only once this page has rendered it. After Stop the same values open as an
+  // ordinary form for the user to finish.
+  const assistant = useStagedProposal("supplement.create");
+  const [takenOver, setTakenOver] = useState<Proposal | null>(null);
+  const stagedId = assistant.staged?.id;
+  const { confirm: confirmStaged, takeHandover, handover } = assistant;
+  useEffect(() => {
+    if (stagedId) confirmStaged(stagedId);
+  }, [stagedId, confirmStaged]);
+  useEffect(() => {
+    if (!handover) return;
+    setTakenOver(handover);
+    takeHandover();
+  }, [handover, takeHandover]);
 
   function setParam(key: string, value: string | null) {
     const next = new URLSearchParams(params);
@@ -187,7 +206,7 @@ export function EstimatesListPage() {
           </p>
         </div>
 
-        <div className="flex flex-col gap-3 bg-gray-50/60 px-4 py-3 lg:flex-row lg:items-center">
+        <div className="flex flex-col gap-3 bg-gray-50/60 px-4 py-3 app-lg:flex-row app-lg:items-center">
           <div className="relative flex-1">
             <SearchIcon />
             <Input
@@ -200,10 +219,10 @@ export function EstimatesListPage() {
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 lg:gap-3">
+          <div className="flex flex-wrap items-center gap-2 app-lg:gap-3">
             {/* Labelled, because two bare date inputs beside a dropdown say nothing about
                 what they filter. */}
-            <div className="flex items-center gap-2 lg:border-l lg:border-gray-200 lg:pl-3">
+            <div className="flex items-center gap-2 app-lg:border-l app-lg:border-gray-200 app-lg:pl-3">
               <span className="text-xs font-medium text-gray-500">Created</span>
               <div className="w-36">
                 <Input
@@ -226,7 +245,7 @@ export function EstimatesListPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 lg:border-l lg:border-gray-200 lg:pl-3">
+            <div className="flex items-center gap-2 app-lg:border-l app-lg:border-gray-200 app-lg:pl-3">
               <span className="text-xs font-medium text-gray-500">Sort</span>
               {/* Width on the wrapper, not the control. `cn` is a plain join, so a
                   `w-auto` passed to Select would sit alongside its own `w-full` and lose
@@ -275,7 +294,7 @@ export function EstimatesListPage() {
         />
       ) : (
         <>
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid gap-4 app-sm:grid-cols-2 app-lg:grid-cols-3">
             {visible.map((estimate) => (
               <li key={estimate.id}>
                 <EstimateCard estimate={estimate} />
@@ -297,6 +316,40 @@ export function EstimatesListPage() {
         onClose={() => setCreating(false)}
         onCreate={handleCreate}
       />
+
+      {assistant.staged && (
+        <NewEstimateModal
+          key={assistant.staged.id}
+          open
+          staged
+          busy={false}
+          initial={proposedValues(assistant.staged)}
+          also={proposedExtras(assistant.staged)}
+          onClose={() => {}}
+          onCreate={async () => {}}
+        />
+      )}
+
+      {takenOver && (
+        <NewEstimateModal
+          key={`taken-over-${takenOver.id}`}
+          open
+          busy={createEstimate.isPending}
+          initial={proposedValues(takenOver)}
+          also={proposedExtras(takenOver)}
+          onClose={() => setTakenOver(null)}
+          onCreate={async (values) => {
+            // What the form has no field for is still part of what was proposed, and
+            // is shown on it. It is saved with the rest and not quietly dropped.
+            const created = await createEstimate.mutateAsync({
+              ...extraValues(takenOver),
+              ...values,
+            });
+            setTakenOver(null);
+            navigate(`/estimates/${created.id}`);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -379,7 +432,7 @@ function Chip({
 
 export function EstimateCard({ estimate }: { estimate: EstimateOut }) {
   const toast = useToast();
-  const elevated = useIsElevated();
+  const actor = useActor();
   const transition = useEstimateTransition(estimate.id);
   const trash = useTrashEstimate();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -391,7 +444,17 @@ export function EstimateCard({ estimate }: { estimate: EstimateOut }) {
 
   const daysLeft = daysLeftInTrash(estimate.deleted_at);
   const named = estimateName(estimate);
-  const archived = estimate.status === "archived";
+  // Decided by the same rule as the editor's toolbar, and for the same reason: the API
+  // refuses a transition from a status it is not offered from. This menu used to offer
+  // Archive on anything not already archived, which let an admin archive and then
+  // unarchive a locked estimate, undoing a lock only the owner may lift.
+  const archiving = actor
+    ? availableTransitions(actor, {
+        status: estimate.status as EstimateStatus,
+        createdBy: estimate.created_by ?? null,
+        isTrashed: Boolean(estimate.deleted_at),
+      }).find(({ action }) => action === "archive" || action === "unarchive")?.action
+    : undefined;
   const unpriced = isUnpriced(total, roomCount);
 
   async function run(label: string, action: () => Promise<unknown>) {
@@ -408,7 +471,11 @@ export function EstimateCard({ estimate }: { estimate: EstimateOut }) {
     // to be one big `<Link>`, which cannot hold a menu button: a `<button>` inside an
     // `<a>` is invalid HTML and clicking it navigates. This keeps the whole card
     // clickable while the menu is a real sibling rather than a nested control.
-    <article className="group relative flex h-full overflow-hidden rounded-card bg-surface ring-1 ring-gray-200 transition-shadow focus-within:shadow-md hover:shadow-md">
+    <article
+      // Named for the assistant, which tints a supplement for a moment after saving it.
+      data-agent-record={`supplement:${estimate.id}`}
+      className="group relative flex h-full overflow-hidden rounded-card bg-surface ring-1 ring-gray-200 transition-shadow focus-within:shadow-md hover:shadow-md"
+    >
       {/* A status stripe rather than only a pill. On a three-column grid it lets you scan
           a column by colour, and on a phone — where the cards stack full width — it is
           the thing that keeps the list from reading as one grey block. */}
@@ -422,16 +489,16 @@ export function EstimateCard({ estimate }: { estimate: EstimateOut }) {
             <Menu label={`Actions for ${named || estimate.identifier}`} trigger={<KebabIcon />}>
               {(close) => (
                 <>
-                  {elevated && (
+                  {archiving && (
                     <MenuItem
                       onSelect={() => {
                         close();
-                        void run(archived ? "Unarchived." : "Archived.", () =>
-                          transition.mutateAsync(archived ? "unarchive" : "archive"),
+                        void run(archiving === "unarchive" ? "Unarchived." : "Archived.", () =>
+                          transition.mutateAsync(archiving),
                         );
                       }}
                     >
-                      {archived ? "Unarchive" : "Archive"}
+                      {archiving === "unarchive" ? "Unarchive" : "Archive"}
                     </MenuItem>
                   )}
                   <MenuSeparator />
@@ -558,4 +625,39 @@ function estimateName(estimate: EstimateOut): string {
 /** Zero money *and* no rooms — an estimate nobody has priced, rather than one worth nothing. */
 function isUnpriced(total: string, roomCount: number): boolean {
   return roomCount === 0 && Number(total) === 0;
+}
+
+const text = (value: unknown): string => (typeof value === "string" ? value : "");
+
+/** The fields the New Supplement form has, from what the assistant proposes. */
+function proposedValues(proposal: Proposal): Partial<NewEstimateValues> {
+  const { project_name, client_name, identifier } = proposal.payload;
+  return {
+    project_name: text(project_name),
+    client_name: text(client_name),
+    ...(text(identifier) ? { identifier: text(identifier) } : {}),
+  };
+}
+
+/** What it proposes that the form has no field for, to be saved along with the rest. */
+function extraValues(proposal: Proposal): {
+  pm_name?: string;
+  insurance_carrier?: string;
+  notes?: string;
+} {
+  const { pm_name, insurance_carrier, notes } = proposal.payload;
+  return {
+    ...(text(pm_name) ? { pm_name: text(pm_name) } : {}),
+    ...(text(insurance_carrier) ? { insurance_carrier: text(insurance_carrier) } : {}),
+    ...(text(notes) ? { notes: text(notes) } : {}),
+  };
+}
+
+function proposedExtras(proposal: Proposal): { label: string; value: string }[] {
+  const extra = extraValues(proposal);
+  return [
+    { label: "Project manager", value: extra.pm_name ?? "" },
+    { label: "Carrier", value: extra.insurance_carrier ?? "" },
+    { label: "Notes", value: extra.notes ?? "" },
+  ].filter((row) => row.value);
 }

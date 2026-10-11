@@ -26,6 +26,13 @@ def configure_logging() -> None:
         logging.getLogger(noisy).handlers.clear()
         logging.getLogger(noisy).propagate = True
 
+    # The assistant's SDKs log every event of a live conversation at DEBUG, and an event
+    # carries the transcript of what was said. No transcript text goes into logs, at any
+    # level: it lives in the database under its own access and retention rules. Pinned
+    # here, not left to the root level, so that DEBUG=true cannot turn it back on.
+    for private in ("google_adk", "google_genai", "websockets"):
+        logging.getLogger(private).setLevel(logging.WARNING)
+
     shared: list[Any] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,

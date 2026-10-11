@@ -15,13 +15,28 @@
  *
  * **Below `md` the nav collapses into a drawer.** It used to scroll sideways instead,
  * which meant a phone showed the first two links and no indication the others existed.
+ *
+ * **Breakpoints here and on every page inside are the app column's, not the window's**
+ * (`app-sm:`, `app-md:` and so on). The shell sits in `AppFrame`, which can dock a panel
+ * beside it, and the app has to lay itself out for the width it is actually given.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, useIsElevated } from "@/auth/useAuth";
+import { AppFrame } from "./AppFrame";
 import { RoleBadge } from "./Badge";
 import { Menu } from "./Menu";
 import { ThemeToggle } from "./ThemeToggle";
+import {
+  AgentContextReporter,
+  AgentLauncher,
+  AgentLockBanner,
+  AgentSavedTint,
+} from "@/features/agent/AgentLauncher";
+import { AgentPanel } from "@/features/agent/AgentPanel";
+import { AgentProvider, useAgent } from "@/features/agent/AgentProvider";
+import { useLauncherShown } from "@/features/agent/useLauncherShown";
+import { usePresence } from "@/features/agent/usePresence";
 import { BrandMark } from "@/features/auth/AuthLayout";
 import { cn } from "@/lib/cn";
 import { setPreference } from "@/lib/theme";
@@ -41,11 +56,32 @@ const NAV: NavItem[] = [
   { to: "/team", label: "Team", elevatedOnly: true },
 ];
 
+/**
+ * The provider sits outside the frame because the frame is drawn from it: whether a
+ * panel is docked, and whether the app is locked. It is mounted here, once, and not on
+ * any page, so the panel and a live conversation survive moving between pages.
+ */
 export function AppShell() {
+  return (
+    <AgentProvider>
+      <Shell />
+    </AgentProvider>
+  );
+}
+
+function Shell() {
+  const agent = useAgent();
   const elevated = useIsElevated();
   const items = NAV.filter((item) => !item.elevatedOnly || elevated);
   const [menuOpen, setMenuOpen] = useState(false);
   const { pathname } = useLocation();
+
+  // The card shrinks back into the launcher's corner when it is closed. It is kept on
+  // screen for that long, and the launcher returns, with focus, once it has gone.
+  const panel = usePresence(agent?.panelOpen === true);
+  const wasOpen = useRef(false);
+  if (agent?.panelOpen) wasOpen.current = true;
+  const launcherShown = useLauncherShown(panel.mounted);
 
   // Navigating is the one thing that should always close the drawer. Without this it
   // stays open over the page you just asked for, which reads as a broken tap.
@@ -60,15 +96,31 @@ export function AppShell() {
     );
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <AppFrame
+      panel={panel.mounted ? <AgentPanel closing={panel.closing} /> : undefined}
+      panelClosing={panel.closing}
+      launcher={
+        <AgentLauncher
+          hidden={panel.mounted}
+          takeFocus={wasOpen.current}
+          onFocused={() => {
+            wasOpen.current = false;
+          }}
+        />
+      }
+      locked={agent?.locked === true}
+      lockBanner={<AgentLockBanner />}
+    >
+      <AgentContextReporter />
+      <AgentSavedTint />
       <header className="sticky top-0 z-30 border-b border-gray-200 bg-surface">
-        <div className="mx-auto flex h-13 max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
+        <div className="mx-auto flex h-13 max-w-[1600px] items-center gap-3 px-4 app-sm:gap-6 app-sm:px-6">
           <button
             type="button"
             aria-label="Menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
-            className="-ml-1 rounded-md p-1.5 text-gray-600 hover:bg-gray-100 md:hidden"
+            className="-ml-1 rounded-md p-1.5 text-gray-600 hover:bg-gray-100 app-md:hidden"
           >
             <MenuIcon open={menuOpen} />
           </button>
@@ -77,7 +129,7 @@ export function AppShell() {
             <BrandMark />
           </Link>
 
-          <nav className="hidden flex-1 items-center gap-1 md:flex" aria-label="Main">
+          <nav className="hidden flex-1 items-center gap-1 app-md:flex" aria-label="Main">
             {items.map((item) => (
               <NavLink key={item.to} to={item.to} className={link}>
                 {item.label}
@@ -87,7 +139,7 @@ export function AppShell() {
 
           {/* Pushes the account menu right on narrow screens, where the nav that used to
               do it is hidden. */}
-          <div className="flex-1 md:hidden" />
+          <div className="flex-1 app-md:hidden" />
 
           <ThemeToggle className="-mr-1" />
           <AccountMenu />
@@ -95,7 +147,7 @@ export function AppShell() {
 
         {menuOpen && (
           <nav
-            className="flex flex-col gap-1 border-t border-gray-200 px-3 py-2 md:hidden"
+            className="flex flex-col gap-1 border-t border-gray-200 px-3 py-2 app-md:hidden"
             aria-label="Main"
           >
             {items.map((item) => (
@@ -107,10 +159,17 @@ export function AppShell() {
         )}
       </header>
 
-      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6">
+      <main
+        className={cn(
+          "mx-auto w-full max-w-[1600px] flex-1 px-4 pt-6 app-sm:px-6",
+          // Room for the launcher, so it does not sit on whatever a page puts in that
+          // corner.
+          launcherShown ? "pb-[88px]" : "pb-6",
+        )}
+      >
         <Outlet />
       </main>
-    </div>
+    </AppFrame>
   );
 }
 
@@ -141,7 +200,7 @@ function AccountMenu() {
       trigger={
         <>
           <Avatar url={profile.avatar_url} name={displayName} />
-          <span className="hidden text-sm font-medium text-gray-700 sm:inline">{displayName}</span>
+          <span className="hidden text-sm font-medium text-gray-700 app-sm:inline">{displayName}</span>
         </>
       }
     >

@@ -497,6 +497,117 @@ async def test_cancelling_a_meeting_notifies_its_guests(owner_client, notificati
     assert any("cancelled" in s.subject.lower() for s in notifications.sent)
 
 
+# ── People who have been removed from the team ───────────────────────────────
+
+
+async def remove_from_team(owner_client, profile: Profile) -> None:
+    response = await owner_client.post(f"/api/v1/users/{profile.id}/ban")
+    assert response.status_code == 200, response.text
+
+
+async def test_a_removed_person_cannot_be_invited_to_a_new_meeting(
+    owner_client, member, notifications
+):
+    """Deliberately new. The API used to accept any profile id and email them.
+
+    Only the meeting form kept removed people out, by not listing them.
+    """
+    await remove_from_team(owner_client, member)
+
+    response = await owner_client.post(
+        "/api/v1/meetings",
+        json={
+            "title": "Site walkthrough",
+            "start_time": START.isoformat(),
+            "end_time": END.isoformat(),
+            "attendee_ids": [str(member.id)],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "removed from the team" in response.json()["error"]["message"]
+    assert member.email not in recipients_of(notifications)
+
+
+async def test_a_removed_person_cannot_be_invited_by_typing_their_address(
+    owner_client, colleague, notifications
+):
+    """An address that belongs to a team member is promoted to that member, removed or not."""
+    await remove_from_team(owner_client, colleague)
+
+    response = await owner_client.post(
+        "/api/v1/meetings",
+        json={
+            "title": "Site walkthrough",
+            "start_time": START.isoformat(),
+            "end_time": END.isoformat(),
+            "attendee_emails": [colleague.email],
+        },
+    )
+
+    assert response.status_code == 422
+    assert colleague.email not in recipients_of(notifications)
+
+
+async def test_a_removed_person_cannot_be_added_to_an_existing_meeting(owner_client, member):
+    meeting = await make_meeting(owner_client)
+    await remove_from_team(owner_client, member)
+
+    response = await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}", json={"attendee_ids": [str(member.id)]}
+    )
+
+    assert response.status_code == 422
+
+
+async def test_a_meeting_with_a_removed_attendee_can_still_be_edited_by_hand(
+    owner_client, member, other_member, notifications
+):
+    """The form sends back everyone on the meeting, including a removed person it never
+    shows. Refusing that would reject every edit over someone the user cannot untick, so
+    they are taken off the meeting instead."""
+    meeting = await make_meeting(owner_client, attendee_ids=[str(member.id), str(other_member.id)])
+    await remove_from_team(owner_client, member)
+    notifications.sent.clear()
+
+    response = await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}",
+        json={"title": "Moved walkthrough", "attendee_ids": [str(member.id), str(other_member.id)]},
+    )
+
+    assert response.status_code == 200
+    assert [a["email"] for a in response.json()["attendees"]] == [other_member.email]
+    assert recipients_of(notifications) == {other_member.email}
+
+
+async def test_a_removed_attendee_is_also_dropped_when_only_the_guests_change(owner_client, member):
+    """Any write to the attendee list drops them, not only one that names them."""
+    meeting = await make_meeting(owner_client, attendee_ids=[str(member.id)])
+    await remove_from_team(owner_client, member)
+
+    response = await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}", json={"attendee_emails": [GUEST]}
+    )
+
+    assert response.status_code == 200
+    assert [a["email"] for a in response.json()["attendees"]] == [GUEST]
+
+
+async def test_a_removed_attendee_stays_until_the_attendee_list_is_next_written(
+    owner_client, member
+):
+    """Recolouring a meeting is not an attendee write and must not quietly change who is on it."""
+    meeting = await make_meeting(owner_client, attendee_ids=[str(member.id)])
+    await remove_from_team(owner_client, member)
+
+    response = await owner_client.patch(
+        f"/api/v1/meetings/{meeting['id']}", json={"color": "#10B981"}
+    )
+
+    assert response.status_code == 200
+    assert [a["email"] for a in response.json()["attendees"]] == [member.email]
+
+
 async def test_the_number_of_guests_is_capped(owner_client):
     """Anyone signed in may schedule, so this bounds the mail one request can send."""
     response = await owner_client.post(

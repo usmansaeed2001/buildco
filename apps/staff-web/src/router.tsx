@@ -72,6 +72,21 @@ export const router = createBrowserRouter([
     ],
   },
 
+  // The assistant in every state, drawn from fixed values: how its look is reviewed
+  // without holding a conversation. Development only. `import.meta.env.DEV` is a
+  // constant in a production build, so the route and everything it imports are left
+  // out of the bundle. It is outside the guards because it shows no real data.
+  ...(import.meta.env.DEV
+    ? [
+        {
+          path: "/dev/assistant",
+          lazy: async () => ({
+            Component: (await import("@/features/agent/AgentGallery")).AgentGallery,
+          }),
+        },
+      ]
+    : []),
+
   { path: "/index.html", element: <Navigate to="/login" replace /> },
   { path: "*", element: <NotFoundPage /> },
 ]);

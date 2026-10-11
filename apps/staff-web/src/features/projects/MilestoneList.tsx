@@ -193,7 +193,7 @@ export function MilestoneList({
       )}
 
       {canManage && (
-        <div className="grid gap-3 border-t border-gray-100 pt-4 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end">
+        <div className="grid gap-3 border-t border-gray-100 pt-4 app-sm:grid-cols-[1fr_auto_auto_auto] app-sm:items-end">
           <Field label="New milestone">
             {(props) => (
               <Input

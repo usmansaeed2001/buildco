@@ -17,10 +17,37 @@
 # is the price of it working.
 
 steps:
+  # ── Test database ───────────────────────────────────────────────────────────
+  # A throwaway Postgres for the gate below, on the network every build step shares,
+  # so the gate reaches it by name. It lives and dies with the build. The image matches
+  # docker-compose.yml and the Cloud SQL target. The credentials guard nothing: the
+  # database is empty, unreachable from outside the build, and gone when it ends.
+  - id: test-db
+    name: gcr.io/cloud-builders/docker
+    args:
+      - run
+      - --detach
+      - --name=buildco-test-db
+      - --network=cloudbuild
+      - --env=POSTGRES_USER=buildco
+      - --env=POSTGRES_PASSWORD=buildco
+      - --env=POSTGRES_DB=buildco_test
+      - postgres:16-alpine
+    waitFor: ['-']
+
   # ── Gate ────────────────────────────────────────────────────────────────────
-  # Mirrors `make check`. The image build does not run tests - the Dockerfile
+  # Mirrors `make check`, then runs the suite a second time on Postgres as
+  # `make test-pg` does. The image build does not run tests - the Dockerfile
   # deliberately excludes tests/ - so this is the only thing standing between a bad
   # merge and production.
+  #
+  # The second run is not a repeat. SQLite has no row locks and is loose about CHECK
+  # constraints and JSON, so the tests marked `postgres` are skipped on it and a
+  # constraint bug can hide there. Until this step existed those tests never ran before
+  # a deploy at all.
+  #
+  # The wait is done in Python because this image has no `pg_isready`, and written
+  # without a `$` because Cloud Build would read one as a substitution.
   - id: check
     name: python:3.12-slim
     dir: apps/api
@@ -34,6 +61,24 @@ steps:
         uv run ruff check .
         uv run mypy app
         uv run pytest -q
+
+        uv run python -c "
+        import asyncio, sys, asyncpg
+
+        async def wait(url):
+            for _ in range(30):
+                try:
+                    await (await asyncpg.connect(url, timeout=2)).close()
+                    return
+                except Exception:
+                    await asyncio.sleep(2)
+            sys.exit('The test database never came up.')
+
+        asyncio.run(wait(sys.argv[1]))
+        " postgresql://buildco:buildco@buildco-test-db:5432/buildco_test
+        TEST_DATABASE_URL=postgresql+asyncpg://buildco:buildco@buildco-test-db:5432/buildco_test \
+          uv run pytest -q
+    waitFor: ['test-db']
 
   # ── Build ───────────────────────────────────────────────────────────────────
   # Tagged with the commit sha, never `latest`. That is what makes a rollback one
@@ -101,6 +146,29 @@ steps:
         gcloud run deploy buildco-api --image="$$IMAGE" --region="${_REGION}" --quiet
         gcloud run services describe buildco-api --region="${_REGION}" \
           --format='value(status.url)'
+    waitFor: ['migrate']
+
+  # ── Deploy the voice service ────────────────────────────────────────────────
+  # BuildCo Assistant's WebSocket is served by a second Cloud Run service running this
+  # same image (DEPLOY_CLOUD_RUN.md §8b). Rolling both from one build is what keeps it
+  # one release: the API issues tickets that the voice service redeems, and the two
+  # must agree about what a proposal is.
+  #
+  # The service is created by hand, once. Until it exists this step says so and passes,
+  # so a build cannot fail over a service nobody has made yet.
+  - id: deploy-agent
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/buildco/buildco-api:${SHORT_SHA}"
+        if gcloud run services describe buildco-agent --region="${_REGION}" >/dev/null 2>&1; then
+          gcloud run deploy buildco-agent --image="$$IMAGE" --region="${_REGION}" --quiet
+        else
+          echo "buildco-agent does not exist in ${_REGION} yet; nothing to roll."
+        fi
     waitFor: ['migrate']
 
 images:

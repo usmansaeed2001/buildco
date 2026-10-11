@@ -118,6 +118,50 @@ class Settings(BaseSettings):
     # ── Outbound HTTP ─────────────────────────────────────────────────────────
     http_timeout_seconds: float = 20.0
 
+    # ── BuildCo Assistant (the voice agent) ───────────────────────────────────
+    #
+    # With nothing set the service boots and the assistant reports itself disabled,
+    # like every other integration here. There is no secret: the model is reached
+    # with the Cloud Run service account.
+
+    #: Whether the feature exists in this environment. Read once at startup, so it is
+    #: a deploy-time switch. **It is not the way to stop live conversations**: an
+    #: instance draining its sockets keeps the value it started with. The team's
+    #: allowance, which is read from the database, is the off switch.
+    agent_enabled: bool = False
+    #: ``pilot`` or ``everyone``. ``everyone`` has to be typed; nothing defaults to it.
+    agent_audience: Literal["pilot", "everyone"] = "pilot"
+    #: Who gets the assistant while the audience is ``pilot``. **Empty means nobody**,
+    #: so a variable forgotten in a new environment gives it to no one.
+    agent_pilot_emails: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    #: Whether this process mounts the voice WebSocket and loads ADK. True on the
+    #: ``buildco-agent`` service and for local development; false on ``buildco-api``,
+    #: which serves only the assistant's REST endpoints.
+    agent_serve_live: bool = False
+
+    #: Model ids are configuration because they are what rots: see ``groq_model``.
+    agent_model: str = "gemini-3.8-live"
+    agent_voice: str = "Kore"
+    google_cloud_project: str | None = None
+    google_cloud_location: str = "us-central1"
+
+    #: The public WebSocket origin handed to the browser. Hosting's ``/api/**`` rewrite
+    #: does not proxy WebSockets, so in production this is the agent service's own
+    #: ``wss://…run.app`` origin, not the site's.
+    agent_ws_base_url: str = "ws://localhost:8000"
+
+    agent_max_session_seconds: int = 1800
+    agent_daily_minutes_default: int = 10
+    agent_idle_warning_seconds: int = 90
+    agent_idle_timeout_seconds: int = 120
+    #: How long an unanswered proposal waits before it expires.
+    agent_proposal_ttl_seconds: int = 600
+    #: How long the microphone stays live after a read-back before the audio pauses.
+    agent_approval_voice_window_seconds: int = 30
+    agent_transcript_retention_days: int = 90
+    #: A session ticket is single-use and short-lived: it travels in a URL.
+    agent_ticket_ttl_seconds: int = 60
+
     @field_validator("site_url")
     @classmethod
     def _strip_trailing_slash(cls, v: str) -> str:
@@ -131,12 +175,56 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
 
+    @field_validator("agent_pilot_emails", mode="before")
+    @classmethod
+    def _split_pilot_emails(cls, v: object) -> object:
+        """Comma-separated in the environment; compared lower-cased."""
+        if isinstance(v, str):
+            return [email.strip().lower() for email in v.split(",") if email.strip()]
+        return v
+
+    @field_validator("agent_ws_base_url")
+    @classmethod
+    def _strip_ws_trailing_slash(cls, v: str) -> str:
+        return v.rstrip("/")
+
     @model_validator(mode="after")
     def _forbid_disabled_auth_outside_dev(self) -> Settings:
         if self.auth_disabled and self.environment in ("staging", "production"):
             raise ValueError(
                 "AUTH_DISABLED must not be set in staging or production. "
                 "It bypasses all authentication."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _forbid_a_half_configured_agent_service(self) -> Settings:
+        """Refuse to start the voice service without what it needs to send email.
+
+        Every integration here degrades to a logged no-op when its credential is
+        missing, which is right for local development and exactly wrong for this
+        process. It is the one that sends meeting invites and reviewer emails for
+        whatever the assistant commits, and its environment is managed separately from
+        the API's. Left to degrade, a missing key means the user is told a meeting was
+        created and nobody is ever invited to it. A missing value is therefore a failed
+        deploy, which someone sees.
+        """
+        if not self.agent_serve_live or self.environment not in ("staging", "production"):
+            return self
+        problems = []
+        if not self.resend_api_key:
+            problems.append("RESEND_API_KEY is not set, so no invite or review email is sent")
+        if "localhost" in self.site_url or "127.0.0.1" in self.site_url:
+            problems.append("SITE_URL points at localhost, so emailed links go nowhere")
+        if self.notify_from_email == "onboarding@resend.dev":
+            problems.append(
+                "NOTIFY_FROM_EMAIL is the Resend sandbox sender, which delivers only to "
+                "the account owner"
+            )
+        if problems:
+            raise ValueError(
+                "AGENT_SERVE_LIVE is set, but this process cannot send the email the "
+                "assistant's actions owe: " + "; ".join(problems) + "."
             )
         return self
 

@@ -118,6 +118,74 @@ class ItemUnit(StrEnum):
     SQ = "Sq"
 
 
+# ── BuildCo Assistant ─────────────────────────────────────────────────────────
+
+
+class AgentConversationStatus(StrEnum):
+    #: Created, ticket issued, socket not yet connected.
+    PENDING = "pending"
+    ACTIVE = "active"
+    ENDED = "ended"
+
+
+class AgentEndReason(StrEnum):
+    USER_CLOSED = "user_closed"
+    IDLE_TIMEOUT = "idle_timeout"
+    TIME_LIMIT = "time_limit"
+    DISCONNECTED = "disconnected"
+    #: The same person started another conversation, for instance in a second tab.
+    SUPERSEDED = "superseded"
+    ERROR = "error"
+
+
+class AgentMessageRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+class AgentMessageSource(StrEnum):
+    VOICE = "voice"
+    TEXT = "text"
+
+
+class AgentActionStatus(StrEnum):
+    #: Staged on screen and waiting for the user's answer.
+    PROPOSED = "proposed"
+    COMMITTED = "committed"
+    #: The user said no.
+    CANCELLED = "cancelled"
+    #: Replaced by a corrected proposal before it was answered.
+    SUPERSEDED = "superseded"
+    EXPIRED = "expired"
+    #: The user pressed Stop and carried on with the form by hand.
+    HANDED_OVER = "handed_over"
+    FAILED = "failed"
+
+
+class AgentApprovalPolicy(StrEnum):
+    VOICE_OR_CLICK = "voice_or_click"
+    #: Outward-facing, or its read-back could not be verified: only the button counts.
+    CLICK = "click"
+
+
+class AgentApprovedVia(StrEnum):
+    VOICE = "voice"
+    CLICK = "click"
+
+
+class AgentMemoryCategory(StrEnum):
+    IDENTITY = "identity"
+    PREFERENCE = "preference"
+    WORK_HABIT = "work_habit"
+
+
+class AgentMemorySource(StrEnum):
+    #: The user asked for it to be remembered.
+    EXPLICIT = "explicit"
+    #: The assistant noticed it.
+    INFERRED = "inferred"
+
+
 def values(enum_cls: type[StrEnum]) -> list[str]:
     """The raw string values of an enum — for CHECK constraints and Alembic."""
     return [member.value for member in enum_cls]

@@ -331,16 +331,33 @@ Secret Manager rather than setting it inline.
 
 ### The connection budget
 
-`db-f1-micro` has roughly 0.6 GB RAM and a low connection ceiling. Cloud Run runs many
-instances, each holding its own pool. Preserve:
+`db-f1-micro` has roughly 0.6 GB RAM and a low connection ceiling.
+
+Two Cloud Run services share one small database, each instance holding its own pool.
+Preserve this invariant:
 
 ```
-max_instances × (DB_POOL_SIZE + DB_MAX_OVERFLOW) < max_connections
+(api_max_instances + agent_max_instances) × (their pool sizes) < postgres max_connections
 ```
 
-Defaults are 2 + 3 = 5 per instance, so 10 instances fit inside `max_connections=50`.
-Raising `--max-instances` means revisiting this or introducing PgBouncer. Exceeding it
-does not degrade gracefully — it fails requests with connection errors under exactly
+| Service | Max instances | Pool per instance | Connections |
+|---|---|---|---|
+| `buildco-api` | 7 | `DB_POOL_SIZE=2` + `DB_MAX_OVERFLOW=3` = 5 | 35 |
+| `buildco-agent` | 2 | `DB_POOL_SIZE=1` + `DB_MAX_OVERFLOW=2` = 3 | 6 |
+| **Total** | | | **41 of 50** |
+
+The remaining nine are the three Postgres holds back for superusers, the migration job,
+a manual `gcloud sql connect`, and headroom. The split is by need: the API holds a
+connection for the length of every request, while the voice service touches the database
+in short bursts and carries many conversations on three connections.
+
+**During a rollout the old and new revisions can each reach their own cap**, for up to
+five minutes on the API and up to an hour on the voice service, because a revision that
+is draining sockets is outside the service-level maximum. Size for that, or accept it
+knowingly; see `AGENT_SPEC.md` Q2.
+
+Raising either `--max-instances` means revisiting this, moving up a tier, or a pooler.
+Exceeding it does not degrade gracefully — it fails requests with connection errors under exactly
 the load that caused the scale-up.
 
 ### Running migrations against Cloud SQL

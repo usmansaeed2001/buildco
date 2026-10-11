@@ -81,7 +81,7 @@ export function ProjectsListPage() {
           </Chip>
         ))}
 
-        <div className="ml-auto w-full sm:w-64">
+        <div className="ml-auto w-full app-sm:w-64">
           <Input
             type="search"
             placeholder="Search owner, address, work type…"
@@ -122,7 +122,7 @@ export function ProjectsListPage() {
             {visible.length} {visible.length === 1 ? "project" : "projects"}
             {search && ` matching “${search}”`}
           </p>
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid gap-3 app-sm:grid-cols-2 app-lg:grid-cols-3">
             {visible.map((project) => (
               <li key={project.id}>
                 <ProjectCard project={project} />

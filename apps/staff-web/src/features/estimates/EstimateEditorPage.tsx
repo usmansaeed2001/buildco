@@ -9,8 +9,10 @@
  *
  * Seeding happens on the estimate's id rather than on every change to the query data.
  * Re-seeding from a background refetch would discard whatever the user had typed since.
+ *
+ * The one exception is a write this editor did not make: see `reseed`.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError } from "@/api/client";
 import type { EstimateOut } from "@/api/types";
@@ -27,6 +29,7 @@ import { Button } from "@/components/Button";
 import { EstimateStatusBadge } from "@/components/Badge";
 import { Alert, ErrorState, LoadingState } from "@/components/feedback";
 import { Modal } from "@/components/Modal";
+import { StagedMark } from "@/components/staged";
 import { TabList, TabPanel, useTabParam } from "@/components/Tabs";
 import { useToast } from "@/components/Toast";
 import { ITEM_CATEGORIES, ITEM_UNITS, type EstimateStatus } from "@/domain/enums";
@@ -48,6 +51,11 @@ import { CataloguePicker } from "./CataloguePicker";
 import { ParseNotesDrawer } from "./ParseNotesDrawer";
 import { ReportModal } from "./ReportModal";
 import { SubmitForReviewModal } from "./SubmitForReviewModal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { apiFetch } from "@/api/client";
+import { queryKeys } from "@/api/queries/keys";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAgent, useAgentRecord, useStagedProposal } from "@/features/agent/AgentProvider";
 import { RoomRail } from "./RoomRail";
 
 const TABS = [
@@ -96,13 +104,7 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
   };
   const editable = canEdit(actor, snapshot) && !snapshot.isTrashed;
 
-  const [details, setDetails] = useState<EstimateDetails>(() => ({
-    project_name: estimate.project_name,
-    client_name: estimate.client_name,
-    pm_name: estimate.pm_name,
-    insurance_carrier: estimate.insurance_carrier,
-    notes: estimate.notes,
-  }));
+  const [details, setDetails] = useState<EstimateDetails>(() => detailsOf(estimate));
   const document = useEstimateDocument(useMemo(() => readRooms(estimate.rooms), [estimate.rooms]));
 
   // Fetched once for the whole estimate rather than per row: the list is small, and a
@@ -149,12 +151,110 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
 
   const totals = computeTotals(document.rooms);
 
+  /**
+   * Take a fresh copy from the server into the editor's own state.
+   *
+   * The editor seeds its details and rooms once, when it opens, and from then on the
+   * screen is the source and the server follows it. That is right while the only writer
+   * is this editor. When something else has written the estimate, the local copy is the
+   * stale one, and the next keystroke would autosave the whole payload and put the old
+   * values back. So a write made elsewhere is followed by this: both halves of the
+   * document are replaced, the undo history with them, and the result is marked as
+   * already saved so that taking it in does not itself trigger a save.
+   */
+  function reseed(fresh: EstimateOut) {
+    const nextDetails = detailsOf(fresh);
+    const nextRooms = readRooms(fresh.rooms);
+    setDetails(nextDetails);
+    // `reset` goes back to the first room. Stay on the one being looked at; if it no
+    // longer exists the document clamps the selection itself.
+    const viewing = document.activeIndex;
+    document.reset(nextRooms);
+    if (viewing !== null) document.selectRoom(viewing);
+    // Same shape and key order as `payload` below, since this is compared as text.
+    autosave.markSaved({ ...nextDetails, rooms: nextRooms });
+  }
+
+  // ── BuildCo Assistant ─────────────────────────────────────────────────────
+  //
+  // Three things, all so that the assistant and this editor never disagree about what
+  // the supplement holds.
+  //
+  // It is told which supplement is open and whether its edits are saved, and it is
+  // given a way to make sure they are: a change proposed against a document with a save
+  // still on its way would be checked against something about to change.
+  const agent = useAgent();
+  useAgentRecord(
+    { type: "supplement", id: estimate.id, label: details.project_name },
+    autosave.state,
+  );
+  const flushRef = useRef(autosave.flush);
+  flushRef.current = autosave.flush;
+  const registerEditor = agent?.registerEditor;
+  useEffect(() => {
+    if (!registerEditor) return;
+    registerEditor({ supplementId: estimate.id, flush: () => flushRef.current() });
+    return () => registerEditor(null);
+  }, [registerEditor, estimate.id]);
+
+  // What it proposes for this supplement is staged here, and it is told so once shown.
+  const assistant = useStagedProposal(
+    "supplement.update_details",
+    "supplement.transition",
+    "supplement.submit",
+  );
+  const staged =
+    assistant.staged?.payload["supplement_id"] === estimate.id ? assistant.staged : null;
+  const stagedId = staged?.id;
+  const { confirm: confirmStaged, takeHandover, handover, commits, lastTarget } = assistant;
+  useEffect(() => {
+    if (stagedId) confirmStaged(stagedId);
+  }, [stagedId, confirmStaged]);
+  // After Stop there is nothing to hand over: these are confirmations, not forms. The
+  // staged dialog closes and nothing was written.
+  useEffect(() => {
+    if (handover) takeHandover();
+  }, [handover, takeHandover]);
+
+  // And when it has committed a change to this supplement, the saved values are taken
+  // in. Without this the editor would still hold the old ones, and the next keystroke
+  // would autosave the whole payload and silently undo what was just approved.
+  const reseedRef = useRef(reseed);
+  reseedRef.current = reseed;
+  const isDirtyRef = useRef(autosave.isDirty);
+  isDirtyRef.current = autosave.isDirty;
+  const seenCommits = useRef(commits);
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (commits === seenCommits.current) return;
+    seenCommits.current = commits;
+    if (lastTarget?.type !== "supplement" || lastTarget.id !== estimate.id) return;
+    let current = true;
+    void apiFetch<EstimateOut>(`/estimates/${estimate.id}`).then((fresh) => {
+      if (!current) return;
+      queryClient.setQueryData(queryKeys.estimates.detail(estimate.id), fresh);
+      if (!isDirtyRef.current()) reseedRef.current(fresh);
+    });
+    return () => {
+      current = false;
+    };
+  }, [commits, lastTarget, estimate.id, queryClient]);
+
   async function runTransition(action: TransitionAction) {
-    // Commit pending edits first: a transition replies with the whole estimate, and a
-    // debounce still in flight would be written on top of a stale server copy.
-    autosave.flush();
+    // Save pending edits first, and wait for it: a transition replies with the whole
+    // estimate, and a save still in flight would land on top of a stale server copy.
+    // If the save fails the status is left alone; the banner already says why.
     try {
-      await transition.mutateAsync(action);
+      await autosave.flush();
+    } catch {
+      toast.error("Could not save your changes, so the status was not changed.");
+      return;
+    }
+    try {
+      const updated = await transition.mutateAsync(action);
+      // Not if something was typed while the request was in flight: those edits are
+      // newer than the reply, and a transition changes the status, not the contents.
+      if (!autosave.isDirty()) reseed(updated);
       toast.success("Status updated.");
     } catch (caught) {
       toast.error(caught instanceof ApiError ? caught.message : "Could not change the status.");
@@ -184,7 +284,12 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-3">
+      {/* Named for the assistant, which tints it for a moment after saving a change to
+          this supplement. */}
+      <header
+        data-agent-record={`supplement:${estimate.id}`}
+        className="flex flex-col gap-3 rounded-card"
+      >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <Link to="/estimates" className="text-sm text-gray-500 hover:text-gray-800">
@@ -260,10 +365,13 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
             onGenerateReport={() => setShowReport(true)}
             {...(editable ? { onParseNotes: () => setShowParse(true) } : {})}
             onSubmitForReview={() => {
-              // Commit first: the reviewer must be emailed the estimate as it stands on
-              // screen, not the copy from before the last debounce.
-              autosave.flush();
-              setShowSubmit(true);
+              // Save first, and wait: the reviewer must be emailed the estimate as it
+              // stands on screen, not the copy from before the last debounce. If the
+              // save fails there is nothing to submit yet, and the banner says why.
+              void autosave.flush().then(
+                () => setShowSubmit(true),
+                () => toast.error("Could not save your changes, so nothing was sent."),
+              );
             }}
           />
 
@@ -282,7 +390,9 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
               Changes are not being saved.{" "}
               {autosave.error instanceof ApiError ? autosave.error.message : "The request failed."}
             </span>
-            <Button size="sm" onClick={autosave.flush}>
+            {/* A failed retry is already reported by this banner, so the rejection has
+                nowhere further to go. */}
+            <Button size="sm" onClick={() => void autosave.flush().catch(() => undefined)}>
               Retry now
             </Button>
           </div>
@@ -307,7 +417,12 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
       <TabList tabs={TABS} active={tab} onChange={setTab} label="Estimate sections" />
 
       <TabPanel id="items" active={tab}>
-        <div className="mt-4 grid gap-5 lg:grid-cols-[240px_1fr]">
+        {/* `minmax(0,1fr)`, not `1fr`. A bare `1fr` track cannot be narrower than its
+            widest content, and the line-items table is about 1030px at its narrowest, so
+            the track grew to fit it and pushed the page sideways instead of letting the
+            table scroll inside its own card. Beside a panel that meant the table ran
+            underneath the panel. */}
+        <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-5 app-lg:grid-cols-[240px_minmax(0,1fr)]">
           <RoomRail
             rooms={document.rooms}
             activeIndex={document.activeIndex}
@@ -395,6 +510,68 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
         onClose={() => setShowSubmit(false)}
       />
 
+      {/* What the assistant proposes for this supplement. Read-only, and approved or
+          rejected from its panel: nothing here is a button the user presses. */}
+      {staged?.kind === "supplement.submit" && (
+        <SubmitForReviewModal
+          key={staged.id}
+          open
+          staged
+          estimateId={estimate.id}
+          projectName={details.project_name}
+          total={totals.total}
+          onClose={() => {}}
+        />
+      )}
+      {staged?.kind === "supplement.transition" && (
+        <ConfirmDialog
+          key={staged.id}
+          open
+          staged
+          tone="primary"
+          title={`${staged.labels.action_label ?? "Change the status of"} this supplement?`}
+          confirmLabel={staged.labels.action_label ?? "Confirm"}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+        >
+          <p className="text-sm text-gray-700">{staged.summary}</p>
+        </ConfirmDialog>
+      )}
+      {staged?.kind === "supplement.update_details" && (
+        <Modal key={staged.id} open staged title="Change details" onClose={() => {}}>
+          {/* Each detail as it would become, with what it is now struck through above. */}
+          <table className="w-full text-left text-sm">
+            <thead className="sr-only">
+              <tr>
+                <th>Detail</th>
+                <th>Now, and what it would become</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(staged.labels.changes ?? []).map((change) => (
+                <tr key={change.field} className="align-top">
+                  <th scope="row" className="w-1/3 py-2 pr-3 font-medium text-gray-700">
+                    {change.label}
+                  </th>
+                  <td className="py-1 whitespace-pre-wrap">
+                    <StagedMark>
+                      <span className="block text-gray-500 line-through">
+                        <span className="sr-only">Now: </span>
+                        {change.old || "blank"}
+                      </span>
+                      <span className="block text-gray-900">
+                        <span className="sr-only">Would become: </span>
+                        {change.new || "blank"}
+                      </span>
+                    </StagedMark>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Modal>
+      )}
+
       <Modal
         open={showChanges}
         onClose={() => setShowChanges(false)}
@@ -407,6 +584,17 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
       </Modal>
     </div>
   );
+}
+
+/** The fields of an estimate that the details tab edits, in the order they are saved. */
+function detailsOf(estimate: EstimateOut): EstimateDetails {
+  return {
+    project_name: estimate.project_name,
+    client_name: estimate.client_name,
+    pm_name: estimate.pm_name,
+    insurance_carrier: estimate.insurance_carrier,
+    notes: estimate.notes,
+  };
 }
 
 /** Autosave's state in words. A silent editor is indistinguishable from a broken one. */

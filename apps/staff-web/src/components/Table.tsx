@@ -8,13 +8,19 @@
  * `<TableWrap>` is not optional decoration. A wide table on a phone must scroll inside
  * its own box; without it the whole page scrolls sideways and the topbar drifts off
  * screen.
+ *
+ * It is `relative` for the same reason. A screen-reader-only label inside a cell is
+ * absolutely positioned, and an absolutely positioned element is clipped only by a
+ * scroller that is also its containing block. Without `relative` here, a label in a
+ * column that has scrolled out of view still counted towards the width of the page, and
+ * the page scrolled sideways by exactly as far as the table overflowed.
  */
 import type { ReactNode, ThHTMLAttributes, TdHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
 
 export function TableWrap({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("overflow-x-auto rounded-card ring-1 ring-gray-200", className)}>
+    <div className={cn("relative overflow-x-auto rounded-card ring-1 ring-gray-200", className)}>
       {children}
     </div>
   );

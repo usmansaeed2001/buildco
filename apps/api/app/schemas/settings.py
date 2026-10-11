@@ -67,6 +67,10 @@ class TeamSettingsUpdate(Schema):
     #: unchanged"; clearing it is deliberately not offered, because an unset reviewer
     #: makes submission fail and there is no reason to want that state on purpose.
     default_reviewer_id: uuid.UUID | None = None
+    #: Minutes of live conversation with BuildCo Assistant each person gets per day.
+    #: **Zero switches the assistant off for the whole team**, conversations in progress
+    #: included, within a few seconds and without a deploy.
+    agent_daily_minutes: int | None = Field(default=None, ge=0, le=1440)
 
     @field_validator("custom_units", "custom_categories")
     @classmethod
@@ -121,5 +125,7 @@ class TeamSettingsOut(ORMSchema):
     #: Resolved rather than a bare id, so the settings screen and the submit modal can
     #: both name the reviewer without a second request.
     default_reviewer: ActorRef | None = None
+    #: The allowance in force: the team's own figure, or the default until one is set.
+    agent_daily_minutes: int = 0
     updated_at: datetime
     updated_by: uuid.UUID | None = None

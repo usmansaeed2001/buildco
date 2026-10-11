@@ -109,7 +109,7 @@ export function NewProjectModal({ open, onClose }: { open: boolean; onClose: () 
       <div className="flex flex-col gap-4">
         {failure && <Alert tone="danger">{failure}</Alert>}
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 app-sm:grid-cols-2">
           <TextField
             label="Home owner"
             value={ownerName}

@@ -200,7 +200,7 @@ function Detail({
         />
       </Card>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-5 app-lg:grid-cols-[1fr_360px]">
         <div className="flex flex-col gap-5">
           <ProjectDetailsCard project={project} readOnly={!editable} />
 
@@ -292,7 +292,7 @@ function ProjectDetailsCard({
     <Card className="flex flex-col gap-4 p-5">
       <h2 className="text-xs font-medium tracking-wide text-gray-500 uppercase">Details</h2>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 app-sm:grid-cols-2">
         <TextField
           label="Home owner"
           defaultValue={project.owner_name}

@@ -16,6 +16,8 @@ import { Button } from "@/components/Button";
 import { Modal } from "@/components/Modal";
 import { Alert } from "@/components/feedback";
 import { TextField } from "@/components/form";
+import { StagedMark } from "@/components/staged";
+import { cn } from "@/lib/cn";
 
 export interface NewEstimateValues {
   project_name: string;
@@ -26,17 +28,34 @@ export interface NewEstimateValues {
 export function NewEstimateModal({
   open,
   busy,
+  initial,
+  staged = false,
+  also = [],
   onClose,
   onCreate,
 }: {
   open: boolean;
   busy: boolean;
+  /**
+   * Values to open the form with. Read once, when the form mounts: give the form a
+   * `key` to seed it again. Used to show what the assistant proposes, and to hand that
+   * proposal over as an ordinary editable form.
+   */
+  initial?: Partial<NewEstimateValues>;
+  /** Shown by the assistant as what it proposes: read-only, see `Modal`. */
+  staged?: boolean;
+  /**
+   * Values that will be saved with the supplement and that this form has no field for.
+   * The assistant can propose a project manager, a carrier and notes; they are listed
+   * so that what is on screen is everything that will be written.
+   */
+  also?: { label: string; value: string }[];
   onClose: () => void;
   onCreate: (values: NewEstimateValues) => Promise<void>;
 }) {
-  const [projectName, setProjectName] = useState("");
-  const [clientName, setClientName] = useState("");
-  const [identifier, setIdentifier] = useState("");
+  const [projectName, setProjectName] = useState(initial?.project_name ?? "");
+  const [clientName, setClientName] = useState(initial?.client_name ?? "");
+  const [identifier, setIdentifier] = useState(initial?.identifier ?? "");
   const [failure, setFailure] = useState<string | null>(null);
 
   function close() {
@@ -72,6 +91,7 @@ export function NewEstimateModal({
     <Modal
       open={open}
       onClose={close}
+      staged={staged}
       title="New estimate"
       description="Give it a name now so you can find it later."
       footer={
@@ -98,6 +118,28 @@ export function NewEstimateModal({
         }}
       >
         {failure && <Alert tone="danger">{failure}</Alert>}
+
+        {also.length > 0 && (
+          // Marked like the fields on a staged form: these are saved with the rest.
+          <StagedMark>
+            <dl
+              aria-label="Also set"
+              className={cn(
+                "grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm",
+                !staged && "rounded-card bg-gray-50 p-3",
+              )}
+            >
+              {also.map((row) => (
+                <div key={row.label} className="contents">
+                  <dt className="font-medium text-gray-700">{row.label}</dt>
+                  <dd className={cn("whitespace-pre-wrap", staged ? "text-gray-900" : "text-gray-600")}>
+                    {row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </StagedMark>
+        )}
 
         <TextField
           label="Project name"

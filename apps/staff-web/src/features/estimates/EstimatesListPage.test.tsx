@@ -646,6 +646,36 @@ describe("EstimatesListPage", () => {
       expect(screen.getByRole("menuitem", { name: "Delete" })).toBeVisible();
     });
 
+    it.each(["locked", "submitted", "changes_requested"] as const)(
+      "does not offer archiving on a %s estimate, even to an owner",
+      async (status) => {
+        // The API answers 409 from these statuses. Offering it on a locked estimate was
+        // also a way round the lock: archive it, then unarchive it back to active.
+        serveEstimates([estimate("a", { status })]);
+        const { user } = renderList();
+        await screen.findByText("Estimate a");
+
+        await openMenu(user);
+
+        expect(screen.queryByRole("menuitem", { name: "Archive" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("menuitem", { name: "Unarchive" })).not.toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: "Delete" })).toBeVisible();
+      },
+    );
+
+    it.each(["active", "rejected", "approved"] as const)(
+      "offers archiving on a %s estimate",
+      async (status) => {
+        serveEstimates([estimate("a", { status })]);
+        const { user } = renderList();
+        await screen.findByText("Estimate a");
+
+        await openMenu(user);
+
+        expect(screen.getByRole("menuitem", { name: "Archive" })).toBeVisible();
+      },
+    );
+
     it("confirms before moving an estimate to the trash", async () => {
       serveEstimates([estimate("a")]);
       const deleted: string[] = [];

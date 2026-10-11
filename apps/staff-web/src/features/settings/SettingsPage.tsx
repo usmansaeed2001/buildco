@@ -98,7 +98,83 @@ export function SettingsPage() {
         canEdit={elevated}
       />
       <Notifications settings={settings.data} canEdit={elevated} />
+      <AssistantAllowance settings={settings.data} canEdit={elevated} />
     </div>
+  );
+}
+
+/**
+ * How many minutes of live conversation with BuildCo Assistant each person gets a day.
+ *
+ * One figure for the whole team, owners and admins included. **Zero is the off switch**:
+ * new conversations are refused and ones in progress end within a few seconds, with no
+ * deploy. That is why zero is allowed here and said so beside the field.
+ */
+function AssistantAllowance({
+  settings,
+  canEdit,
+}: {
+  settings: TeamSettingsOut;
+  canEdit: boolean;
+}) {
+  const toast = useToast();
+  const update = useUpdateTeamSettings();
+  const saved = settings.agent_daily_minutes;
+  const [minutes, setMinutes] = useState(String(saved));
+
+  const wanted = Number(minutes);
+  const valid = minutes.trim() !== "" && Number.isInteger(wanted) && wanted >= 0 && wanted <= 1440;
+
+  async function save() {
+    try {
+      await update.mutateAsync({ agent_daily_minutes: wanted });
+      toast.success(
+        wanted === 0
+          ? "BuildCo Assistant is switched off for the team."
+          : "Daily allowance saved.",
+      );
+    } catch (caught) {
+      toast.error(caught instanceof ApiError ? caught.message : "That setting could not be saved.");
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-3 p-5">
+      <div>
+        <h2 className="text-xs font-medium tracking-wide text-gray-500 uppercase">
+          BuildCo Assistant
+        </h2>
+        <p className="mt-1 text-sm text-gray-600">
+          Each person can talk to the assistant for this many minutes a day. It starts again
+          at midnight UTC. Set it to 0 to switch the assistant off for everyone, including
+          conversations in progress.
+        </p>
+      </div>
+      <div className="flex items-end gap-3">
+        <TextField
+          label="Minutes per person per day"
+          type="number"
+          min={0}
+          max={1440}
+          step={1}
+          inputMode="numeric"
+          value={minutes}
+          disabled={!canEdit}
+          onChange={(event) => setMinutes(event.target.value)}
+          {...(valid ? {} : { error: "A whole number from 0 to 1440." })}
+        />
+        {canEdit && (
+          <Button
+            variant="primary"
+            busy={update.isPending}
+            disabled={!valid || wanted === saved}
+            onClick={() => void save()}
+          >
+            Save
+          </Button>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -261,7 +337,7 @@ function RateList({ items, canEdit }: { items: CatalogueItemOut[]; canEdit: bool
       )}
 
       {canEdit && (
-        <div className="grid gap-3 border-t border-gray-100 pt-4 sm:grid-cols-[2fr_1fr_1fr_1fr_auto] sm:items-end">
+        <div className="grid gap-3 border-t border-gray-100 pt-4 app-sm:grid-cols-[2fr_1fr_1fr_1fr_auto] app-sm:items-end">
           <TextField
             label="Item"
             value={name}
