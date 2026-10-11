@@ -9,6 +9,24 @@
  */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/* Breakpoints for everything inside the signed-in shell measure **the app column, not
+ * the window**. A side panel can dock beside the app and take 400px of the window; a
+ * viewport breakpoint cannot see that, so at a 1024px window it would lay a desktop
+ * grid into a 624px column. These ask the column (`@container/app`, set by `AppFrame`)
+ * how wide it actually is, so a squeezed app shows the narrower layout it already has.
+ *
+ * The widths are Tailwind's own `sm`/`md`/`lg`/`xl`, so with no panel open a screen
+ * lays out exactly as it did, give or take the width of a scrollbar: a media query
+ * counts the scrollbar and a container does not.
+ *
+ * Use `app-sm:` and friends for anything rendered inside `AppShell`. Plain `sm:` is
+ * still right for the screens outside it: sign-in, and the reviewer's page.
+ */
+@custom-variant app-sm (@container app (width >= 40rem));
+@custom-variant app-md (@container app (width >= 48rem));
+@custom-variant app-lg (@container app (width >= 64rem));
+@custom-variant app-xl (@container app (width >= 80rem));
+
 /* The design system, in one place.
  *
  * The legacy app had no shared stylesheet: every HTML file restyled from scratch and

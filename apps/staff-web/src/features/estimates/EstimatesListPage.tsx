@@ -188,7 +188,7 @@ export function EstimatesListPage() {
           </p>
         </div>
 
-        <div className="flex flex-col gap-3 bg-gray-50/60 px-4 py-3 lg:flex-row lg:items-center">
+        <div className="flex flex-col gap-3 bg-gray-50/60 px-4 py-3 app-lg:flex-row app-lg:items-center">
           <div className="relative flex-1">
             <SearchIcon />
             <Input
@@ -201,10 +201,10 @@ export function EstimatesListPage() {
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 lg:gap-3">
+          <div className="flex flex-wrap items-center gap-2 app-lg:gap-3">
             {/* Labelled, because two bare date inputs beside a dropdown say nothing about
                 what they filter. */}
-            <div className="flex items-center gap-2 lg:border-l lg:border-gray-200 lg:pl-3">
+            <div className="flex items-center gap-2 app-lg:border-l app-lg:border-gray-200 app-lg:pl-3">
               <span className="text-xs font-medium text-gray-500">Created</span>
               <div className="w-36">
                 <Input
@@ -227,7 +227,7 @@ export function EstimatesListPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 lg:border-l lg:border-gray-200 lg:pl-3">
+            <div className="flex items-center gap-2 app-lg:border-l app-lg:border-gray-200 app-lg:pl-3">
               <span className="text-xs font-medium text-gray-500">Sort</span>
               {/* Width on the wrapper, not the control. `cn` is a plain join, so a
                   `w-auto` passed to Select would sit alongside its own `w-full` and lose
@@ -276,7 +276,7 @@ export function EstimatesListPage() {
         />
       ) : (
         <>
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid gap-4 app-sm:grid-cols-2 app-lg:grid-cols-3">
             {visible.map((estimate) => (
               <li key={estimate.id}>
                 <EstimateCard estimate={estimate} />

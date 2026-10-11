@@ -15,11 +15,17 @@
  *
  * **Below `md` the nav collapses into a drawer.** It used to scroll sideways instead,
  * which meant a phone showed the first two links and no indication the others existed.
+ *
+ * **Breakpoints here and on every page inside are the app column's, not the window's**
+ * (`app-sm:`, `app-md:` and so on). The shell sits in `AppFrame`, which can dock a panel
+ * beside it, and the app has to lay itself out for the width it is actually given.
  */
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, useIsElevated } from "@/auth/useAuth";
+import { AppFrame } from "./AppFrame";
 import { RoleBadge } from "./Badge";
+import { DevPanelStandIn } from "./DevPanelStandIn";
 import { Menu } from "./Menu";
 import { ThemeToggle } from "./ThemeToggle";
 import { BrandMark } from "@/features/auth/AuthLayout";
@@ -59,16 +65,40 @@ export function AppShell() {
         : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
     );
 
+  // Development only, and gone once the assistant's panel exists. It is here so the
+  // squeeze and the column-scoped dialogs can be looked at before there is anything
+  // real to put beside the app. Never in a production bundle, and not in tests, which
+  // render `AppFrame` with a panel of their own.
+  const standInAvailable = import.meta.env.DEV && import.meta.env.MODE !== "test";
+  const [standIn, setStandIn] = useState(false);
+
   return (
-    <div className="flex min-h-dvh flex-col">
+    <AppFrame
+      panel={
+        standInAvailable && standIn ? (
+          <DevPanelStandIn onClose={() => setStandIn(false)} />
+        ) : undefined
+      }
+      launcher={
+        standInAvailable && !standIn ? (
+          <button
+            type="button"
+            onClick={() => setStandIn(true)}
+            className="fixed bottom-4 left-4 z-40 rounded-full bg-gray-900 px-3 py-2 text-xs font-medium text-surface shadow-lg"
+          >
+            Dev: open panel stand-in
+          </button>
+        ) : undefined
+      }
+    >
       <header className="sticky top-0 z-30 border-b border-gray-200 bg-surface">
-        <div className="mx-auto flex h-13 max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
+        <div className="mx-auto flex h-13 max-w-[1600px] items-center gap-3 px-4 app-sm:gap-6 app-sm:px-6">
           <button
             type="button"
             aria-label="Menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
-            className="-ml-1 rounded-md p-1.5 text-gray-600 hover:bg-gray-100 md:hidden"
+            className="-ml-1 rounded-md p-1.5 text-gray-600 hover:bg-gray-100 app-md:hidden"
           >
             <MenuIcon open={menuOpen} />
           </button>
@@ -77,7 +107,7 @@ export function AppShell() {
             <BrandMark />
           </Link>
 
-          <nav className="hidden flex-1 items-center gap-1 md:flex" aria-label="Main">
+          <nav className="hidden flex-1 items-center gap-1 app-md:flex" aria-label="Main">
             {items.map((item) => (
               <NavLink key={item.to} to={item.to} className={link}>
                 {item.label}
@@ -87,7 +117,7 @@ export function AppShell() {
 
           {/* Pushes the account menu right on narrow screens, where the nav that used to
               do it is hidden. */}
-          <div className="flex-1 md:hidden" />
+          <div className="flex-1 app-md:hidden" />
 
           <ThemeToggle className="-mr-1" />
           <AccountMenu />
@@ -95,7 +125,7 @@ export function AppShell() {
 
         {menuOpen && (
           <nav
-            className="flex flex-col gap-1 border-t border-gray-200 px-3 py-2 md:hidden"
+            className="flex flex-col gap-1 border-t border-gray-200 px-3 py-2 app-md:hidden"
             aria-label="Main"
           >
             {items.map((item) => (
@@ -107,10 +137,10 @@ export function AppShell() {
         )}
       </header>
 
-      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6">
+      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 app-sm:px-6">
         <Outlet />
       </main>
-    </div>
+    </AppFrame>
   );
 }
 
@@ -141,7 +171,7 @@ function AccountMenu() {
       trigger={
         <>
           <Avatar url={profile.avatar_url} name={displayName} />
-          <span className="hidden text-sm font-medium text-gray-700 sm:inline">{displayName}</span>
+          <span className="hidden text-sm font-medium text-gray-700 app-sm:inline">{displayName}</span>
         </>
       }
     >

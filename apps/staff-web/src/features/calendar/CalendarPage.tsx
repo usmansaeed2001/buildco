@@ -378,7 +378,7 @@ function YearView({
   onOpenDay: (day: Date) => void;
 }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid gap-4 app-sm:grid-cols-2 app-lg:grid-cols-3 app-xl:grid-cols-4">
       {yearGrid(anchor).map(({ month, weeks }) => (
         <div key={month.getMonth()} className="rounded-md bg-surface p-3 ring-1 ring-gray-200">
           <h3 className="mb-2 text-sm font-semibold text-gray-900">{MONTH_NAME.format(month)}</h3>

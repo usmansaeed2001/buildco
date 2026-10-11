@@ -34,12 +34,15 @@ export function SubmitForReviewModal({
   estimateId,
   projectName,
   total,
+  staged = false,
   onClose,
 }: {
   open: boolean;
   estimateId: string;
   projectName: string;
   total: Decimal;
+  /** Shown by the assistant as what it proposes: read-only, see `Modal`. */
+  staged?: boolean;
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -76,6 +79,7 @@ export function SubmitForReviewModal({
     <Modal
       open={open}
       onClose={close}
+      staged={staged}
       title="Send for approval"
       description="The reviewer gets a link to a page where they can approve, reject, or request changes."
       footer={

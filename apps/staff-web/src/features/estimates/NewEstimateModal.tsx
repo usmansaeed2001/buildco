@@ -26,17 +26,27 @@ export interface NewEstimateValues {
 export function NewEstimateModal({
   open,
   busy,
+  initial,
+  staged = false,
   onClose,
   onCreate,
 }: {
   open: boolean;
   busy: boolean;
+  /**
+   * Values to open the form with. Read once, when the form mounts: give the form a
+   * `key` to seed it again. Used to show what the assistant proposes, and to hand that
+   * proposal over as an ordinary editable form.
+   */
+  initial?: Partial<NewEstimateValues>;
+  /** Shown by the assistant as what it proposes: read-only, see `Modal`. */
+  staged?: boolean;
   onClose: () => void;
   onCreate: (values: NewEstimateValues) => Promise<void>;
 }) {
-  const [projectName, setProjectName] = useState("");
-  const [clientName, setClientName] = useState("");
-  const [identifier, setIdentifier] = useState("");
+  const [projectName, setProjectName] = useState(initial?.project_name ?? "");
+  const [clientName, setClientName] = useState(initial?.client_name ?? "");
+  const [identifier, setIdentifier] = useState(initial?.identifier ?? "");
   const [failure, setFailure] = useState<string | null>(null);
 
   function close() {
@@ -72,6 +82,7 @@ export function NewEstimateModal({
     <Modal
       open={open}
       onClose={close}
+      staged={staged}
       title="New estimate"
       description="Give it a name now so you can find it later."
       footer={

@@ -130,7 +130,7 @@ function Profile({ me }: { me: UserOut }) {
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 app-sm:grid-cols-2">
           <TextField
             label="Full name"
             value={fullName}

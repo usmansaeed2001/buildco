@@ -9,6 +9,8 @@
  *
  * Seeding happens on the estimate's id rather than on every change to the query data.
  * Re-seeding from a background refetch would discard whatever the user had typed since.
+ *
+ * The one exception is a write this editor did not make: see `reseed`.
  */
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -96,13 +98,7 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
   };
   const editable = canEdit(actor, snapshot) && !snapshot.isTrashed;
 
-  const [details, setDetails] = useState<EstimateDetails>(() => ({
-    project_name: estimate.project_name,
-    client_name: estimate.client_name,
-    pm_name: estimate.pm_name,
-    insurance_carrier: estimate.insurance_carrier,
-    notes: estimate.notes,
-  }));
+  const [details, setDetails] = useState<EstimateDetails>(() => detailsOf(estimate));
   const document = useEstimateDocument(useMemo(() => readRooms(estimate.rooms), [estimate.rooms]));
 
   // Fetched once for the whole estimate rather than per row: the list is small, and a
@@ -149,12 +145,45 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
 
   const totals = computeTotals(document.rooms);
 
+  /**
+   * Take a fresh copy from the server into the editor's own state.
+   *
+   * The editor seeds its details and rooms once, when it opens, and from then on the
+   * screen is the source and the server follows it. That is right while the only writer
+   * is this editor. When something else has written the estimate, the local copy is the
+   * stale one, and the next keystroke would autosave the whole payload and put the old
+   * values back. So a write made elsewhere is followed by this: both halves of the
+   * document are replaced, the undo history with them, and the result is marked as
+   * already saved so that taking it in does not itself trigger a save.
+   */
+  function reseed(fresh: EstimateOut) {
+    const nextDetails = detailsOf(fresh);
+    const nextRooms = readRooms(fresh.rooms);
+    setDetails(nextDetails);
+    // `reset` goes back to the first room. Stay on the one being looked at; if it no
+    // longer exists the document clamps the selection itself.
+    const viewing = document.activeIndex;
+    document.reset(nextRooms);
+    if (viewing !== null) document.selectRoom(viewing);
+    // Same shape and key order as `payload` below, since this is compared as text.
+    autosave.markSaved({ ...nextDetails, rooms: nextRooms });
+  }
+
   async function runTransition(action: TransitionAction) {
-    // Commit pending edits first: a transition replies with the whole estimate, and a
-    // debounce still in flight would be written on top of a stale server copy.
-    autosave.flush();
+    // Save pending edits first, and wait for it: a transition replies with the whole
+    // estimate, and a save still in flight would land on top of a stale server copy.
+    // If the save fails the status is left alone; the banner already says why.
     try {
-      await transition.mutateAsync(action);
+      await autosave.flush();
+    } catch {
+      toast.error("Could not save your changes, so the status was not changed.");
+      return;
+    }
+    try {
+      const updated = await transition.mutateAsync(action);
+      // Not if something was typed while the request was in flight: those edits are
+      // newer than the reply, and a transition changes the status, not the contents.
+      if (!autosave.isDirty()) reseed(updated);
       toast.success("Status updated.");
     } catch (caught) {
       toast.error(caught instanceof ApiError ? caught.message : "Could not change the status.");
@@ -260,10 +289,13 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
             onGenerateReport={() => setShowReport(true)}
             {...(editable ? { onParseNotes: () => setShowParse(true) } : {})}
             onSubmitForReview={() => {
-              // Commit first: the reviewer must be emailed the estimate as it stands on
-              // screen, not the copy from before the last debounce.
-              autosave.flush();
-              setShowSubmit(true);
+              // Save first, and wait: the reviewer must be emailed the estimate as it
+              // stands on screen, not the copy from before the last debounce. If the
+              // save fails there is nothing to submit yet, and the banner says why.
+              void autosave.flush().then(
+                () => setShowSubmit(true),
+                () => toast.error("Could not save your changes, so nothing was sent."),
+              );
             }}
           />
 
@@ -282,7 +314,9 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
               Changes are not being saved.{" "}
               {autosave.error instanceof ApiError ? autosave.error.message : "The request failed."}
             </span>
-            <Button size="sm" onClick={autosave.flush}>
+            {/* A failed retry is already reported by this banner, so the rejection has
+                nowhere further to go. */}
+            <Button size="sm" onClick={() => void autosave.flush().catch(() => undefined)}>
               Retry now
             </Button>
           </div>
@@ -307,7 +341,12 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
       <TabList tabs={TABS} active={tab} onChange={setTab} label="Estimate sections" />
 
       <TabPanel id="items" active={tab}>
-        <div className="mt-4 grid gap-5 lg:grid-cols-[240px_1fr]">
+        {/* `minmax(0,1fr)`, not `1fr`. A bare `1fr` track cannot be narrower than its
+            widest content, and the line-items table is about 1030px at its narrowest, so
+            the track grew to fit it and pushed the page sideways instead of letting the
+            table scroll inside its own card. Beside a panel that meant the table ran
+            underneath the panel. */}
+        <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-5 app-lg:grid-cols-[240px_minmax(0,1fr)]">
           <RoomRail
             rooms={document.rooms}
             activeIndex={document.activeIndex}
@@ -407,6 +446,17 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
       </Modal>
     </div>
   );
+}
+
+/** The fields of an estimate that the details tab edits, in the order they are saved. */
+function detailsOf(estimate: EstimateOut): EstimateDetails {
+  return {
+    project_name: estimate.project_name,
+    client_name: estimate.client_name,
+    pm_name: estimate.pm_name,
+    insurance_carrier: estimate.insurance_carrier,
+    notes: estimate.notes,
+  };
 }
 
 /** Autosave's state in words. A silent editor is indistinguishable from a broken one. */

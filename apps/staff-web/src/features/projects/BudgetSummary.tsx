@@ -116,7 +116,7 @@ export function BudgetSummary({
         <Line label="Total revenue" value={formatMoney(revenue)} strong />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 app-sm:grid-cols-2">
         {EDITABLE.map(({ field, label }) => (
           <Field key={field} label={label}>
             {(props) => (

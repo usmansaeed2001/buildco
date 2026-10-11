@@ -166,6 +166,30 @@ its value.
 **Update payloads are built field by field.** Request schemas set `extra="forbid"`, so
 spreading a fetched object into a `PATCH` sends `id` and `created_at` and earns a 422.
 
+**Breakpoints inside the signed-in shell are `app-sm:`, not `sm:`.** The shell sits in
+`components/AppFrame`, which can dock a panel beside the app, and a viewport breakpoint
+cannot see that the app has been given less room. `app-sm:`, `app-md:`, `app-lg:` and
+`app-xl:` (declared in `styles/index.css`) measure the app column instead, at the same
+widths as their viewport namesakes. Plain `sm:` is still right outside the shell: the
+sign-in screens and the reviewer's page. `components/appBreakpoints.test.ts` fails if a
+viewport variant appears inside the shell, because nothing else would: jsdom lays
+nothing out, so the mistake is invisible until someone opens the panel.
+
+**A grid track that holds a table is `minmax(0,1fr)`, not `1fr`.** A bare `1fr` cannot
+be narrower than its widest content, so a wide table stretches the track and the page
+scrolls sideways, instead of the table scrolling inside `TableWrap`.
+
+**`Modal` has two forms.** Normally it is the native `<dialog>`. While a panel is docked
+it renders into the app column instead, because `showModal()` would make the panel
+unusable. A dialog must therefore not assume it is in the top layer, and anything fixed
+to the window belongs outside the app column (`AppFrame`'s `launcher`), since a fixed
+element inside a container is positioned against the container.
+
+**The editor does not follow the query cache, so a write it did not make has to be
+handed to it.** It seeds its details and rooms once and autosaves the whole payload.
+`reseed` in `EstimateEditorPage` is how a server copy written by something else gets in;
+without it the next keystroke puts the old values back.
+
 ---
 
 ## The estimates list sorts server-side, and so does everything else on it

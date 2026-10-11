@@ -72,23 +72,113 @@ describe("useAutosave", () => {
     await act(async () => void vi.advanceTimersByTime(10));
     await waitFor(() => expect(result.current.state).toBe("error"));
 
-    act(() => result.current.flush());
+    await act(async () => {
+      await result.current.flush();
+    });
     await waitFor(() => expect(result.current.state).toBe("saved"));
     expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it("flush resolves only once the save has finished", async () => {
+    let finish: () => void = () => {};
+    const save = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    const { rerender, result } = renderHook(
+      ({ value }) => useAutosave({ value, save, delay: 1200 }),
+      { initialProps: { value: { a: 1 } } },
+    );
+    rerender({ value: { a: 2 } });
+
+    let settled = false;
+    let flushing: Promise<void> = Promise.resolve();
+    await act(async () => {
+      flushing = result.current.flush().then(() => void (settled = true));
+    });
+    // The request has gone out and not come back. Returning here is the old behaviour,
+    // which is what made "save, then change the status" a race.
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+
+    await act(async () => {
+      finish();
+      await flushing;
+    });
+    expect(settled).toBe(true);
+    expect(result.current.state).toBe("saved");
+  });
+
+  it("flush rejects when the save fails, with the save's own error", async () => {
+    const save = vi.fn().mockRejectedValue(new Error("locked"));
+    const { rerender, result } = renderHook(
+      ({ value }) => useAutosave({ value, save, delay: 1200 }),
+      { initialProps: { value: { a: 1 } } },
+    );
+    rerender({ value: { a: 2 } });
+
+    let failure: unknown = null;
+    await act(async () => {
+      failure = await result.current.flush().catch((caught: unknown) => caught);
+    });
+
+    expect((failure as Error).message).toBe("locked");
+    expect(result.current.state).toBe("error");
+  });
+
+  it("flush waits for a save that is already in flight", async () => {
+    let finish: () => void = () => {};
+    const save = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    const { rerender, result } = renderHook(
+      ({ value }) => useAutosave({ value, save, delay: 10 }),
+      { initialProps: { value: { a: 1 } } },
+    );
+    rerender({ value: { a: 2 } });
+    await act(async () => void vi.advanceTimersByTime(10));
+    expect(save).toHaveBeenCalledTimes(1);
+
+    let settled = false;
+    let flushing: Promise<void> = Promise.resolve();
+    await act(async () => {
+      flushing = result.current.flush().then(() => void (settled = true));
+    });
+    // Nothing new to write, but the debounced write has not landed yet.
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+
+    await act(async () => {
+      finish();
+      await flushing;
+    });
+    expect(settled).toBe(true);
+  });
+
+  it("reports whether there is anything unsaved", async () => {
+    const { rerender, result } = setup();
+    expect(result.current.isDirty()).toBe(false);
+
+    rerender({ value: { a: 2 } });
+    expect(result.current.isDirty()).toBe(true);
+
+    await act(async () => {
+      await result.current.flush();
+    });
+    expect(result.current.isDirty()).toBe(false);
   });
 
   it("flush commits immediately without waiting out the debounce", async () => {
     const { save, rerender, result } = setup();
 
     rerender({ value: { a: 2 } });
-    await act(async () => result.current.flush());
+    await act(async () => {
+      await result.current.flush();
+    });
 
     expect(save).toHaveBeenCalledWith({ a: 2 });
   });
 
   it("flush is a no-op when nothing has changed", async () => {
     const { save, result } = setup();
-    await act(async () => result.current.flush());
+    await act(async () => {
+      await result.current.flush();
+    });
     expect(save).not.toHaveBeenCalled();
   });
 
@@ -132,5 +222,18 @@ describe("useAutosave", () => {
 
     expect(save).not.toHaveBeenCalled();
     expect(result.current.state).toBe("saved");
+  });
+
+  it("markSaved takes the value being seeded, before the hook has rendered with it", async () => {
+    // A re-seed sets state and marks it saved in one go. At that moment the hook has
+    // not yet been handed the new value, so "the current value" would be the old one.
+    const { save, rerender, result } = setup();
+
+    act(() => result.current.markSaved({ a: 99 }));
+    rerender({ value: { a: 99 } });
+    await act(async () => void vi.advanceTimersByTime(5000));
+
+    expect(save).not.toHaveBeenCalled();
+    expect(result.current.isDirty()).toBe(false);
   });
 });

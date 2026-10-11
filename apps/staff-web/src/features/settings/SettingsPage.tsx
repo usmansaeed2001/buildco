@@ -261,7 +261,7 @@ function RateList({ items, canEdit }: { items: CatalogueItemOut[]; canEdit: bool
       )}
 
       {canEdit && (
-        <div className="grid gap-3 border-t border-gray-100 pt-4 sm:grid-cols-[2fr_1fr_1fr_1fr_auto] sm:items-end">
+        <div className="grid gap-3 border-t border-gray-100 pt-4 app-sm:grid-cols-[2fr_1fr_1fr_1fr_auto] app-sm:items-end">
           <TextField
             label="Item"
             value={name}
