@@ -55,7 +55,11 @@ def _bucket_name(kind: BucketKind) -> str:
 def _client() -> Any:
     """Import lazily so the app starts without google-cloud credentials present."""
     try:
-        from google.cloud import storage
+        # The ignore is for mypy alone. ``google`` is a namespace shared by several
+        # distributions; once one of them ships type information (google-genai does),
+        # mypy resolves ``google.cloud`` for real and no longer waves this through as a
+        # missing import. google-cloud-storage itself is untyped.
+        from google.cloud import storage  # type: ignore[attr-defined]
     except ImportError as exc:  # pragma: no cover - dependency is declared
         raise IntegrationUnavailable("google-cloud-storage is not installed.") from exc
     return storage.Client()

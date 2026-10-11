@@ -52,6 +52,11 @@ export const handlers = [
   http.get(url("/estimates/:id"), () => HttpResponse.json(makeEstimate())),
   http.get(url("/projects"), () => HttpResponse.json(makeProjectPage([]))),
   http.get(url("/meetings"), () => HttpResponse.json([])),
+  // The shell asks this on every page. Off by default, as it is in an environment with
+  // nothing configured, so the assistant is absent unless a test asks for it.
+  http.get(url("/agent/status"), () =>
+    HttpResponse.json({ enabled: false, max_session_seconds: 1800 }),
+  ),
   http.get(url("/catalogue-items"), () => HttpResponse.json([])),
   http.get(url("/settings"), () => HttpResponse.json(makeSettings())),
   http.get(url("/approval-requests"), () => HttpResponse.json([])),

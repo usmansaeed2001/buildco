@@ -81,6 +81,7 @@ app/
                      reviews, ai, settings
   services/
     actions.py       the writes with more than one caller: checks, lock, follow-up work
+  agent/             BuildCo Assistant's live voice conversation (see "BuildCo Assistant")
     rules/           project_rules, estimate_rules, user_rules, estimate_totals
     integrations/    email, slack, storage, calendar, groq, firebase
     templates/email/ Jinja2 templates, one base + per-notification
@@ -230,6 +231,17 @@ The three switchable notifications are `estimate_locked`, `member_joined` and
 `member_removed`. An unknown key is a 422 rather than a stored no-op. Access attempts by
 removed users are deliberately not switchable — a security signal, not a routine update.
 
+### BuildCo Assistant
+
+| Method | Path | Role | Notes |
+|---|---|---|---|
+| GET | `/agent/status` | any | `{enabled, max_session_seconds}`. `enabled` is false when the assistant is off, and for anyone outside the pilot list |
+| POST | `/agent/sessions` | any | Starts a conversation; returns a single-use `ticket` and the `ws_url` to open. 503 when off, 403 outside the pilot list. Ends any other conversation the caller has |
+| GET | `/agent/conversations/{id}` | owner of it | Transcript and actions. 404 for anyone else's, owners and admins included |
+| WS | `/agent/live?ticket=` | ticket | The voice stream. Mounted only when `AGENT_SERVE_LIVE` is set |
+
+See "BuildCo Assistant" below for how the pieces fit.
+
 ### AI
 
 | Method | Path | Notes |
@@ -313,6 +325,16 @@ strictly necessary is free and is the recommended default.
 Local development reads `.env`. Cloud Run receives the same names as environment
 variables injected from Secret Manager.
 
+**The tests do not use your `.env` for anything that leaves the machine.**
+`tests/conftest.py` sets every integration below to empty before the settings load,
+refuses to start if one is still configured, and makes any real HTTP request raise.
+It was not always so: the suite once posted every test submission to the real Slack
+channel, because a production webhook was in a local `.env` and removing a variable
+from the environment does not stop pydantic-settings reading the file. Even so, keep
+production secrets out of a local `.env`: the dev server uses whatever is there. A new
+integration setting goes in `OUTBOUND_SETTINGS` in that file, and
+`tests/unit/test_isolation.py` fails until it does.
+
 | Variable | Secret Manager name | Effect when unset |
 |---|---|---|
 | `DATABASE_URL` | `database-url` | Falls back to localhost; the API cannot serve data |
@@ -324,11 +346,24 @@ variables injected from Secret Manager.
 | `SLACK_WEBHOOK_URL` | `slack-webhook` | Slack posts are skipped |
 | `OPEN_AI_API_KEY` | `openai-key` | Falls back to Groq; `/ai/parse-estimate` returns 503 if that is unset too. Note the spelling — **not** `OPENAI_API_KEY` |
 | `GROQ_API_KEY` | `groq-key` | Fallback only, for one release. Remove once OpenAI is configured everywhere |
-| `CORS_ORIGINS` | — | Only localhost may call from a browser |
+| `CORS_ORIGINS` | — | Only localhost may call from a browser. Also the origins a voice WebSocket is accepted from |
+| `AGENT_ENABLED` | — | The assistant reports itself disabled; nothing else changes |
+| `AGENT_AUDIENCE` / `AGENT_PILOT_EMAILS` | — | Audience is `pilot` and the list is empty, so **nobody** gets the assistant |
+| `AGENT_SERVE_LIVE` | — | This process does not mount the voice WebSocket or load ADK |
+| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | — | Project comes from the credentials if they name one; location is `us-central1` |
+| `AGENT_MODEL` / `AGENT_VOICE` | — | `gemini-3.8-live`, `Kore` |
+| `AGENT_WS_BASE_URL` | — | `ws://localhost:8000`. In production, the `buildco-agent` service's `wss://` origin |
 
 Every integration credential is optional by design: the service boots and serves with
 nothing provisioned, which is what makes local development and CI possible without a
 GCP project.
+
+A process started with `AGENT_SERVE_LIVE=true` is the exception to "optional by design".
+In staging and production it **refuses to start** without `RESEND_API_KEY`, a `SITE_URL`
+that is not localhost, and a `NOTIFY_FROM_EMAIL` that is not the Resend sandbox sender.
+It is the process that sends the invites and reviewer emails for what the assistant
+commits, and a missing key there would otherwise mean a user is told a meeting was
+created that nobody was invited to.
 
 ### Connection budget
 
@@ -355,6 +390,56 @@ Every non-2xx response, ours and FastAPI's alike, uses one envelope:
 Codes: `unauthorized`, `forbidden`, `not_found`, `conflict`, `gone`,
 `validation_failed`, `integration_unavailable`, `internal_error`. Internal errors never
 leak exception text.
+
+---
+
+## BuildCo Assistant
+
+A voice assistant in the staff app. A signed-in user talks or types to it, and it
+stages a change on the real screen for them to approve. **It writes nothing until the
+user approves the exact values**, and that is enforced by this API, not left to the
+model. The full design is `AGENT_SPEC.md` at the repository root. What is built so far
+is the first slice: scheduling a new meeting.
+
+**Two services, one image.** Firebase Hosting does not proxy WebSockets, so the voice
+stream connects straight to Cloud Run. The same image is deployed twice: `buildco-api`
+serves everything in this document including the REST endpoints above, and
+`buildco-agent` (`AGENT_SERVE_LIVE=true`) serves only the WebSocket and is the only one
+that loads ADK. Locally one process does both.
+
+**Starting a conversation.** A browser cannot put an `Authorization` header on a
+WebSocket, so `POST /agent/sessions` issues a ticket: single-use, valid for a minute,
+stored only as a hash. The socket is admitted on that ticket and its `Origin`.
+
+**Propose, then commit** (`app/agent/proposals.py`). A proposal is a row in
+`agent_actions` holding the payload that would be written. A commit names a proposal and
+carries no values of its own, so what is saved is what was on screen. The commit claims
+the row with a guarded `UPDATE`, which is what makes a click and a spoken "yes" arriving
+together produce one meeting, and then goes through `services/actions.py`, the same
+function the HTTP route uses.
+
+**Whether a spoken "yes" counts** (`agent_rules.refuse_voice_commit`). Only if the
+read-back finished playing on the user's device, and the approving utterance began after
+that. Both are positions in the microphone stream, so no clocks are compared. Anything
+that sends email cannot be approved by voice at all. In testing the model committed on a
+"yes" that interrupted the read-back every time it was tried, against its instructions;
+this rule is why that does nothing.
+
+**What the model is told again.** A model session is replaced about every ten minutes,
+a replacement can fail, and early turns can fall out of its memory. So each time a
+model session starts, its instructions carry what the server holds: what has been
+committed, what is open, and the recent transcript (`app/agent/instruction.py`).
+
+**Nothing said goes into logs.** The SDK loggers are pinned to WARNING in
+`app/logging.py` because at DEBUG they log every event, transcripts included.
+
+**Testing it.** `tests/agent_fakes.py` has a scripted model and a fake browser.
+`tests/api/test_agent_conversation.py` runs whole conversations against them, including
+the things the real model was seen doing wrong.
+
+Not built yet: the other kinds of change, memory, history in the app, the daily
+allowance, the pause while waiting for approval, verification of what was actually said
+in a read-back, and recovery from a dropped browser connection.
 
 ---
 

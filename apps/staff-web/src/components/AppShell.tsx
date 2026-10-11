@@ -25,9 +25,15 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { useAuth, useIsElevated } from "@/auth/useAuth";
 import { AppFrame } from "./AppFrame";
 import { RoleBadge } from "./Badge";
-import { DevPanelStandIn } from "./DevPanelStandIn";
 import { Menu } from "./Menu";
 import { ThemeToggle } from "./ThemeToggle";
+import {
+  AgentContextReporter,
+  AgentLauncher,
+  AgentLockBanner,
+} from "@/features/agent/AgentLauncher";
+import { AgentPanel } from "@/features/agent/AgentPanel";
+import { AgentProvider, useAgent } from "@/features/agent/AgentProvider";
 import { BrandMark } from "@/features/auth/AuthLayout";
 import { cn } from "@/lib/cn";
 import { setPreference } from "@/lib/theme";
@@ -47,7 +53,21 @@ const NAV: NavItem[] = [
   { to: "/team", label: "Team", elevatedOnly: true },
 ];
 
+/**
+ * The provider sits outside the frame because the frame is drawn from it: whether a
+ * panel is docked, and whether the app is locked. It is mounted here, once, and not on
+ * any page, so the panel and a live conversation survive moving between pages.
+ */
 export function AppShell() {
+  return (
+    <AgentProvider>
+      <Shell />
+    </AgentProvider>
+  );
+}
+
+function Shell() {
+  const agent = useAgent();
   const elevated = useIsElevated();
   const items = NAV.filter((item) => !item.elevatedOnly || elevated);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -65,32 +85,14 @@ export function AppShell() {
         : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
     );
 
-  // Development only, and gone once the assistant's panel exists. It is here so the
-  // squeeze and the column-scoped dialogs can be looked at before there is anything
-  // real to put beside the app. Never in a production bundle, and not in tests, which
-  // render `AppFrame` with a panel of their own.
-  const standInAvailable = import.meta.env.DEV && import.meta.env.MODE !== "test";
-  const [standIn, setStandIn] = useState(false);
-
   return (
     <AppFrame
-      panel={
-        standInAvailable && standIn ? (
-          <DevPanelStandIn onClose={() => setStandIn(false)} />
-        ) : undefined
-      }
-      launcher={
-        standInAvailable && !standIn ? (
-          <button
-            type="button"
-            onClick={() => setStandIn(true)}
-            className="fixed bottom-4 left-4 z-40 rounded-full bg-gray-900 px-3 py-2 text-xs font-medium text-surface shadow-lg"
-          >
-            Dev: open panel stand-in
-          </button>
-        ) : undefined
-      }
+      panel={agent?.panelOpen ? <AgentPanel /> : undefined}
+      launcher={<AgentLauncher />}
+      locked={agent?.state.mode === "working"}
+      lockBanner={<AgentLockBanner />}
     >
+      <AgentContextReporter />
       <header className="sticky top-0 z-30 border-b border-gray-200 bg-surface">
         <div className="mx-auto flex h-13 max-w-[1600px] items-center gap-3 px-4 app-sm:gap-6 app-sm:px-6">
           <button

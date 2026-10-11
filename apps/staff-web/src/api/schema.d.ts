@@ -537,8 +537,9 @@ export interface paths {
          * @description Move an estimate through its status state machine.
          *
          *     Actions: ``archive``, ``unarchive``, ``lock``, ``unlock``, ``recall``,
-         *     ``resubmit_ready``, ``admin_approve``. Which roles may perform each is declared in
-         *     ``estimate_rules.TRANSITIONS``.
+         *     ``resubmit_ready``, ``admin_approve``. Which roles may perform each, and from which
+         *     statuses, is declared in ``estimate_rules.TRANSITIONS``. An action the role may not
+         *     perform is a 403; one that is not available from the current status is a 409.
          */
         post: operations["transition_estimate_api_v1_estimates__estimate_id__transitions_post"];
         delete?: never;
@@ -979,6 +980,9 @@ export interface paths {
          *
          *     Attendees are re-invited only when the time, location, title, or attendee list
          *     actually changed — recolouring a meeting does not email everyone.
+         *
+         *     Someone who has been removed from the team cannot be added (422). If such a person
+         *     is already on the meeting, any change to its attendees takes them off it.
          */
         patch: operations["update_meeting_api_v1_meetings__meeting_id__patch"];
         trace?: never;
@@ -1171,6 +1175,81 @@ export interface paths {
         patch: operations["update_catalogue_item_api_v1_catalogue_items__item_id__patch"];
         trace?: never;
     };
+    "/api/v1/agent/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Agent Status
+         * @description Whether the assistant is offered to the caller.
+         *
+         *     False when it is switched off, and false for anyone not on the pilot list while the
+         *     audience is ``pilot``. The browser draws the launcher from this, so a person who is
+         *     not offered it never sees it.
+         */
+        get: operations["agent_status_api_v1_agent_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Session
+         * @description Start a conversation and get the ticket that opens its WebSocket.
+         *
+         *     503 when the assistant is switched off; 403 for a caller outside the pilot list.
+         *     Starting a conversation ends any other the caller has open, for instance in another
+         *     tab.
+         *
+         *     The ticket is single-use and expires in a minute. It exists because a browser cannot
+         *     send an ``Authorization`` header on a WebSocket, and an ID token in a URL would end
+         *     up in request logs.
+         */
+        post: operations["create_session_api_v1_agent_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Conversation
+         * @description One of the caller's own conversations, with its transcript and its actions.
+         *
+         *     Also how the panel learns what became of the last action after a dropped connection.
+         *     Someone else's conversation is a 404.
+         */
+        get: operations["get_conversation_api_v1_agent_conversations__conversation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1252,6 +1331,108 @@ export interface components {
             avatar_url?: string | null;
             /** Role */
             role?: string | null;
+        };
+        /** AgentActionOut */
+        AgentActionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /** Summary */
+            summary: string;
+            /** Approval Policy */
+            approval_policy: string;
+            /** Approved Via */
+            approved_via: string | null;
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            } | null;
+            /** Error */
+            error: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Resolved At */
+            resolved_at: string | null;
+        };
+        /** AgentConversationOut */
+        AgentConversationOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+            /** Started At */
+            started_at: string | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** End Reason */
+            end_reason: string | null;
+            /** Messages */
+            messages?: components["schemas"]["AgentMessageOut"][];
+            /** Actions */
+            actions?: components["schemas"]["AgentActionOut"][];
+        };
+        /** AgentLimitsOut */
+        AgentLimitsOut: {
+            /** Max Session Seconds */
+            max_session_seconds: number;
+        };
+        /** AgentMessageOut */
+        AgentMessageOut: {
+            /** Seq */
+            seq: number;
+            /** Role */
+            role: string;
+            /** Source */
+            source: string;
+            /** Text */
+            text: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** AgentSessionCreate */
+        AgentSessionCreate: {
+            /**
+             * Client Timezone
+             * @default UTC
+             */
+            client_timezone: string;
+        };
+        /** AgentSessionOut */
+        AgentSessionOut: {
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /** Ws Url */
+            ws_url: string;
+            /** Ticket */
+            ticket: string;
+            limits: components["schemas"]["AgentLimitsOut"];
+        };
+        /** AgentStatusOut */
+        AgentStatusOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Max Session Seconds */
+            max_session_seconds: number;
         };
         /** ApprovalRequestOut */
         ApprovalRequestOut: {
@@ -4797,6 +4978,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CatalogueItemOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_status_api_v1_agent_status_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_session_api_v1_agent_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentSessionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_conversation_api_v1_agent_conversations__conversation_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentConversationOut"];
                 };
             };
             /** @description Validation Error */

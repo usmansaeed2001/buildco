@@ -117,6 +117,23 @@ async def _resolve_invitees(
     )
 
 
+async def preview_invitees(
+    session: AsyncSession,
+    attendee_ids: list[uuid.UUID],
+    attendee_emails: Iterable[str],
+    *,
+    already_on: frozenset[uuid.UUID] = frozenset(),
+) -> Invitees:
+    """Who a meeting write would put on the meeting, without writing anything.
+
+    Runs the same resolution and the same refusals as the write itself, so a caller
+    that shows a person what is about to happen shows what will actually happen: the
+    same people, the same promotion of a colleague's address to that colleague, and the
+    same 422 for someone who has been removed.
+    """
+    return await _resolve_invitees(session, attendee_ids, attendee_emails, already_on=already_on)
+
+
 def _attendee_rows(members: list[Profile], guests: list[str]) -> list[MeetingAttendee]:
     """Build the rows for a meeting's attendee list.
 

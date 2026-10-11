@@ -16,6 +16,11 @@
  *
  * **Open dialogs are counted.** Whatever is in the panel may need to know that the
  * user has a dialog open, and nothing else in the app tracks that.
+ *
+ * **The column can be locked.** While the assistant is working, the whole column is made
+ * inert, its dialog layer included, and framed so that it is plain why nothing responds.
+ * The panel is outside the column and stays live, and so does the banner drawn over the
+ * column, because it carries the Stop button.
  */
 import {
   createContext,
@@ -47,6 +52,8 @@ export function useAppFrame(): AppFrameState | null {
 export function AppFrame({
   panel,
   launcher,
+  locked = false,
+  lockBanner,
   children,
 }: {
   /** What is docked beside the app. Leave it out and the app has the whole window. */
@@ -57,6 +64,10 @@ export function AppFrame({
    * element inside one is positioned against the container, not the viewport.
    */
   launcher?: ReactNode;
+  /** Make the whole app column inert and frame it. The panel is not affected. */
+  locked?: boolean;
+  /** Shown over the locked column. It is not inert: it is where Stop lives. */
+  lockBanner?: ReactNode;
   children: ReactNode;
 }) {
   const [dialogLayer, setDialogLayer] = useState<HTMLElement | null>(null);
@@ -76,18 +87,37 @@ export function AppFrame({
   return (
     <AppFrameContext.Provider value={state}>
       <div className="flex min-h-dvh">
-        {/* `relative` so the dialog layer can cover exactly this column. `min-w-0` so a
-            wide table inside cannot push the panel off the screen. */}
-        <div data-app-column className="@container/app relative flex min-w-0 flex-1 flex-col">
+        {/* The wrapper is what the lock's frame and banner are positioned against. It is
+            never inert itself; the column inside it is. */}
+        <div className="relative flex min-w-0 flex-1">
+          {/* `relative` so the dialog layer can cover exactly this column. `min-w-0` so
+              a wide table inside cannot push the panel off the screen. */}
           <div
-            className="flex flex-1 flex-col"
-            // Only with a panel open. With none, dialogs are native and the browser
-            // already makes the page behind them inert.
-            inert={panelOpen && openDialogs > 0}
+            data-app-column
+            className="@container/app relative flex min-w-0 flex-1 flex-col"
+            inert={locked}
           >
-            {children}
+            <div
+              className="flex flex-1 flex-col"
+              // Only with a panel open. With none, dialogs are native and the browser
+              // already makes the page behind them inert.
+              inert={panelOpen && openDialogs > 0}
+            >
+              {children}
+            </div>
+            <div ref={setDialogLayer} data-dialog-layer />
           </div>
-          <div ref={setDialogLayer} data-dialog-layer />
+
+          {locked && (
+            // Covers the column, which is as tall as the page; the banner inside is
+            // sticky, so it stays at the top of the window while the page is scrolled.
+            <div
+              data-app-lock
+              className="pointer-events-none absolute inset-0 z-50 ring-4 ring-brand-500 ring-inset"
+            >
+              <div className="pointer-events-auto sticky top-3 mx-auto w-fit">{lockBanner}</div>
+            </div>
+          )}
         </div>
 
         {panelOpen && (
@@ -95,7 +125,11 @@ export function AppFrame({
             aria-label="Side panel"
             // Sticky and viewport-tall: the page scrolls on the document, and the panel
             // has to stay where it is while it does.
-            className="sticky top-0 h-dvh w-[400px] shrink-0 border-l border-gray-200 bg-surface"
+            //
+            // Below 1024px there is no room to dock it, so it overlays the app's right
+            // side instead. A panel is never hidden for want of room: it may be holding
+            // a live conversation, and Stop, Approve and End have to stay reachable.
+            className="sticky top-0 h-dvh w-[400px] max-w-full shrink-0 border-l border-gray-200 bg-surface max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:z-50 max-lg:shadow-2xl"
           >
             {panel}
           </aside>

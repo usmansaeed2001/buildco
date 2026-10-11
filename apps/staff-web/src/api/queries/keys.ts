@@ -37,5 +37,9 @@ export const queryKeys = {
   review: (token: string) => ["review", token] as const,
 
   settings: ["settings"] as const,
+
+  agent: {
+    status: ["agent", "status"] as const,
+  },
   catalogue: ["catalogue-items"] as const,
 } as const;
