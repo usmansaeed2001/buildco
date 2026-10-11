@@ -7,6 +7,7 @@
  */
 import { useId, type ComponentPropsWithRef, type InputHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { useStaged } from "./stagedContext";
 
 const CONTROL =
   "w-full rounded-md border-0 bg-surface px-3 py-1.5 text-sm text-gray-900 ring-1 ring-inset " +
@@ -54,22 +55,66 @@ export function Field({
   );
 }
 
+/**
+ * On a form the assistant is showing (`staged.tsx`), a control it filled in is marked and
+ * reads at full strength, and no control shows a placeholder: example text on a
+ * read-only form is indistinguishable from a value. Outside one, none of this applies.
+ */
+const STAGED_FILLED = "bg-transparent! text-gray-900! opacity-100!";
+
+function hasValue(value: unknown): boolean {
+  return value !== undefined && value !== null && String(value) !== "";
+}
+
+function Marked({ filled, children }: { filled: boolean; children: ReactNode }) {
+  if (!filled) return <>{children}</>;
+  return (
+    <span data-staged-fill className="ast-field">
+      {children}
+    </span>
+  );
+}
+
 /** `ComponentPropsWithRef` rather than `InputHTMLAttributes`, so callers can hold a ref
  *  — the inline room rename needs one to select the existing text on open. React 19
  *  passes `ref` through as an ordinary prop, so no `forwardRef` is involved. */
-export function Input({ className, ...rest }: ComponentPropsWithRef<"input">) {
-  return <input className={cn(CONTROL, className)} {...rest} />;
+export function Input({ className, placeholder, ...rest }: ComponentPropsWithRef<"input">) {
+  const staged = useStaged();
+  const filled = staged && hasValue(rest.value ?? rest.defaultValue);
+  return (
+    <Marked filled={filled}>
+      <input
+        className={cn(CONTROL, filled && STAGED_FILLED, className)}
+        {...(staged ? {} : { placeholder })}
+        {...rest}
+      />
+    </Marked>
+  );
 }
 
-export function Textarea({ className, ...rest }: ComponentPropsWithRef<"textarea">) {
-  return <textarea className={cn(CONTROL, "resize-y", className)} {...rest} />;
+export function Textarea({ className, placeholder, ...rest }: ComponentPropsWithRef<"textarea">) {
+  const staged = useStaged();
+  const filled = staged && hasValue(rest.value ?? rest.defaultValue);
+  return (
+    <Marked filled={filled}>
+      <textarea
+        className={cn(CONTROL, "resize-y", filled && STAGED_FILLED, className)}
+        {...(staged ? {} : { placeholder })}
+        {...rest}
+      />
+    </Marked>
+  );
 }
 
 export function Select({ className, children, ...rest }: ComponentPropsWithRef<"select">) {
+  const staged = useStaged();
+  const filled = staged && hasValue(rest.value ?? rest.defaultValue);
   return (
-    <select className={cn(CONTROL, "pr-8", className)} {...rest}>
-      {children}
-    </select>
+    <Marked filled={filled}>
+      <select className={cn(CONTROL, "pr-8", filled && STAGED_FILLED, className)} {...rest}>
+        {children}
+      </select>
+    </Marked>
   );
 }
 

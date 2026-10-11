@@ -17,6 +17,7 @@ from app.db import dispose_engine
 from app.errors import register_exception_handlers
 from app.logging import configure_logging, get_logger
 from app.routers import (
+    agent,
     ai,
     attachments,
     estimates,
@@ -129,6 +130,15 @@ def create_app() -> FastAPI:
     app.include_router(reviews.router, prefix=prefix)
     app.include_router(ai.router, prefix=prefix)
     app.include_router(settings_router.router, prefix=prefix)
+
+    # BuildCo Assistant. Its REST endpoints are always here, and report the assistant
+    # as disabled when it is. The voice WebSocket is mounted only on a process started
+    # to serve it: importing it loads ADK, and the API service has no use for that.
+    app.include_router(agent.router, prefix=prefix)
+    if settings.agent_serve_live:
+        from app.agent import live
+
+        app.include_router(live.router, prefix=prefix)
 
     return app
 

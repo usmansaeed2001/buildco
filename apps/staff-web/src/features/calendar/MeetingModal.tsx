@@ -29,6 +29,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
 import { Alert } from "@/components/feedback";
 import { Field, Input, Select, TextField, Textarea } from "@/components/form";
+import { StagedMark } from "@/components/staged";
 import { useToast } from "@/components/Toast";
 import { MEETING_COLORS } from "@/domain/enums";
 import {
@@ -52,12 +53,40 @@ function guestsOf(meeting: MeetingOut | null): string[] {
     .map((attendee) => normaliseEmail(attendee.email));
 }
 
+/**
+ * Values to open the form with, in the API's own terms.
+ *
+ * Anything given here wins over the meeting being edited, so "this meeting, moved to
+ * four o'clock" is the meeting plus a draft of two fields.
+ */
+export interface MeetingDraft {
+  title?: string;
+  description?: string;
+  location?: string;
+  /** ISO instants, as the API sends them. */
+  start_time?: string;
+  end_time?: string;
+  color?: string;
+  project_id?: string;
+  attendee_ids?: string[];
+  attendee_emails?: string[];
+}
+
+/** One person on a staged meeting, already named by whoever staged it. */
+export interface StagedAttendee {
+  label: string;
+  /** Said beside the name when there is something to say: "outside guest", "removed". */
+  note?: string;
+}
+
 export function MeetingModal({
   open,
   meeting,
   defaultDate,
   defaultRange,
   canManage,
+  draft,
+  staged,
   onClose,
 }: {
   open: boolean;
@@ -74,6 +103,22 @@ export function MeetingModal({
    */
   defaultRange?: { start: Date; end: Date };
   canManage: boolean;
+  /**
+   * Read once, when the form mounts: give the form a `key` to seed it again. Used to
+   * show what the assistant proposes, and to hand that proposal over as an ordinary
+   * editable form.
+   */
+  draft?: MeetingDraft;
+  /**
+   * Set when the assistant is showing what it proposes. The form is read-only, and the
+   * people on it are drawn from these labels **and nothing else**.
+   *
+   * The roster this form normally ticks names against is the browser's own copy, and it
+   * leaves out anyone who has been removed. Drawing a proposal from it could show fewer
+   * people than the proposal invites. The labels come with the proposal, so what is on
+   * screen is exactly who will be on the meeting.
+   */
+  staged?: { attendees: StagedAttendee[] };
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -86,37 +131,46 @@ export function MeetingModal({
   const { data: projects } = useProjects({ limit: 200 });
 
   const editing = meeting !== null;
-  const readOnly = !canManage;
+  const readOnly = !canManage || staged !== undefined;
 
-  const [title, setTitle] = useState(meeting?.title ?? "");
-  const [description, setDescription] = useState(meeting?.description ?? "");
-  const [location, setLocation] = useState(meeting?.location ?? "");
+  // A draft's times win over the meeting's, and either wins over the clicked day.
+  const seedStart = draft?.start_time ?? meeting?.start_time;
+  const seedEnd = draft?.end_time ?? meeting?.end_time;
+
+  const [title, setTitle] = useState(draft?.title ?? meeting?.title ?? "");
+  const [description, setDescription] = useState(
+    draft?.description ?? meeting?.description ?? "",
+  );
+  const [location, setLocation] = useState(draft?.location ?? meeting?.location ?? "");
   const [date, setDate] = useState(
-    meeting ? toDateInput(meeting.start_time) : localDayKey(defaultRange?.start ?? defaultDate),
+    seedStart ? toDateInput(seedStart) : localDayKey(defaultRange?.start ?? defaultDate),
   );
   const [startTime, setStartTime] = useState(
-    meeting
-      ? toTimeInput(meeting.start_time)
+    seedStart
+      ? toTimeInput(seedStart)
       : defaultRange
         ? toTimeInput(defaultRange.start.toISOString())
         : "09:00",
   );
   const [endTime, setEndTime] = useState(
-    meeting
-      ? toTimeInput(meeting.end_time)
+    seedEnd
+      ? toTimeInput(seedEnd)
       : defaultRange
         ? toTimeInput(defaultRange.end.toISOString())
         : "10:00",
   );
-  const [color, setColor] = useState(meeting?.color ?? MEETING_COLORS[1]);
-  const [projectId, setProjectId] = useState(meeting?.project_id ?? "");
+  const [color, setColor] = useState(draft?.color ?? meeting?.color ?? MEETING_COLORS[1]);
+  const [projectId, setProjectId] = useState(draft?.project_id ?? meeting?.project_id ?? "");
   const [attendees, setAttendees] = useState<string[]>(
     () =>
+      draft?.attendee_ids ??
       (meeting?.attendees ?? [])
         .map((attendee) => attendee.user_id)
         .filter((id): id is string => Boolean(id)),
   );
-  const [guests, setGuests] = useState<string[]>(() => guestsOf(meeting));
+  const [guests, setGuests] = useState<string[]>(
+    () => draft?.attendee_emails?.map(normaliseEmail) ?? guestsOf(meeting),
+  );
   const [guestDraft, setGuestDraft] = useState("");
   const [guestError, setGuestError] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -266,6 +320,7 @@ export function MeetingModal({
         onClose={onClose}
         title={editing ? meeting.title || "Meeting" : "New meeting"}
         size="lg"
+        staged={staged !== undefined}
         footer={
           <>
             <Button onClick={onClose} disabled={busy}>
@@ -314,7 +369,7 @@ export function MeetingModal({
             onChange={(event) => setTitle(event.target.value)}
           />
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 app-sm:grid-cols-3">
             <Field label="Date">
               {(props) => (
                 <Input
@@ -400,7 +455,10 @@ export function MeetingModal({
 
           <fieldset disabled={readOnly}>
             <legend className="text-sm font-medium text-gray-700">Colour</legend>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {/* On a staged form the colour is part of what would be saved, so it is
+                marked like the fields. Anywhere else this wrapper is not there. */}
+            <StagedMark className="mt-1.5">
+            <div className={cn("flex flex-wrap gap-1.5", staged === undefined && "mt-1.5")}>
               {MEETING_COLORS.map((value) => (
                 <button
                   key={value}
@@ -418,8 +476,13 @@ export function MeetingModal({
                 />
               ))}
             </div>
+            </StagedMark>
           </fieldset>
 
+          {staged ? (
+            <StagedAttendees attendees={staged.attendees} />
+          ) : (
+            <>
           <fieldset disabled={readOnly}>
             <legend className="text-sm font-medium text-gray-700">Attendees</legend>
             <div className="mt-1.5 flex flex-col gap-1">
@@ -510,6 +573,8 @@ export function MeetingModal({
               </ul>
             )}
           </div>
+            </>
+          )}
 
           {!editing && !googleAccessToken && (
             <p className="text-xs text-gray-500">
@@ -535,5 +600,28 @@ export function MeetingModal({
         </p>
       </ConfirmDialog>
     </>
+  );
+}
+
+/** Who a staged meeting invites, as plain text. Nothing here can be ticked or removed. */
+function StagedAttendees({ attendees }: { attendees: StagedAttendee[] }) {
+  return (
+    <div>
+      <p className="text-sm font-medium text-gray-700">Attendees</p>
+      {attendees.length === 0 ? (
+        <p className="mt-1.5 text-sm text-gray-500">Nobody is invited.</p>
+      ) : (
+        <StagedMark className="mt-1.5">
+          <ul aria-label="Attendees" className="flex flex-col gap-1">
+            {attendees.map((attendee) => (
+              <li key={attendee.label} className="text-sm text-gray-900">
+                {attendee.label}
+                {attendee.note && <span className="text-gray-500"> ({attendee.note})</span>}
+              </li>
+            ))}
+          </ul>
+        </StagedMark>
+      )}
+    </div>
   );
 }

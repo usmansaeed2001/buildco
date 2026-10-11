@@ -16,6 +16,7 @@ function settings(overrides: Partial<TeamSettingsOut> = {}): TeamSettingsOut {
     custom_units: [],
     custom_categories: [],
     notification_prefs: { estimate_locked: true, member_joined: true, member_removed: true },
+    agent_daily_minutes: 10,
     updated_at: "2026-02-01T09:00:00Z",
     updated_by: null,
     ...overrides,
@@ -247,5 +248,57 @@ describe("SettingsPage", () => {
     renderSettings();
 
     expect(await screen.findByText("Could not load this")).toBeVisible();
+  });
+});
+
+describe("the assistant's daily allowance", () => {
+  const field = () => screen.findByLabelText("Minutes per person per day");
+
+  it("shows the figure in force and saves a new one", async () => {
+    const calls = serveSettings({ team: settings({ agent_daily_minutes: 10 }) });
+    const { user } = renderWithProviders(<SettingsPage />, { user: OWNER });
+
+    const input = await field();
+    expect(input).toHaveValue(10);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.clear(input);
+    await user.type(input, "25");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(calls.patched).toEqual([{ agent_daily_minutes: 25 }]));
+  });
+
+  it("accepts zero, which switches the assistant off for the team", async () => {
+    const calls = serveSettings();
+    const { user } = renderWithProviders(<SettingsPage />, { user: OWNER });
+
+    const input = await field();
+    await user.clear(input);
+    await user.type(input, "0");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(calls.patched).toEqual([{ agent_daily_minutes: 0 }]));
+    expect(await screen.findByText("BuildCo Assistant is switched off for the team.")).toBeVisible();
+  });
+
+  it.each(["", "-5", "2000", "2.5"])("will not save %j", async (typed) => {
+    const calls = serveSettings();
+    const { user } = renderWithProviders(<SettingsPage />, { user: OWNER });
+
+    const input = await field();
+    await user.clear(input);
+    if (typed) await user.type(input, typed);
+
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(calls.patched).toEqual([]);
+  });
+
+  it("is shown to a member and cannot be changed by one", async () => {
+    serveSettings();
+    renderWithProviders(<SettingsPage />, { user: MEMBER });
+
+    expect(await field()).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 });

@@ -26,11 +26,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_db
-from app.errors import Forbidden, NotFound, Unauthorized
+from app.errors import Forbidden, Unauthorized
 from app.models.enums import ELEVATED_ROLES, Role
 from app.models.profile import Profile
 from app.models.project import Project
-from app.services import user_service
+from app.services import project_service, user_service
 from app.services.integrations.firebase import get_auth_provider
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -109,17 +109,11 @@ async def require_project_access(
     Members reach only the projects assigned to them; owners and admins reach all of
     them. Returning the loaded object means the handler does not fetch it a second
     time, and it cannot forget to run the check.
+
+    The rule itself lives in ``project_service.get_project``, so a caller that is not
+    an HTTP route is held to it as well.
     """
-    project = await db.get(Project, project_id)
-    if project is None:
-        raise NotFound("Project not found.")
-
-    if Role(user.role) not in ELEVATED_ROLES and project.assigned_to != user.id:
-        # 404 rather than 403: a member who is not on a project has no business
-        # learning that it exists.
-        raise NotFound("Project not found.")
-
-    return project
+    return await project_service.get_project(db, user, project_id)
 
 
 AccessibleProject = Annotated[Project, Depends(require_project_access)]

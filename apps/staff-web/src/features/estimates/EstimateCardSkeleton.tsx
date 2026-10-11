@@ -58,7 +58,7 @@ export function EstimatesGridSkeleton() {
       role="status"
       aria-busy="true"
       aria-label="Loading estimates"
-      className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      className="grid gap-4 app-sm:grid-cols-2 app-lg:grid-cols-3"
     >
       {Array.from({ length: PLACEHOLDER_COUNT }, (_, index) => (
         <EstimateCardSkeleton key={index} />

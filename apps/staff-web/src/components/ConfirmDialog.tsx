@@ -16,6 +16,7 @@ export function ConfirmDialog({
   cancelLabel = "Cancel",
   tone = "danger",
   busy = false,
+  staged = false,
   onConfirm,
   onCancel,
   children,
@@ -26,6 +27,8 @@ export function ConfirmDialog({
   cancelLabel?: string;
   tone?: "danger" | "primary";
   busy?: boolean;
+  /** Shown by the assistant as what it proposes: read-only, see `Modal`. */
+  staged?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   children: ReactNode;
@@ -36,6 +39,7 @@ export function ConfirmDialog({
       onClose={onCancel}
       title={title}
       size="sm"
+      staged={staged}
       footer={
         <>
           <Button onClick={onCancel} disabled={busy}>

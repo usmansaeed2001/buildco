@@ -443,6 +443,119 @@ describe("EstimateEditorPage", () => {
     });
   });
 
+  describe("taking in a write the editor did not make", () => {
+    beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+    afterEach(() => vi.useRealTimers());
+
+    /** A transition whose reply carries details the editor has never seen. */
+    function serveTransition(estimate: EstimateOut, calls: string[] = []) {
+      server.use(
+        http.post(url("/estimates/:id/transitions"), () => {
+          calls.push("transition");
+          return HttpResponse.json({
+            ...estimate,
+            status: "archived",
+            project_name: "Renamed on the server",
+            client_name: "Server Client",
+          });
+        }),
+      );
+      return calls;
+    }
+
+    it("shows the server's values once the status has changed", async () => {
+      const estimate = estimateWith();
+      serveEstimate(estimate);
+      serveTransition(estimate);
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+
+      expect(
+        await screen.findByRole("heading", { name: "Renamed on the server" }),
+      ).toBeVisible();
+    });
+
+    it("does not write those values back as if they were an edit", async () => {
+      const estimate = estimateWith();
+      const patches = serveEstimate(estimate);
+      serveTransition(estimate);
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+      await screen.findByRole("heading", { name: "Renamed on the server" });
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(patches).toHaveLength(0);
+    });
+
+    it("keeps them when the user next types, instead of putting the old ones back", async () => {
+      // The whole point. The editor used to seed once and never again, so its next
+      // autosave sent the details it had opened with and silently undid the other write.
+      const estimate = estimateWith();
+      const patches = serveEstimate(estimate);
+      serveTransition(estimate);
+      const { user } = renderEditor();
+      await waitForEditor();
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+      await screen.findByRole("heading", { name: "Renamed on the server" });
+
+      await user.clear(screen.getByLabelText("Quantity for Drywall"));
+      await user.type(screen.getByLabelText("Quantity for Drywall"), "12");
+      await vi.advanceTimersByTimeAsync(1200);
+
+      await waitFor(() => expect(patches).toHaveLength(1));
+      expect(patches[0]!.project_name).toBe("Renamed on the server");
+      expect(patches[0]!.client_name).toBe("Server Client");
+    });
+
+    it("saves what is pending, and waits for it, before changing the status", async () => {
+      const estimate = estimateWith();
+      const calls: string[] = [];
+      server.use(
+        http.get(url("/estimates/:id"), () => HttpResponse.json(estimate)),
+        http.patch(url("/estimates/:id"), async ({ request }) => {
+          const body = (await request.json()) as Record<string, unknown>;
+          // Slow on purpose: if the transition did not wait, it would get in first.
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          calls.push("save");
+          return HttpResponse.json({ ...estimate, ...body });
+        }),
+      );
+      serveTransition(estimate, calls);
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.clear(screen.getByLabelText("Quantity for Drywall"));
+      await user.type(screen.getByLabelText("Quantity for Drywall"), "12");
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+
+      await waitFor(() => expect(calls).toEqual(["save", "transition"]));
+    });
+
+    it("leaves the status alone when the pending save fails", async () => {
+      const estimate = estimateWith();
+      serveEstimate(estimate);
+      const calls = serveTransition(estimate);
+      server.use(
+        http.patch(url("/estimates/:id"), () => apiError(500, "internal_error", "Boom")),
+      );
+      const { user } = renderEditor();
+      await waitForEditor();
+
+      await user.clear(screen.getByLabelText("Quantity for Drywall"));
+      await user.type(screen.getByLabelText("Quantity for Drywall"), "12");
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+
+      expect(
+        await screen.findByText("Could not save your changes, so the status was not changed."),
+      ).toBeVisible();
+      expect(calls).toEqual([]);
+    });
+  });
+
   describe("save failures", () => {
     beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
     afterEach(() => vi.useRealTimers());

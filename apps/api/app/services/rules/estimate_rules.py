@@ -47,6 +47,8 @@ class Transition:
     action: str
     target: EstimateStatus
     allowed_roles: frozenset[Role]
+    #: The statuses this action may be taken from. Anything else is refused.
+    allowed_from: frozenset[EstimateStatus]
     #: Whether performing this action invalidates any outstanding approval link.
     clears_approval_token: bool = False
     #: Whether admins should be emailed when this happens.
@@ -54,23 +56,34 @@ class Transition:
     description: str = ""
 
 
+#: ``allowed_from`` is what makes this a state machine rather than a list of role checks.
+#: Until it existed, which actions were offered from which status was decided only in
+#: the browser (``availableTransitions`` in ``domain/estimateRules.ts``) and the API took
+#: any action from any status: an admin could ``unarchive`` a locked estimate and so
+#: defeat the owner-only lock, and a member could ``recall`` an approved one back to
+#: active. The two tables must agree; a test on each side pins the matrix.
 TRANSITIONS: dict[str, Transition] = {
     "archive": Transition(
         action="archive",
         target=EstimateStatus.ARCHIVED,
         allowed_roles=frozenset(ELEVATED_ROLES),
+        allowed_from=frozenset(
+            {EstimateStatus.ACTIVE, EstimateStatus.REJECTED, EstimateStatus.APPROVED}
+        ),
         description="Move the estimate out of the active list.",
     ),
     "unarchive": Transition(
         action="unarchive",
         target=EstimateStatus.ACTIVE,
         allowed_roles=frozenset(ELEVATED_ROLES),
+        allowed_from=frozenset({EstimateStatus.ARCHIVED}),
         description="Return an archived estimate to the active list.",
     ),
     "lock": Transition(
         action="lock",
         target=EstimateStatus.LOCKED,
         allowed_roles=frozenset({Role.OWNER}),
+        allowed_from=frozenset({EstimateStatus.ACTIVE}),
         notifies_admins=True,
         description="Freeze the estimate. Only the owner can lock or unlock.",
     ),
@@ -78,12 +91,14 @@ TRANSITIONS: dict[str, Transition] = {
         action="unlock",
         target=EstimateStatus.ACTIVE,
         allowed_roles=frozenset({Role.OWNER}),
+        allowed_from=frozenset({EstimateStatus.LOCKED}),
         description="Release a locked estimate for editing.",
     ),
     "recall": Transition(
         action="recall",
         target=EstimateStatus.ACTIVE,
         allowed_roles=frozenset({Role.OWNER, Role.ADMIN, Role.MEMBER}),
+        allowed_from=frozenset({EstimateStatus.SUBMITTED}),
         clears_approval_token=True,
         description="Withdraw a submitted estimate and invalidate the reviewer's link.",
     ),
@@ -91,6 +106,7 @@ TRANSITIONS: dict[str, Transition] = {
         action="resubmit_ready",
         target=EstimateStatus.ACTIVE,
         allowed_roles=frozenset({Role.OWNER, Role.ADMIN, Role.MEMBER}),
+        allowed_from=frozenset({EstimateStatus.CHANGES_REQUESTED}),
         clears_approval_token=True,
         description="Reopen an estimate that came back with requested changes.",
     ),
@@ -98,6 +114,14 @@ TRANSITIONS: dict[str, Transition] = {
         action="admin_approve",
         target=EstimateStatus.APPROVED,
         allowed_roles=frozenset(ELEVATED_ROLES),
+        allowed_from=frozenset(
+            {
+                EstimateStatus.ACTIVE,
+                EstimateStatus.SUBMITTED,
+                EstimateStatus.CHANGES_REQUESTED,
+                EstimateStatus.REJECTED,
+            }
+        ),
         description="Approve internally, without waiting on the external reviewer.",
     ),
 }
@@ -184,18 +208,36 @@ class TransitionNotPermitted(PermissionError):
         self.actor_role = actor_role
 
 
-def resolve_transition(action: str, actor: ActorSnapshot) -> Transition:
-    """Look up an action and confirm the actor is allowed to perform it.
+class TransitionNotAvailable(ValueError):
+    """The action exists and the actor may perform it, but not from this status."""
 
-    Raises ``UnknownTransition`` for an action that does not exist and
-    ``TransitionNotPermitted`` for one the actor's role cannot perform. Services
-    translate those into the API's 400 and 403.
+    def __init__(self, transition: Transition, status: EstimateStatus) -> None:
+        super().__init__(
+            f"An estimate that is {status.value.replace('_', ' ')} cannot be moved with "
+            f"'{transition.action}'."
+        )
+        self.transition = transition
+        self.status = status
+
+
+def resolve_transition(action: str, actor: ActorSnapshot, status: EstimateStatus) -> Transition:
+    """Look up an action and confirm it may be performed by this actor, from this status.
+
+    Raises ``UnknownTransition`` for an action that does not exist,
+    ``TransitionNotPermitted`` for one the actor's role cannot perform, and
+    ``TransitionNotAvailable`` for one that is not offered from ``status``. Services
+    translate those into the API's 404, 403 and 409.
+
+    The role is checked before the status, so someone who could never perform an action
+    is told that, rather than being told to try again from a different status.
     """
     transition = TRANSITIONS.get(action)
     if transition is None:
         raise UnknownTransition(f"Unknown action: {action}")
     if actor.role not in transition.allowed_roles:
         raise TransitionNotPermitted(transition, actor.role)
+    if status not in transition.allowed_from:
+        raise TransitionNotAvailable(transition, status)
     return transition
 
 

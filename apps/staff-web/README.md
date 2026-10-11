@@ -166,6 +166,107 @@ its value.
 **Update payloads are built field by field.** Request schemas set `extra="forbid"`, so
 spreading a fetched object into a `PATCH` sends `id` and `created_at` and earns a 422.
 
+**Breakpoints inside the signed-in shell are `app-sm:`, not `sm:`.** The shell sits in
+`components/AppFrame`, which can dock a panel beside the app, and a viewport breakpoint
+cannot see that the app has been given less room. `app-sm:`, `app-md:`, `app-lg:` and
+`app-xl:` (declared in `styles/index.css`) measure the app column instead, at the same
+widths as their viewport namesakes. Plain `sm:` is still right outside the shell: the
+sign-in screens and the reviewer's page. `components/appBreakpoints.test.ts` fails if a
+viewport variant appears inside the shell, because nothing else would: jsdom lays
+nothing out, so the mistake is invisible until someone opens the panel.
+
+**A grid track that holds a table is `minmax(0,1fr)`, not `1fr`.** A bare `1fr` cannot
+be narrower than its widest content, so a wide table stretches the track and the page
+scrolls sideways, instead of the table scrolling inside `TableWrap`.
+
+**`Modal` has two forms.** Normally it is the native `<dialog>`. While a panel is docked
+it renders into the app column instead, because `showModal()` would make the panel
+unusable. A dialog must therefore not assume it is in the top layer, and anything fixed
+to the window belongs outside the app column (`AppFrame`'s `launcher`), since a fixed
+element inside a container is positioned against the container.
+
+**The editor does not follow the query cache, so a write it did not make has to be
+handed to it.** It seeds its details and rooms once and autosaves the whole payload.
+`reseed` in `EstimateEditorPage` is how a server copy written by something else gets in;
+without it the next keystroke puts the old values back.
+
+---
+
+## BuildCo Assistant
+
+`src/features/agent/`. A voice and text assistant in a panel beside the app. It is off
+unless the API says otherwise (`GET /agent/status`), so with nothing configured there is
+no launcher and none of this runs. The design is `AGENT_SPEC.md` at the repository root;
+the server half is described in `apps/api/README.md`.
+
+| File | What it is |
+|---|---|
+| `AgentProvider.tsx` | Mounted once in `AppShell`. Owns the socket and the audio; everything else is the reducer |
+| `agentState.ts` | A pure reducer over the frames the server sends. Test it by handing it frames |
+| `protocol.ts` | The WebSocket frames, mirroring `apps/api/app/agent/conversation.py`. The server is the authority |
+| `transport.ts`, `audio.ts` | The socket behind an interface, and the microphone and speaker worklets |
+| `AgentPanel.tsx`, `AgentHistory.tsx`, `AgentMemories.tsx` | The panel, past conversations, and the Profile section |
+
+**It writes nothing itself.** A change is *staged*: the server sends a proposal, the
+real page shows the real form filled in and read-only, and the user approves or rejects
+from the panel. Three pages stage proposals, each with `useStagedProposal(...kinds)`:
+the calendar (a meeting), the supplements list (a new supplement) and the supplement
+editor (details, status, sending for review). A page tells the provider when the form is
+actually on screen, and only then is the server told; that is what stops the assistant
+describing a form nobody can see. **To stage a new kind, add it to one page's
+`useStagedProposal` call and render it there. The route comes from the server.**
+
+**While it works, the app column is `inert`** and the panel is not (`AppFrame`'s
+`locked`). The lock is never left on behind a dead connection: see `isLocked`.
+
+**The editor hands itself to the assistant three ways** (`EstimateEditorPage`): which
+supplement is open (`useAgentRecord`), a way to make sure pending edits are saved before
+anything is proposed against them (`registerEditor`), and a re-seed after a commit, so
+that the next keystroke does not autosave the old values over what was just approved.
+
+**A dropped connection is not the end.** The provider asks for the same conversation
+back for a minute, then asks the server what became of the last action either way, so
+the panel never says something was lost when it was saved.
+
+In tests, `./transport` and `./audio` are mocked and the conversation is driven by
+handing the provider frames: see `AgentProvider.test.tsx`.
+
+### How it looks
+
+The look is `AGENT_DESIGN.md` at the repository root. It changes how the assistant is
+drawn and nothing about what it does: what a frame means, when the app locks, and what
+Approve, Reject, Stop and End do are all still in the provider and the reducer.
+
+| File | What it is |
+|---|---|
+| `Orb.tsx`, `presence.ts` | The assistant's face, and which of its eleven states it is in. Worked out from what the panel already knows |
+| `AgentPanel.tsx` | The four zones: `PanelHeader`, the body (`HeroState`, `Conversation`, `AgentHistory`), `Dock`, `Controls` |
+| `ApprovalCard.tsx`, `Receipt.tsx` | What is waiting to be saved, pinned in the dock; and what became of it, left in the conversation |
+| `levels.ts` | The microphone and voice levels as two CSS variables on the card. **Not React state**: nothing re-renders for sound |
+| `motion.ts`, `usePresence.ts`, `settling.ts` | The little motion that script drives, and keeping a leaving element on screen long enough to be seen leaving |
+| `components/staged.tsx` | How a form the assistant filled in is marked. The form controls read it, so a staged form shows no placeholders |
+| `styles/assistant.css` | The orb, the aura and every movement. The colours, shadows and durations are tokens in `index.css` |
+
+Three things to keep true when changing any of it:
+
+- **Violet means "the assistant's, not saved yet", and nothing else.** Blue stays "your
+  action" and green stays "saved". Violet is the same lightness as the brand blue, so it
+  is never the only signal: the same things are dashed and say so in words.
+- **Only `transform` and `opacity` move**, and no animation delays, hides or moves a
+  control that could be pressed. Reduced motion needs nothing extra for CSS; script
+  checks `reducedMotion()`.
+- **The approval card shows what the server sent.** It lays values out; it never formats
+  a date or looks a person up. `labels.facts` and `approval_reason` on a proposal are
+  typed and used when present, and the server does not send them yet: until it does the
+  card draws the same layout from the labels it already has.
+
+**The gallery** is how the look is reviewed without holding a conversation. Run
+`npm run dev` and open `/dev/assistant`: the orb and the panel in every state, in light
+and dark, drawn from fixed frames through the real reducer (`galleryFixtures.ts`).
+`/dev/assistant?scene=stage` is the whole frame, with the launcher, the lock and a staged
+form, and buttons that send what a server would, for watching what happens between
+states. The route exists only in development and is not in a production build.
+
 ---
 
 ## The estimates list sorts server-side, and so does everything else on it

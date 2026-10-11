@@ -450,6 +450,107 @@ describe("MeetingModal", () => {
     });
   });
 
+  describe("opened with values supplied from outside", () => {
+    it("opens a new meeting on a draft's values", () => {
+      serveMutations();
+      renderWithProviders(
+        <MeetingModal
+          open
+          meeting={null}
+          defaultDate={MARCH_15}
+          canManage
+          draft={{
+            title: "Hendricks walkthrough",
+            location: "12 Maple Street",
+            start_time: new Date(2026, 9, 14, 14, 30).toISOString(),
+            end_time: new Date(2026, 9, 14, 15, 15).toISOString(),
+            attendee_emails: ["Adjuster@Insurer.com"],
+          }}
+          onClose={() => {}}
+        />,
+        { user: OWNER },
+      );
+
+      expect(screen.getByLabelText(/^Title/)).toHaveValue("Hendricks walkthrough");
+      expect(screen.getByLabelText("Date")).toHaveValue("2026-10-14");
+      expect(screen.getByLabelText("Start")).toHaveValue("14:30");
+      expect(screen.getByLabelText("End")).toHaveValue("15:15");
+      expect(within(screen.getByRole("list", { name: "Guests" })).getByText("adjuster@insurer.com")).toBeVisible();
+      // Still an ordinary form: this is how a proposal is handed over to be finished by hand.
+      expect(screen.getByRole("button", { name: "Create meeting" })).toBeEnabled();
+    });
+
+    it("lets a draft override the meeting being edited, field by field", () => {
+      serveMutations();
+      renderWithProviders(
+        <MeetingModal
+          open
+          meeting={existing()}
+          defaultDate={MARCH_15}
+          canManage
+          draft={{ start_time: new Date(2026, 2, 15, 16, 0).toISOString() }}
+          onClose={() => {}}
+        />,
+        { user: OWNER },
+      );
+
+      expect(screen.getByLabelText("Start")).toHaveValue("16:00");
+      expect(screen.getByLabelText(/^Title/)).toHaveValue("Site walkthrough");
+      expect(screen.getByLabelText("End")).toHaveValue("10:00");
+    });
+  });
+
+  describe("staged by the assistant", () => {
+    function renderStaged(attendees: { label: string; note?: string }[]) {
+      serveMutations();
+      return renderWithProviders(
+        <MeetingModal
+          open
+          meeting={null}
+          defaultDate={MARCH_15}
+          canManage
+          draft={{ title: "Hendricks walkthrough" }}
+          staged={{ attendees }}
+          onClose={() => {}}
+        />,
+        { user: OWNER },
+      );
+    }
+
+    it("shows every attendee it was given, from the labels alone", async () => {
+      // The roster served here is the owner and one member. Neither Dana, who has been
+      // removed, nor the outside guest is on it; a form drawn from the roster would
+      // show fewer people than the proposal invites.
+      renderStaged([
+        { label: "Sam Member" },
+        { label: "Dana Removed", note: "removed from the team" },
+        { label: "adjuster@insurer.com", note: "outside guest" },
+      ]);
+
+      const people = within(screen.getByRole("list", { name: "Attendees" }));
+      expect(people.getByText("Sam Member")).toBeVisible();
+      expect(people.getByText("Dana Removed")).toBeVisible();
+      expect(people.getByText("(removed from the team)")).toBeVisible();
+      expect(people.getByText("adjuster@insurer.com")).toBeVisible();
+      await waitFor(() => expect(screen.queryAllByRole("checkbox")).toHaveLength(0));
+    });
+
+    it("says so when nobody is invited", () => {
+      renderStaged([]);
+
+      expect(screen.getByText("Nobody is invited.")).toBeVisible();
+    });
+
+    it("is read-only and offers nothing to save or add with", () => {
+      renderStaged([{ label: "Sam Member" }]);
+
+      expect(screen.getByText("Filled in by BuildCo Assistant · Not saved yet")).toBeVisible();
+      expect(screen.getByLabelText(/^Title/)).toBeDisabled();
+      expect(screen.queryByRole("button", { name: "Create meeting" })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Invite by email")).not.toBeInTheDocument();
+    });
+  });
+
   it("keeps a rejected save on screen with the values intact", async () => {
     serveMutations();
     server.use(

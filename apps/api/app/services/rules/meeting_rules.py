@@ -75,3 +75,48 @@ def can_manage(actor: ActorSnapshot, meeting: MeetingSnapshot) -> bool:
     if actor.is_elevated:
         return True
     return meeting.created_by is not None and meeting.created_by == actor.id
+
+
+# ── Removed people ────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class AttendeeScreening:
+    """What to do with each team member on a requested attendee list."""
+
+    #: Stay on, or go onto, the meeting.
+    kept: frozenset[uuid.UUID]
+    #: Removed people who were already on the meeting. They come off it quietly.
+    dropped: frozenset[uuid.UUID]
+    #: Removed people the request tried to add. The whole write is refused.
+    refused: frozenset[uuid.UUID]
+
+
+def screen_attendees(
+    requested: frozenset[uuid.UUID],
+    *,
+    removed: frozenset[uuid.UUID],
+    already_on: frozenset[uuid.UUID],
+) -> AttendeeScreening:
+    """Decide what happens to removed (banned) people on an attendee list.
+
+    Two rules, and the difference between them is the point:
+
+    - **Adding** a removed person is refused. They can no longer sign in, and inviting
+      them would email someone the team has shut out.
+    - A removed person who is **already on** the meeting is dropped from it, not refused.
+      The meeting form seeds its attendee list from everyone on the meeting but shows
+      checkboxes only for people who are still on the team, and any attendee change
+      sends the whole list. Refusing would reject every edit to such a meeting over a
+      person the user cannot see or untick.
+
+    ``removed`` may name people who are not on the list at all; only its overlap with
+    ``requested`` matters.
+    """
+    banned = requested & removed
+    dropped = banned & already_on
+    return AttendeeScreening(
+        kept=requested - banned,
+        dropped=dropped,
+        refused=banned - dropped,
+    )

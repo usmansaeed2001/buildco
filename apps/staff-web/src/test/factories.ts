@@ -59,6 +59,7 @@ export function makeSettings(overrides: Partial<TeamSettingsOut> = {}): TeamSett
     custom_units: [],
     custom_categories: [],
     notification_prefs: { estimate_locked: true, member_joined: true, member_removed: true },
+    agent_daily_minutes: 10,
     // Configured by default, because that is the state a working team is in — a
     // reviewer has to be chosen before an estimate can be sent at all. Tests about the
     // unconfigured case override this to `null` explicitly.

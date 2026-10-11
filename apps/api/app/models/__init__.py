@@ -5,6 +5,7 @@ a model that is never imported is invisible to it — the classic way to silentl
 table from a migration.
 """
 
+from app.models.agent import AgentAction, AgentConversation, AgentMemory, AgentMessage
 from app.models.approval_request import ApprovalRequest
 from app.models.attachment import Attachment
 from app.models.base import Base
@@ -19,6 +20,10 @@ from app.models.settings import SETTINGS_ROW_ID, CatalogueItem, TeamSettings
 
 __all__ = [
     "SETTINGS_ROW_ID",
+    "AgentAction",
+    "AgentConversation",
+    "AgentMemory",
+    "AgentMessage",
     "ApprovalRequest",
     "Attachment",
     "Base",

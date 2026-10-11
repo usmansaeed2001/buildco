@@ -63,7 +63,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         // not interrupt whatever the user is reading.
         aria-live="polite"
         aria-atomic="false"
-        className="pointer-events-none fixed bottom-4 left-1/2 z-50 flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4"
+        // Centred on the window, or on the app column while the assistant's card is
+        // docked beside it (`--panel-space`, set in `styles/assistant.css`), so a toast
+        // cannot land half under the card.
+        className="pointer-events-none fixed bottom-4 left-[calc((100%-var(--panel-space,0px))/2)] z-50 flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4"
       >
         {toasts.map((toast) => (
           <div

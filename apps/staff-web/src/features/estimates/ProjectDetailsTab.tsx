@@ -26,7 +26,7 @@ export function ProjectDetailsTab({
 }) {
   return (
     <Card className="mt-4 p-5">
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 app-sm:grid-cols-2">
         <TextField
           label="Project name"
           value={details.project_name}
@@ -59,7 +59,7 @@ export function ProjectDetailsTab({
           onChange={(event) => onChange("insurance_carrier", event.target.value)}
         />
 
-        <div className="sm:col-span-2">
+        <div className="app-sm:col-span-2">
           <Field label="Notes">
             {(props) => (
               <Textarea

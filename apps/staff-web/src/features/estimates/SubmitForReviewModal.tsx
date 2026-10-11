@@ -24,7 +24,9 @@ import { useTeamSettings } from "@/api/queries/settings";
 import { Button } from "@/components/Button";
 import { Modal } from "@/components/Modal";
 import { Alert } from "@/components/feedback";
+import { StagedMark } from "@/components/staged";
 import { useToast } from "@/components/Toast";
+import { cn } from "@/lib/cn";
 import { formatMoney } from "@/domain/money";
 import { displayName } from "@/lib/format";
 import type { Decimal } from "decimal.js";
@@ -34,12 +36,15 @@ export function SubmitForReviewModal({
   estimateId,
   projectName,
   total,
+  staged = false,
   onClose,
 }: {
   open: boolean;
   estimateId: string;
   projectName: string;
   total: Decimal;
+  /** Shown by the assistant as what it proposes: read-only, see `Modal`. */
+  staged?: boolean;
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -76,6 +81,7 @@ export function SubmitForReviewModal({
     <Modal
       open={open}
       onClose={close}
+      staged={staged}
       title="Send for approval"
       description="The reviewer gets a link to a page where they can approve, reject, or request changes."
       footer={
@@ -106,11 +112,14 @@ export function SubmitForReviewModal({
         {failure && <Alert tone="danger">{failure}</Alert>}
 
         {reviewer ? (
-          <div className="rounded-md bg-gray-50 px-3 py-2.5 ring-1 ring-gray-200">
-            <p className="text-xs font-medium tracking-wide text-gray-500 uppercase">Reviewer</p>
-            <p className="mt-1 text-sm font-medium text-gray-900">{displayName(reviewer)}</p>
-            <p className="truncate text-sm text-gray-500">{reviewer.email}</p>
-          </div>
+          // On a staged form, who it would be sent to is marked like a filled field.
+          <StagedMark>
+            <div className={cn(!staged && "rounded-md bg-gray-50 px-3 py-2.5 ring-1 ring-gray-200")}>
+              <p className="text-xs font-medium tracking-wide text-gray-500 uppercase">Reviewer</p>
+              <p className="mt-1 text-sm font-medium text-gray-900">{displayName(reviewer)}</p>
+              <p className="truncate text-sm text-gray-500">{reviewer.email}</p>
+            </div>
+          </StagedMark>
         ) : (
           !settings.isPending && (
             <Alert tone="warning">

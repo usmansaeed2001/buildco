@@ -288,6 +288,8 @@ function DayColumn({
           <button
             key={item.id}
             type="button"
+            // Named for the assistant, which tints a meeting for a moment after saving it.
+            data-agent-record={`meeting:${item.id}`}
             onClick={() => onOpenMeeting(item)}
             style={{
               top,

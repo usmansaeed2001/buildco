@@ -19,7 +19,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import ForeignKey, Numeric, String, Text, Uuid, text
+from sqlalchemy import ForeignKey, Integer, Numeric, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, JSONBType, TimestampMixin, UUIDPrimaryKey
@@ -96,6 +96,12 @@ class TeamSettings(Base, TimestampMixin):
     default_reviewer_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")
     )
+
+    #: Minutes of live conversation with the assistant each person gets per day. Null
+    #: means the environment's default. **Zero switches the assistant off for the
+    #: team**, including conversations in progress: every live socket re-reads this
+    #: value, and unlike an environment variable it can change under a running instance.
+    agent_daily_minutes: Mapped[int | None] = mapped_column(Integer)
 
     updated_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")

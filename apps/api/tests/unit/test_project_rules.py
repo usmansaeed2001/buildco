@@ -7,12 +7,15 @@ database, no HTTP, no mocks.
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
-from app.models.enums import ProjectStatus, WorkStatus
+from app.models.enums import ProjectStatus, Role, WorkStatus
 from app.services.rules.project_rules import (
     MilestoneSnapshot,
     ProjectSnapshot,
+    can_view,
     evaluate,
 )
 
@@ -202,3 +205,27 @@ def test_applying_a_decision_twice_is_stable():
     )
 
     assert evaluate(settled).is_noop
+
+
+# ── Who may see a project ─────────────────────────────────────────────────────
+
+ME = uuid.uuid4()
+SOMEONE_ELSE = uuid.uuid4()
+
+
+@pytest.mark.parametrize("role", [Role.OWNER, Role.ADMIN])
+@pytest.mark.parametrize("assigned_to", [ME, SOMEONE_ELSE, None])
+def test_owners_and_admins_see_every_project(role, assigned_to):
+    assert can_view(role=role, actor_id=ME, assigned_to=assigned_to)
+
+
+def test_a_member_sees_a_project_assigned_to_them():
+    assert can_view(role=Role.MEMBER, actor_id=ME, assigned_to=ME)
+
+
+def test_a_member_does_not_see_a_project_assigned_to_someone_else():
+    assert not can_view(role=Role.MEMBER, actor_id=ME, assigned_to=SOMEONE_ELSE)
+
+
+def test_a_member_does_not_see_an_unassigned_project():
+    assert not can_view(role=Role.MEMBER, actor_id=ME, assigned_to=None)

@@ -90,6 +90,15 @@ export type ParsedEstimate = Schemas["ParsedEstimate"];
 export type ParsedRoom = Schemas["ParsedRoom"];
 export type ParsedLineItem = Schemas["ParsedLineItem"];
 
+// ── BuildCo Assistant ───────────────────────────────────────────────────────
+export type AgentStatusOut = Schemas["AgentStatusOut"];
+export type AgentSessionOut = Schemas["AgentSessionOut"];
+export type AgentConversationOut = Schemas["AgentConversationOut"];
+export type AgentConversationSummaryOut = Schemas["AgentConversationSummaryOut"];
+export type AgentActionOut = Schemas["AgentActionOut"];
+export type AgentHistoryPage = Schemas["Page_AgentConversationSummaryOut_"];
+export type AgentMemoryOut = Schemas["AgentMemoryOut"];
+
 // ── Public review ───────────────────────────────────────────────────────────
 // Note these are snake_case (`unit_cost`), unlike the camelCase stored in `rooms`.
 // They are a separate projection built server-side, not the same document.

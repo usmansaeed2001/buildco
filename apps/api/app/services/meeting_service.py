@@ -55,9 +55,21 @@ def _normalise_emails(emails: Iterable[str]) -> list[str]:
     return list(seen)
 
 
+@dataclass(frozen=True, slots=True)
+class Invitees:
+    members: list[Profile]
+    guests: list[str]
+    #: Removed people who were on the meeting and have been taken off it by this write.
+    dropped: list[Profile]
+
+
 async def _resolve_invitees(
-    session: AsyncSession, attendee_ids: list[uuid.UUID], attendee_emails: Iterable[str]
-) -> tuple[list[Profile], list[str]]:
+    session: AsyncSession,
+    attendee_ids: list[uuid.UUID],
+    attendee_emails: Iterable[str],
+    *,
+    already_on: frozenset[uuid.UUID] = frozenset(),
+) -> Invitees:
     """Split a requested attendee list into team members and outside guests.
 
     An address that belongs to someone on the team is promoted to a member attendee
@@ -65,6 +77,12 @@ async def _resolve_invitees(
     should not produce a second-class invite: as a guest row they would get the email
     but the meeting would be invisible to them in the app, since visibility is decided
     by ``user_id``. It also keeps one person from being invited twice.
+
+    Removed people are screened out here, after that promotion, so typing a removed
+    person's address is caught the same way as ticking their name would be. Adding one
+    is a 422; one who is ``already_on`` the meeting is dropped — see
+    ``meeting_rules.screen_attendees`` for why those differ. This used to accept any
+    profile id at all and would have emailed someone the team had removed.
     """
     members = {p.id: p for p in await _resolve_attendees(session, attendee_ids)}
     guests: list[str] = []
@@ -80,7 +98,40 @@ async def _resolve_invitees(
             else:
                 members.setdefault(profile.id, profile)
 
-    return list(members.values()), guests
+    screening = meeting_rules.screen_attendees(
+        frozenset(members),
+        removed=frozenset(p.id for p in members.values() if p.is_banned),
+        already_on=already_on,
+    )
+    if screening.refused:
+        names = sorted(members[i].display_name for i in screening.refused)
+        verb = "has" if len(names) == 1 else "have"
+        raise ValidationFailed(
+            f"{', '.join(names)} {verb} been removed from the team and cannot be invited."
+        )
+
+    return Invitees(
+        members=[p for p in members.values() if p.id in screening.kept],
+        guests=guests,
+        dropped=[p for p in members.values() if p.id in screening.dropped],
+    )
+
+
+async def preview_invitees(
+    session: AsyncSession,
+    attendee_ids: list[uuid.UUID],
+    attendee_emails: Iterable[str],
+    *,
+    already_on: frozenset[uuid.UUID] = frozenset(),
+) -> Invitees:
+    """Who a meeting write would put on the meeting, without writing anything.
+
+    Runs the same resolution and the same refusals as the write itself, so a caller
+    that shows a person what is about to happen shows what will actually happen: the
+    same people, the same promotion of a colleague's address to that colleague, and the
+    same 422 for someone who has been removed.
+    """
+    return await _resolve_invitees(session, attendee_ids, attendee_emails, already_on=already_on)
 
 
 def _attendee_rows(members: list[Profile], guests: list[str]) -> list[MeetingAttendee]:
@@ -247,7 +298,9 @@ def _actor(profile: Profile) -> meeting_rules.ActorSnapshot:
     return meeting_rules.ActorSnapshot(id=profile.id, role=Role(profile.role))
 
 
-async def get_meeting(session: AsyncSession, actor: Profile, meeting_id: uuid.UUID) -> Meeting:
+async def get_meeting(
+    session: AsyncSession, actor: Profile, meeting_id: uuid.UUID, *, for_update: bool = False
+) -> Meeting:
     """Load a meeting the actor is allowed to see.
 
     A meeting they may not see is a **404, not a 403**: its existence is itself
@@ -255,8 +308,21 @@ async def get_meeting(session: AsyncSession, actor: Profile, meeting_id: uuid.UU
     the same reasoning, as ``deps.require_project_access``.
 
     ``attendees`` is ``lazy="selectin"``, so the membership check costs no extra query.
+
+    ``for_update`` takes a row lock on the meeting for the rest of the transaction. Every
+    write to a meeting loads it this way, **including a change to its attendees alone**,
+    which never touches the ``meetings`` row and so would not otherwise wait for anyone.
+    Two writers then run one after the other, and the second sees what the first did.
+    ``populate_existing`` is what makes that true inside one session: without it a
+    meeting already in the identity map would be handed back as it was first read.
+    SQLite ignores the lock; the tests that depend on it run on Postgres.
     """
-    meeting = await session.get(Meeting, meeting_id)
+    if for_update:
+        meeting = await session.get(
+            Meeting, meeting_id, with_for_update={"of": Meeting}, populate_existing=True
+        )
+    else:
+        meeting = await session.get(Meeting, meeting_id)
     if meeting is None:
         raise NotFound("Meeting not found.")
     if not meeting_rules.can_view(_actor(actor), _snapshot(meeting)):
@@ -318,21 +384,47 @@ async def create_meeting(
     session.add(meeting)
     await session.flush()
 
-    members, guests = await _resolve_invitees(session, attendee_ids, attendee_emails or [])
-    meeting.attendees.extend(_attendee_rows(members, guests))
+    invitees = await _resolve_invitees(session, attendee_ids, attendee_emails or [])
+    meeting.attendees.extend(_attendee_rows(invitees.members, invitees.guests))
     await session.flush()
 
     log.info(
         "meeting_created",
         meeting_id=str(meeting.id),
-        attendees=len(members),
-        guests=len(guests),
+        attendees=len(invitees.members),
+        guests=len(invitees.guests),
         has_meet_link=bool(event.meet_link),
     )
     return meeting, _build_bundle(meeting, actor)
 
 
-async def update_meeting(
+#: A change to one of these is worth telling the attendees about.
+INVITE_WORTHY = frozenset({"start_time", "end_time", "location", "title"})
+
+
+@dataclass(frozen=True, slots=True)
+class UpdatePlan:
+    """What an update to a meeting would do, worked out before anything is changed."""
+
+    changed_fields: frozenset[str]
+    #: Who would be on the meeting afterwards.
+    members: list[Profile]
+    guests: list[str]
+    #: Removed people the update would take off it.
+    dropped: list[Profile]
+    attendees_changed: bool
+    #: The rows to replace, when the attendee list changes.
+    existing: list[MeetingAttendee]
+
+    @property
+    def reinvites(self) -> bool:
+        """Whether everyone on the meeting would be emailed an updated invite."""
+        return bool(self.changed_fields & INVITE_WORTHY or self.attendees_changed) and bool(
+            self.members or self.guests
+        )
+
+
+async def plan_update(
     session: AsyncSession,
     actor: Profile,
     meeting: Meeting,
@@ -340,21 +432,18 @@ async def update_meeting(
     changes: dict[str, Any],
     attendee_ids: list[uuid.UUID] | None,
     attendee_emails: list[str] | None = None,
-) -> tuple[Meeting, InviteBundle | None]:
-    """Update a meeting, re-inviting attendees when something they care about moved.
+) -> UpdatePlan:
+    """Work out what an update would do, running every check, and change nothing.
 
-    Invites are re-sent only when the time, location, or attendee list changed.
-    Renaming a meeting or recolouring it does not email everybody — the legacy code
-    re-sent on every update that touched attendees at all, which trained people to
-    ignore the invites.
-
-    ``attendee_ids`` (team members) and ``attendee_emails`` (outside guests) are
-    independent partials: ``None`` leaves that half of the list as it is. The list only
-    counts as changed when the people on it differ, so re-sending the same addresses in
-    a different order or case emails nobody.
+    ``update_meeting`` applies exactly this plan, so anything that shows a person what
+    an update is about to do, and whether it will email anyone, shows what will happen
+    and not a second opinion about it.
     """
-    invite_worthy = {"start_time", "end_time", "location", "title"}
-    changed_fields = {field for field, value in changes.items() if getattr(meeting, field) != value}
+    require_manageable(actor, meeting)
+
+    changed_fields = frozenset(
+        field for field, value in changes.items() if getattr(meeting, field) != value
+    )
 
     # ``MeetingCreate`` validates this in the schema, but ``MeetingUpdate`` cannot: it is
     # a partial, so a request carrying only ``end_time`` has nothing to compare against
@@ -366,47 +455,111 @@ async def update_meeting(
     if end <= start:
         raise ValidationFailed("end_time must be after start_time")
 
+    if attendee_ids is None and attendee_emails is None:
+        # Read from what is already loaded. Querying the rows here would put a second
+        # set of them in the session for a write that never touches the list.
+        return UpdatePlan(
+            changed_fields=changed_fields,
+            members=[a.profile for a in meeting.attendees if a.profile is not None],
+            guests=[a.email for a in meeting.attendees if a.user_id is None],
+            dropped=[],
+            attendees_changed=False,
+            existing=[],
+        )
+
+    existing = list(
+        await session.scalars(
+            select(MeetingAttendee).where(MeetingAttendee.meeting_id == meeting.id)
+        )
+    )
+    existing_ids = [a.user_id for a in existing if a.user_id is not None]
+    existing_guests = [a.email for a in existing if a.user_id is None]
+    invitees = await _resolve_invitees(
+        session,
+        attendee_ids if attendee_ids is not None else existing_ids,
+        attendee_emails if attendee_emails is not None else existing_guests,
+        already_on=frozenset(existing_ids),
+    )
+    same_members = {p.id for p in invitees.members} == set(existing_ids)
+    same_guests = set(invitees.guests) == set(_normalise_emails(existing_guests))
+    return UpdatePlan(
+        changed_fields=changed_fields,
+        members=invitees.members,
+        guests=invitees.guests,
+        dropped=invitees.dropped,
+        attendees_changed=not (same_members and same_guests),
+        existing=existing,
+    )
+
+
+async def update_meeting(
+    session: AsyncSession,
+    actor: Profile,
+    meeting: Meeting,
+    *,
+    changes: dict[str, Any],
+    attendee_ids: list[uuid.UUID] | None,
+    attendee_emails: list[str] | None = None,
+) -> tuple[Meeting, InviteBundle | None, list[Profile]]:
+    """Update a meeting, re-inviting attendees when something they care about moved.
+
+    Invites are re-sent only when the time, location, or attendee list changed.
+    Renaming a meeting or recolouring it does not email everybody — the legacy code
+    re-sent on every update that touched attendees at all, which trained people to
+    ignore the invites.
+
+    ``attendee_ids`` (team members) and ``attendee_emails`` (outside guests) are
+    independent partials: ``None`` leaves that half of the list as it is. The list only
+    counts as changed when the people on it differ, so re-sending the same addresses in
+    a different order or case emails nobody.
+
+    **Checks that the actor may change this meeting.** That check used to live only in
+    the router, which left this function trusting whoever called it; a second caller
+    would have been able to edit any meeting it could load.
+
+    The third value is the removed people this write took off the meeting, which is
+    empty unless the attendee list was written. A caller that reads the change back to
+    a person needs to name them.
+    """
+    plan = await plan_update(
+        session,
+        actor,
+        meeting,
+        changes=changes,
+        attendee_ids=attendee_ids,
+        attendee_emails=attendee_emails,
+    )
+    dropped = plan.dropped
+
     for field, value in changes.items():
         setattr(meeting, field, value)
 
-    attendees_changed = False
-    if attendee_ids is not None or attendee_emails is not None:
-        existing = list(
-            await session.scalars(
-                select(MeetingAttendee).where(MeetingAttendee.meeting_id == meeting.id)
-            )
-        )
-        existing_ids = [a.user_id for a in existing if a.user_id is not None]
-        existing_guests = [a.email for a in existing if a.user_id is None]
-        members, guests = await _resolve_invitees(
-            session,
-            attendee_ids if attendee_ids is not None else existing_ids,
-            attendee_emails if attendee_emails is not None else existing_guests,
-        )
-        same_members = {p.id for p in members} == set(existing_ids)
-        same_guests = set(guests) == set(_normalise_emails(existing_guests))
-        if not (same_members and same_guests):
-            attendees_changed = True
-            # Deleted and flushed before the replacements go in: a member who stays on
-            # the list would otherwise collide with their own outgoing row on
-            # ``uq_meeting_attendee``, since a flush writes inserts ahead of deletes.
-            for row in existing:
-                await session.delete(row)
-            await session.flush()
-            meeting.attendees.extend(_attendee_rows(members, guests))
+    if plan.attendees_changed:
+        # Deleted and flushed before the replacements go in: a member who stays on
+        # the list would otherwise collide with their own outgoing row on
+        # ``uq_meeting_attendee``, since a flush writes inserts ahead of deletes.
+        for row in plan.existing:
+            await session.delete(row)
+        await session.flush()
+        meeting.attendees.extend(_attendee_rows(plan.members, plan.guests))
 
     await session.flush()
     await session.refresh(meeting)
 
-    if not (changed_fields & invite_worthy or attendees_changed):
-        return meeting, None
+    if not (plan.changed_fields & INVITE_WORTHY or plan.attendees_changed):
+        return meeting, None, dropped
 
     # SEQUENCE must increase for calendar clients to accept the revision. Seconds
     # since the meeting row was created gives a monotonic value without another column.
     sequence = max(1, int((meeting.updated_at - meeting.created_at).total_seconds()))
 
-    log.info("meeting_updated", meeting_id=str(meeting.id), reinvited=len(meeting.attendees))
-    return meeting, _build_bundle(meeting, actor, updated=True, sequence=sequence)
+    log.info(
+        "meeting_updated",
+        meeting_id=str(meeting.id),
+        reinvited=len(meeting.attendees),
+        dropped_removed=len(dropped),
+    )
+    return meeting, _build_bundle(meeting, actor, updated=True, sequence=sequence), dropped
 
 
 async def delete_meeting(
