@@ -235,9 +235,13 @@ removed users are deliberately not switchable — a security signal, not a routi
 
 | Method | Path | Role | Notes |
 |---|---|---|---|
-| GET | `/agent/status` | any | `{enabled, max_session_seconds}`. `enabled` is false when the assistant is off, and for anyone outside the pilot list |
-| POST | `/agent/sessions` | any | Starts a conversation; returns a single-use `ticket` and the `ws_url` to open. 503 when off, 403 outside the pilot list. Ends any other conversation the caller has |
-| GET | `/agent/conversations/{id}` | owner of it | Transcript and actions. 404 for anyone else's, owners and admins included |
+| GET | `/agent/status` | any | `{enabled, daily_limit_seconds, used_seconds, remaining_seconds, resets_at, max_session_seconds}`. `enabled` is false when the assistant is off, and for anyone outside the pilot list |
+| POST | `/agent/sessions` | any | Starts a conversation; returns a single-use `ticket` and the `ws_url` to open. 503 when off, 403 outside the pilot list, **429 `limit_reached`** when today's allowance is spent. Ends any other conversation the caller has |
+| POST | `/agent/sessions/{id}/reconnect` | owner of it | A fresh ticket for a conversation whose connection dropped. 409 once a minute has passed or it has ended; 429 when the allowance ran out meanwhile |
+| GET | `/agent/conversations` | any | The caller's own past conversations, newest first, paged |
+| GET | `/agent/conversations/{id}` | owner of it | Transcript and actions. 404 for anyone else's, owners and admins included. A transcript older than the retention period is not returned; the actions always are |
+| GET | `/agent/memories` | any | What the assistant remembers about the caller |
+| DELETE | `/agent/memories/{id}` | owner of it | 404 for anyone else's |
 | WS | `/agent/live?ticket=` | ticket | The voice stream. Mounted only when `AGENT_SERVE_LIVE` is set |
 
 See "BuildCo Assistant" below for how the pieces fit.
@@ -353,6 +357,12 @@ integration setting goes in `OUTBOUND_SETTINGS` in that file, and
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | — | Project comes from the credentials if they name one; location is `us-central1` |
 | `AGENT_MODEL` / `AGENT_VOICE` | — | `gemini-3.8-live`, `Kore` |
 | `AGENT_WS_BASE_URL` | — | `ws://localhost:8000`. In production, the `buildco-agent` service's `wss://` origin |
+| `AGENT_DAILY_MINUTES_DEFAULT` | — | 10 minutes per person per day, until the team sets its own figure in Settings |
+| `AGENT_MAX_SESSION_SECONDS` | — | 1800: a conversation ends at 30 minutes regardless |
+| `AGENT_IDLE_WARNING_SECONDS` / `AGENT_IDLE_TIMEOUT_SECONDS` | — | 90 and 120 |
+| `AGENT_APPROVAL_VOICE_WINDOW_SECONDS` | — | 30: how long the microphone stays live after a read-back before pausing |
+| `AGENT_PROPOSAL_TTL_SECONDS` | — | 600: how long an unanswered proposal waits |
+| `AGENT_TRANSCRIPT_RETENTION_DAYS` | — | 90 |
 
 Every integration credential is optional by design: the service boots and serves with
 nothing provisioned, which is what makes local development and CI possible without a
@@ -367,15 +377,32 @@ created that nobody was invited to.
 
 ### Connection budget
 
-Cloud SQL `db-f1-micro` has a low connection ceiling and Cloud Run runs many instances,
-each holding its own pool. Preserve this invariant:
+Two Cloud Run services share one small database, each instance holding its own pool.
+Preserve this invariant:
 
 ```
-cloud_run_max_instances × (DB_POOL_SIZE + DB_MAX_OVERFLOW) < postgres max_connections
+(api_max_instances + agent_max_instances) × (their pool sizes) < postgres max_connections
 ```
 
-Defaults are 2 + 3 = 5 per instance, so 10 instances fit inside `max_connections=50`.
-Raising `--max-instances` means revisiting this, or introducing PgBouncer.
+| Service | Max instances | Pool per instance | Connections |
+|---|---|---|---|
+| `buildco-api` | 7 | `DB_POOL_SIZE=2` + `DB_MAX_OVERFLOW=3` = 5 | 35 |
+| `buildco-agent` | 2 | `DB_POOL_SIZE=1` + `DB_MAX_OVERFLOW=2` = 3 | 6 |
+| **Total** | | | **41 of 50** |
+
+The remaining nine are the three Postgres holds back for superusers, the migration job,
+a manual `gcloud sql connect`, and headroom. The split is by need: the API holds a
+connection for the length of every request, while the voice service touches the database
+in short bursts and carries many conversations on three connections.
+
+**During a rollout the old and new revisions can each reach their own cap**, for up to
+five minutes on the API and up to an hour on the voice service, because a revision that
+is draining sockets is outside the service-level maximum. Size for that, or accept it
+knowingly; see `AGENT_SPEC.md` Q2.
+
+Raising either `--max-instances` means revisiting this, moving the database up a tier,
+or putting a pooler in front. Exceeding it does not degrade gracefully: it fails
+requests with connection errors under exactly the load that caused the scale-up.
 
 ---
 
@@ -398,8 +425,10 @@ leak exception text.
 A voice assistant in the staff app. A signed-in user talks or types to it, and it
 stages a change on the real screen for them to approve. **It writes nothing until the
 user approves the exact values**, and that is enforced by this API, not left to the
-model. The full design is `AGENT_SPEC.md` at the repository root. What is built so far
-is the first slice: scheduling a new meeting.
+model. The full design is `AGENT_SPEC.md` at the repository root. This is Release 1:
+meetings, a supplement's header, details and status, sending for review, read-only
+answers, memory, history and a daily allowance. Editing rooms and line items by voice is
+Release 2.
 
 **Two services, one image.** Firebase Hosting does not proxy WebSockets, so the voice
 stream connects straight to Cloud Run. The same image is deployed twice: `buildco-api`
@@ -411,35 +440,128 @@ that loads ADK. Locally one process does both.
 WebSocket, so `POST /agent/sessions` issues a ticket: single-use, valid for a minute,
 stored only as a hash. The socket is admitted on that ticket and its `Origin`.
 
-**Propose, then commit** (`app/agent/proposals.py`). A proposal is a row in
-`agent_actions` holding the payload that would be written. A commit names a proposal and
-carries no values of its own, so what is saved is what was on screen. The commit claims
-the row with a guarded `UPDATE`, which is what makes a click and a spoken "yes" arriving
-together produce one meeting, and then goes through `services/actions.py`, the same
-function the HTTP route uses.
+### What it can do, and what it cannot
 
-**Whether a spoken "yes" counts** (`agent_rules.refuse_voice_commit`). Only if the
-read-back finished playing on the user's device, and the approving utterance began after
-that. Both are positions in the microphone stream, so no clocks are compared. Anything
-that sends email cannot be approved by voice at all. In testing the model committed on a
-"yes" that interrupted the read-back every time it was tried, against its instructions;
-this rule is why that does nothing.
+Every capability is a tool the model may call (`app/agent/tools.py`). A tool runs as the
+signed-in user, through the same service function the HTTP API uses, and the user is
+re-read from the database on every call, so a removal or a change of role takes effect
+mid-conversation.
 
-**What the model is told again.** A model session is replaced about every ten minutes,
-a replacement can fail, and early turns can fall out of its memory. So each time a
-model session starts, its instructions carry what the server holds: what has been
-committed, what is open, and the recent transcript (`app/agent/instruction.py`).
+| | |
+|---|---|
+| **Reads** | Supplements, meetings, projects, the roster, the rate catalogue, team settings, the page on screen, its own memories. At most ten rows a search |
+| **Proposes** | New meeting; change to a meeting; new supplement (header only); a supplement's details; its status; sending it for review; changing or forgetting a memory |
+| **Controls** | Commit or drop what is staged, open a page, remember something, say goodbye |
 
-**Nothing said goes into logs.** The SDK loggers are pinned to WARNING in
-`app/logging.py` because at DEBUG they log every event, transcripts included.
+**There is no tool that deletes, trashes, restores or cancels a record, and none that
+writes to a project, the team, the settings or the catalogue.**
+`tests/api/test_agent_tools.py` lists every service function the assistant's code may
+reach and fails if it reaches another, so adding one is a deliberate, reviewed change.
 
-**Testing it.** `tests/agent_fakes.py` has a scripted model and a fake browser.
-`tests/api/test_agent_conversation.py` runs whole conversations against them, including
-the things the real model was seen doing wrong.
+### Propose, then commit
 
-Not built yet: the other kinds of change, memory, history in the app, the daily
-allowance, the pause while waiting for approval, verification of what was actually said
-in a read-back, and recovery from a dropped browser connection.
+`app/agent/proposals.py`. A proposal is a row in `agent_actions` holding the payload that
+would be written. A commit names a proposal and carries no values of its own, so what is
+saved is what was on screen. The commit claims the row with a guarded `UPDATE`, which is
+what makes a click and a spoken "yes" arriving together produce one meeting; locks the
+record it would change and compares a fingerprint of it with the one taken when the
+proposal was made, so a record edited by hand in between refuses the commit; and then
+goes through `services/actions.py`, the same function the HTTP route uses.
+
+| Approval | Proposals |
+|---|---|
+| **Voice or a click** | New supplement; a supplement's details; archive, unarchive, recall, mark ready to resubmit; a meeting create or edit that emails nobody; a memory |
+| **A click only** | Sending for review; any meeting create or edit that emails anyone; lock, unlock, approve internally |
+| **A click, case by case** | Any proposal whose read-back the server could not verify |
+
+### Whether a spoken "yes" counts
+
+`agent_rules.refuse_voice_commit`, on facts the model does not control.
+
+- **The read-back finished playing** on the user's device, and **the approving utterance
+  began after that**. Both are positions in the microphone stream, so no clocks are
+  compared. In testing the model committed on a "yes" that interrupted the read-back
+  every time it was tried, against its instructions; this rule is why that does nothing.
+- **The read-back said what it had to** (`services/rules/agent_readback.py`). The server
+  writes the summary and the model speaks a paraphrase of it, so the server reads the
+  transcript of what was actually said and looks for the essentials (which record, the
+  total, a meeting's date and time) and every exception (an outside address, a value
+  filled in from memory, a removed person coming off a meeting, a supplement already out
+  for review). Anything missing turns that proposal into click-only. The check accepts
+  what a model really produces: numbers as words, a claim id read in pairs, an address
+  spelled out.
+
+### Time
+
+All of it is the server's, in `app/agent/conversation.py`.
+
+- **A daily allowance per person**, ten minutes unless the team sets another figure in
+  Settings (`PATCH /settings`, owners and admins). Counted from `live_seconds`, which the
+  live socket writes every few seconds, so a crash loses nothing. It resets at 00:00 UTC
+  on the server's clock. Enforced in three places: starting a session, the live socket,
+  and a reconnect.
+- **Setting the allowance to zero is the off switch.** Every heartbeat re-reads it from
+  the database, so conversations already in progress end within a few seconds, with no
+  deploy. `AGENT_ENABLED=false` is *not* that switch: an environment variable is fixed
+  for the life of a revision, and an instance draining its sockets can run for an hour.
+- **Nothing is metered that is not live audio.** After a read-back the microphone stays
+  live for 30 seconds and then pauses until the user taps to talk; a dropped connection
+  is not metered either.
+- **Idle and the hard cap.** A question after 90 seconds of silence, the end at 120; a
+  warning at 28 minutes, the end at 30.
+- **A proposal still waiting when the allowance runs out is not thrown away.** The model
+  is closed and the socket stays, silent, until the proposal is approved, rejected or
+  expires. A click costs nothing.
+
+### One conversation, one socket
+
+- One live conversation per person: a partial unique index, and starting another ends
+  the first as `superseded`.
+- **A dropped connection is held open for a minute.** The conversation stays `active`
+  with the moment it dropped recorded, and `POST /agent/sessions/{id}/reconnect` issues
+  a ticket that picks it up under a new *generation*. The old socket is often only half
+  dead and cannot tell; its next heartbeat matches no row, and it stops without touching
+  the meter. If nobody comes back, the instance ends it as `disconnected`; if the
+  instance died too, it is reaped the next time its owner opens history or starts
+  another.
+- **A model session is shorter-lived than a conversation.** It is replaced about every
+  ten minutes, a replacement can fail, and early turns can fall out of its memory. So
+  each time one starts, its instructions carry what the server holds: what has been
+  committed, what is open, and the recent transcript (`app/agent/instruction.py`).
+
+### Memory
+
+`services/agent_memory_service.py`. A memory is a short fact about the user, loaded at
+the start of every conversation. **It must come from the user's own mouth**: every
+email address, number and name in it has to appear in what the user said or typed in
+that conversation, checked by the server. The assistant reads records aloud, and some
+record text is written by outsiders (a reviewer's note arrives through the public review
+page), so anything it read must never become something it believes. Secrets and prices
+are refused outright. Adding a memory needs no approval; changing or forgetting one from
+inside a conversation is a proposal. At most 100 per person.
+
+### What is kept
+
+- **Transcripts for 90 days.** Text only, never audio. An expired transcript is hidden
+  from every read at once and deleted in small batches as sessions start;
+  `scripts/purge_agent_transcripts.py` clears the rest and can be run as a Cloud Run Job.
+- **The action log indefinitely**, including the few words that approved each
+  voice-approved action.
+- **Nothing said goes into logs.** The SDK loggers are pinned to WARNING in
+  `app/logging.py` because at DEBUG they log every event, transcripts included. The
+  assistant's own events (`agent_session_started`, `agent_proposal_created`,
+  `agent_voice_commit_rejected`, `agent_readback_unverified`, `agent_tool_refused`,
+  `agent_memory_rejected`, `agent_allowance_exhausted`, `agent_reconnected`,
+  `agent_live_error` and friends) carry ids, kinds and reasons, never values.
+
+### Testing it
+
+`tests/agent_fakes.py` has a scripted model and a fake browser.
+`tests/api/test_agent_conversation.py` and `test_agent_live.py` run whole conversations
+against them, including the things the real model was seen doing wrong;
+`test_agent_kinds.py` takes each kind of proposal from staging to commit;
+`test_agent_tools.py` covers every tool. The tests that need real row locks are marked
+`postgres` and run in the Postgres step of the build.
 
 ---
 

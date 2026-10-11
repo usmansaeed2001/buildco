@@ -94,6 +94,10 @@ export type ParsedLineItem = Schemas["ParsedLineItem"];
 export type AgentStatusOut = Schemas["AgentStatusOut"];
 export type AgentSessionOut = Schemas["AgentSessionOut"];
 export type AgentConversationOut = Schemas["AgentConversationOut"];
+export type AgentConversationSummaryOut = Schemas["AgentConversationSummaryOut"];
+export type AgentActionOut = Schemas["AgentActionOut"];
+export type AgentHistoryPage = Schemas["Page_AgentConversationSummaryOut_"];
+export type AgentMemoryOut = Schemas["AgentMemoryOut"];
 
 // ── Public review ───────────────────────────────────────────────────────────
 // Note these are snake_case (`unit_cost`), unlike the camelCase stored in `rooms`.

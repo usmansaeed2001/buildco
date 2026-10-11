@@ -5,7 +5,14 @@
  * user is shown, and it is pure, so every frame the server can send is exercised here.
  */
 import { describe, expect, it } from "vitest";
-import { agentReducer, describeEnding, initialState, type AgentState } from "./agentState";
+import {
+  agentReducer,
+  describeEnding,
+  describeSeconds,
+  initialState,
+  isLocked,
+  type AgentState,
+} from "./agentState";
 import type { Proposal, ServerFrame } from "./protocol";
 
 const PROPOSAL: Proposal = {
@@ -247,5 +254,168 @@ describe("agentReducer", () => {
     ["something_new", "The conversation ended."],
   ])("describes an ending of %s", (reason, words) => {
     expect(describeEnding(reason)).toBe(words);
+  });
+});
+
+describe("the rest of what the server can say", () => {
+  it("keeps what is left of today, and counts it down while the audio is live", () => {
+    const started = after([
+      {
+        type: "ready",
+        conversation_id: "c-1",
+        limits: { max_session_seconds: 1800, remaining_seconds: 90 },
+      },
+    ]);
+
+    const later = agentReducer(agentReducer(started, { type: "tick" }), { type: "tick" });
+
+    expect(started.remainingSeconds).toBe(90);
+    expect(later.remainingSeconds).toBe(88);
+  });
+
+  it("does not count down while paused, and never below nothing", () => {
+    const paused = after([
+      { type: "ready", conversation_id: "c-1", limits: { max_session_seconds: 1800, remaining_seconds: 1 } },
+      { type: "audio", state: "paused", reason: "approval" },
+    ]);
+    const resumed = after([{ type: "audio", state: "live" }], paused);
+
+    expect(agentReducer(paused, { type: "tick" }).remainingSeconds).toBe(1);
+    expect(agentReducer(agentReducer(resumed, { type: "tick" }), { type: "tick" }).remainingSeconds).toBe(0);
+  });
+
+  it("records why the microphone is off, and that it is back", () => {
+    const waiting = after([{ type: "audio", state: "paused", reason: "approval" }]);
+    const spent = after([{ type: "audio", state: "paused", reason: "allowance" }]);
+
+    expect(waiting.paused).toBe("approval");
+    expect(spent.paused).toBe("allowance");
+    expect(after([{ type: "audio", state: "live" }], waiting).paused).toBeNull();
+  });
+
+  it("puts a notice in words, and drops it when the user speaks", () => {
+    const warned = after([{ type: "notice", kind: "idle_warning" }]);
+
+    expect(warned.notice).toMatch(/Still there/);
+    expect(
+      after([{ type: "transcript", role: "user", text: "Yes.", final: true }], warned).notice,
+    ).toBeNull();
+    expect(after([{ type: "notice", kind: "something_new" }], warned).notice).toMatch(/Still there/);
+  });
+
+  it("takes the time left from a low-allowance notice", () => {
+    const low = after([{ type: "notice", kind: "allowance_low", seconds: 58 }]);
+
+    expect(low.remainingSeconds).toBe(58);
+    expect(after([{ type: "notice", kind: "allowance_exhausted" }], low).remainingSeconds).toBe(0);
+  });
+
+  it("lists what was remembered, and drops one that is undone", () => {
+    const remembered = after([
+      { type: "memory", event: "remembered", memory: { id: "m-1", category: "identity", content: "Sam" } },
+      { type: "memory", event: "remembered", memory: { id: "m-2", category: "preference", content: "Short" } },
+    ]);
+
+    expect(remembered.remembered.map((memory) => memory.id)).toEqual(["m-1", "m-2"]);
+    expect(
+      agentReducer(remembered, { type: "forgotten", id: "m-1" }).remembered.map((m) => m.id),
+    ).toEqual(["m-2"]);
+  });
+
+  it("counts commits and keeps what each one saved", () => {
+    const saved = after(
+      [
+        {
+          type: "proposal_result",
+          id: "p-1",
+          status: "committed",
+          target: { type: "meeting", id: "m-9" },
+        },
+      ],
+      staged(),
+    );
+
+    expect(saved.commits).toBe(1);
+    expect(saved.lastResult).toMatchObject({ status: "committed", target: { type: "meeting", id: "m-9" } });
+    expect(after([{ type: "proposal_result", id: "p-x", status: "cancelled" }], saved).commits).toBe(1);
+  });
+
+  it("follows the card when the server sends it again as click-only", () => {
+    const downgraded = after([{ type: "proposal", ...PROPOSAL, approval: "click" }], staged());
+
+    expect(downgraded.proposal?.approval).toBe("click");
+    expect(downgraded.staged?.approval).toBe("click");
+  });
+
+  it("keeps the detail of why it ended", () => {
+    const ended = after([{ type: "ended", reason: "time_limit", detail: "allowance" }]);
+
+    expect(describeEnding(ended.endedReason, ended.endedDetail)).toMatch(/has been used/);
+    expect(describeEnding("time_limit")).toBe("The conversation reached its time limit.");
+  });
+});
+
+describe("a dropped connection", () => {
+  it("keeps the conversation, the transcript and what was staged, and unlocks the app", () => {
+    const talking = after(
+      [{ type: "transcript", role: "assistant", text: "I am about to", final: false }],
+      staged(),
+    );
+    expect(isLocked(talking)).toBe(true);
+
+    const dropped = agentReducer(talking, { type: "reconnecting" });
+
+    expect(dropped.phase).toBe("reconnecting");
+    expect(dropped.proposal?.id).toBe("p-1");
+    expect(dropped.staged?.id).toBe("p-1");
+    expect(dropped.transcript.at(-1)?.final).toBe(true);
+    // The mode is still "working". The lock is not on, because nothing can be approved
+    // or stopped over a dead connection.
+    expect(isLocked(dropped)).toBe(false);
+  });
+
+  it("is locked again only if the server says it is still working", () => {
+    const dropped = agentReducer(staged(), { type: "reconnecting" });
+    const ready: ServerFrame = {
+      type: "ready",
+      conversation_id: "c-1",
+      limits: { max_session_seconds: 1800, remaining_seconds: 400 },
+      resumed: true,
+    };
+
+    const back = after([ready], dropped);
+    const stillWorking = after([{ type: "mode", mode: "working" }], back);
+
+    expect(back.phase).toBe("live");
+    expect(isLocked(back)).toBe(false);
+    expect(isLocked(stillWorking)).toBe(true);
+    expect(back.remainingSeconds).toBe(400);
+  });
+
+  it("is not something an idle or ended panel can be put into", () => {
+    expect(agentReducer(initialState, { type: "reconnecting" }).phase).toBe("idle");
+  });
+
+  it("ends as disconnected if it never comes back", () => {
+    const dropped = agentReducer(staged(), { type: "reconnecting" });
+
+    const gone = agentReducer(dropped, { type: "closed", message: null });
+
+    expect(gone).toMatchObject({ phase: "ended", endedReason: "disconnected", proposal: null });
+  });
+});
+
+describe("describeSeconds", () => {
+  it.each([
+    [600, "10 min"],
+    [150, "2 min"],
+    [120, "2 min"],
+    [90, "1 min 30 s"],
+    [60, "1 min 0 s"],
+    [45, "45 s"],
+    [0, "0 s"],
+    [-3, "0 s"],
+  ])("says %i seconds as %s", (seconds, said) => {
+    expect(describeSeconds(seconds)).toBe(said);
   });
 });

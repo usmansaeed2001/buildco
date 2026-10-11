@@ -13,6 +13,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Path, status
 
+from app.config import get_settings
 from app.deps import CurrentUser, DbSession, Elevated
 from app.schemas.common import Ack, ActorRef
 from app.schemas.settings import (
@@ -39,6 +40,11 @@ def _to_out(row: object) -> TeamSettingsOut:
         notification_prefs=settings_service.resolved_prefs(row),
         default_reviewer=(
             ActorRef.model_validate(row.default_reviewer) if row.default_reviewer else None
+        ),
+        agent_daily_minutes=(
+            get_settings().agent_daily_minutes_default
+            if row.agent_daily_minutes is None
+            else row.agent_daily_minutes
         ),
         updated_at=row.updated_at,
         updated_by=row.updated_by,

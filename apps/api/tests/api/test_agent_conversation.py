@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.agent import conversation as conversation_module
-from app.agent.conversation import LiveConversation
+from app.agent.conversation import Ending, LiveConversation
 from app.config import get_settings
 from app.models.agent import AgentAction, AgentConversation, AgentMessage
 from app.models.enums import AgentEndReason, UserStatus
@@ -134,14 +134,35 @@ async def test_the_model_is_told_who_it_is_talking_to_and_in_which_timezone(talk
     assert member.display_name in talk.model.session.vocabulary
 
 
-async def test_the_model_has_no_tool_that_deletes_or_cancels_a_record(talk):
-    """There is nothing to talk it into. Dropping a *proposal* is not deleting anything."""
+async def test_the_model_is_given_the_tools_and_no_others(talk):
+    """A new tool is a deliberate act: this list has to be edited to add one.
+
+    What none of them can reach is checked in ``test_agent_tools``.
+    """
     assert set(talk.model.session.tools) == {
+        "search_supplements",
+        "get_supplement",
+        "list_meetings",
+        "get_meeting",
+        "search_projects",
+        "get_project",
         "list_team_members",
+        "search_catalogue",
+        "get_team_settings",
         "get_current_view",
+        "list_memories",
         "propose_create_meeting",
+        "propose_update_meeting",
+        "propose_create_supplement",
+        "propose_update_supplement_details",
+        "propose_supplement_transition",
+        "propose_submit_for_review",
+        "propose_change_memory",
         "commit_proposal",
         "cancel_proposal",
+        "show_in_app",
+        "remember",
+        "end_conversation",
     }
 
 
@@ -517,7 +538,7 @@ async def test_a_dead_model_session_is_replaced_and_told_where_things_stand(talk
 
     assert (await talk.socket.wait_for("notice"))["kind"] == "model_reconnected"
     told = replacement.instruction
-    assert "Already committed" in told and "Created the meeting Hendricks walkthrough" in told
+    assert "Already committed" in told and "Saved: create the meeting Hendricks walkthrough" in told
     assert second["proposal_id"] in told and "Friday standup" in told
     assert "user: Now one for Friday at nine for an hour." in told
     assert not talk.running.done()
@@ -541,9 +562,10 @@ async def test_a_model_that_cannot_be_brought_back_ends_the_conversation(talk, m
     for number in (1, 2, 3):
         (await talk.model.wait_for_session(number)).dies(RuntimeError("unavailable"))
 
-    assert await asyncio.wait_for(talk.running, 3) is AgentEndReason.ERROR
+    assert await asyncio.wait_for(talk.running, 3) == Ending.ended(AgentEndReason.ERROR)
     assert talk.socket.of("error")[0]["code"] == "integration_unavailable"
-    assert talk.socket.sent[-1] == {"type": "ended", "reason": "error"}
+    assert talk.socket.sent[-1]["type"] == "ended"
+    assert talk.socket.sent[-1]["reason"] == "error"
 
 
 # ── Ending ────────────────────────────────────────────────────────────────────
@@ -554,16 +576,23 @@ async def test_closing_the_panel_ends_the_conversation_and_drops_an_open_proposa
 
     talk.socket.frame("end")
 
-    assert await asyncio.wait_for(talk.running, 3) is AgentEndReason.USER_CLOSED
+    assert await asyncio.wait_for(talk.running, 3) == Ending.ended(AgentEndReason.USER_CLOSED)
     assert (await action(db, staged)).status == "cancelled"
     assert await meetings(db) == 0
     assert talk.model.session.closed
 
 
-async def test_a_dropped_connection_ends_it_as_disconnected(talk):
+async def test_a_dropped_connection_is_reported_as_a_drop_not_as_an_ending(talk, db):
+    """The socket's part is over. Whether the conversation is, is decided a minute later."""
+    staged = await stage(talk)
+
     talk.socket.hang_up()
 
-    assert await asyncio.wait_for(talk.running, 3) is AgentEndReason.DISCONNECTED
+    assert await asyncio.wait_for(talk.running, 3) == Ending("dropped")
+    assert talk.socket.of("ended") == []
+    assert talk.model.session.closed
+    # Still staged: the browser may be back within the minute.
+    assert (await action(db, staged)).status == "proposed"
 
 
 async def test_a_conversation_is_ended_at_the_time_limit(session_factory, member, monkeypatch):
@@ -588,5 +617,6 @@ async def test_a_conversation_is_ended_at_the_time_limit(session_factory, member
         user_id=member.id,
     ).run()
 
-    assert reason is AgentEndReason.TIME_LIMIT
-    assert socket.sent[-1] == {"type": "ended", "reason": "time_limit"}
+    assert reason == Ending.ended(AgentEndReason.TIME_LIMIT)
+    assert socket.sent[-1]["type"] == "ended"
+    assert socket.sent[-1]["reason"] == "time_limit"

@@ -164,3 +164,95 @@ describe("ProfilePage", () => {
     });
   });
 });
+
+describe("what the assistant remembers", () => {
+  const MEMORY = {
+    id: "m-1",
+    category: "identity",
+    content: "Prefers to be called Sam",
+    source: "explicit",
+    evidence: "please call me Sam",
+    created_at: "2026-10-01T09:00:00Z",
+    updated_at: "2026-10-01T09:00:00Z",
+  };
+
+  function serveMemories(memories: (typeof MEMORY)[], enabled = true) {
+    let held = memories;
+    const deleted: string[] = [];
+    server.use(
+      http.get(url("/agent/status"), () =>
+        HttpResponse.json({
+          enabled,
+          max_session_seconds: 1800,
+          daily_limit_seconds: 600,
+          used_seconds: 0,
+          remaining_seconds: 600,
+          resets_at: "2026-10-15T00:00:00Z",
+        }),
+      ),
+      http.get(url("/agent/memories"), () => HttpResponse.json(held)),
+      http.delete(url("/agent/memories/:id"), ({ params }) => {
+        deleted.push(String(params.id));
+        held = held.filter((memory) => memory.id !== params.id);
+        return HttpResponse.json({ success: true });
+      }),
+    );
+    return deleted;
+  }
+
+  it("is not on the page for someone who is not offered the assistant and has none", async () => {
+    serveProfile();
+    serveMemories([], false);
+    renderProfile();
+
+    await screen.findByLabelText("Full name");
+    expect(screen.queryByText("What the assistant remembers")).not.toBeInTheDocument();
+  });
+
+  it("shows each memory with what kind it is and the words it came from", async () => {
+    serveProfile();
+    serveMemories([MEMORY, { ...MEMORY, id: "m-2", content: "Keeps answers short", category: "preference", source: "inferred", evidence: "keep it brief" }]);
+    renderProfile();
+
+    expect(await screen.findByText("Prefers to be called Sam")).toBeVisible();
+    expect(screen.getByText(/About you · saved/)).toBeVisible();
+    expect(screen.getByText("please call me Sam")).toBeVisible();
+    expect(screen.getByText(/Preference · saved .* noticed, not asked for/)).toBeVisible();
+  });
+
+  it("says so when there is nothing yet", async () => {
+    serveProfile();
+    serveMemories([]);
+    renderProfile();
+
+    expect(await screen.findByText("What the assistant remembers")).toBeVisible();
+    expect(screen.getByText("Nothing yet.")).toBeVisible();
+  });
+
+  it("deletes one after asking, and it goes from the list", async () => {
+    serveProfile();
+    const deleted = serveMemories([MEMORY]);
+    const { user } = renderProfile();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Delete memory: Prefers to be called Sam" }),
+    );
+    expect(deleted).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleted).toEqual(["m-1"]));
+    await waitFor(() =>
+      expect(screen.queryByText("Prefers to be called Sam")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("still lets someone delete their memories after the assistant is switched off", async () => {
+    serveProfile();
+    serveMemories([MEMORY], false);
+    renderProfile();
+
+    expect(
+      await screen.findByRole("button", { name: "Delete memory: Prefers to be called Sam" }),
+    ).toBeVisible();
+  });
+});

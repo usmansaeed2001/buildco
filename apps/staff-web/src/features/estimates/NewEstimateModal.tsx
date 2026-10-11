@@ -28,6 +28,7 @@ export function NewEstimateModal({
   busy,
   initial,
   staged = false,
+  also = [],
   onClose,
   onCreate,
 }: {
@@ -41,6 +42,12 @@ export function NewEstimateModal({
   initial?: Partial<NewEstimateValues>;
   /** Shown by the assistant as what it proposes: read-only, see `Modal`. */
   staged?: boolean;
+  /**
+   * Values that will be saved with the supplement and that this form has no field for.
+   * The assistant can propose a project manager, a carrier and notes; they are listed
+   * so that what is on screen is everything that will be written.
+   */
+  also?: { label: string; value: string }[];
   onClose: () => void;
   onCreate: (values: NewEstimateValues) => Promise<void>;
 }) {
@@ -109,6 +116,20 @@ export function NewEstimateModal({
         }}
       >
         {failure && <Alert tone="danger">{failure}</Alert>}
+
+        {also.length > 0 && (
+          <dl
+            aria-label="Also set"
+            className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-card bg-gray-50 p-3 text-sm"
+          >
+            {also.map((row) => (
+              <div key={row.label} className="contents">
+                <dt className="font-medium text-gray-700">{row.label}</dt>
+                <dd className="whitespace-pre-wrap text-gray-600">{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
 
         <TextField
           label="Project name"

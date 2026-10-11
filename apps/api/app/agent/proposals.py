@@ -42,21 +42,54 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import get_settings
 from app.errors import AppError
 from app.logging import get_logger
-from app.models.agent import AgentAction, AgentConversation
-from app.models.enums import AgentActionStatus, AgentApprovalPolicy, AgentApprovedVia
+from app.models.agent import AgentAction, AgentConversation, AgentMemory
+from app.models.enums import (
+    AgentActionStatus,
+    AgentApprovalPolicy,
+    AgentApprovedVia,
+    EstimateStatus,
+)
+from app.models.estimate import Estimate
 from app.models.meeting import Meeting
 from app.models.profile import Profile
-from app.schemas.meeting import MeetingCreate
-from app.services import actions, meeting_service
+from app.schemas.estimate import EstimateCreate, EstimateUpdate
+from app.schemas.meeting import MeetingCreate, MeetingUpdate
+from app.services import (
+    actions,
+    agent_memory_service,
+    estimate_service,
+    meeting_service,
+    settings_service,
+)
 from app.services.actions import FollowUp
-from app.services.rules import agent_rules
-from app.services.rules.agent_rules import Invitee
+from app.services.rules import agent_readback, agent_rules, estimate_rules
+from app.services.rules.agent_rules import (
+    MEETING_CREATE,
+    MEETING_UPDATE,
+    MEMORY_CHANGE,
+    SUPPLEMENT_CREATE,
+    SUPPLEMENT_SUBMIT,
+    SUPPLEMENT_TRANSITION,
+    SUPPLEMENT_UPDATE,
+    FieldChange,
+    Invitee,
+    Term,
+)
 
 log = get_logger(__name__)
 
-MEETING_CREATE = "meeting.create"
-
 SessionFactory = async_sessionmaker[AsyncSession]
+
+#: Which of the browser's cached lists a committed proposal makes stale.
+REFRESH: dict[str, list[str]] = {
+    MEETING_CREATE: ["meetings"],
+    MEETING_UPDATE: ["meetings"],
+    SUPPLEMENT_CREATE: ["estimates"],
+    SUPPLEMENT_UPDATE: ["estimates"],
+    SUPPLEMENT_TRANSITION: ["estimates"],
+    SUPPLEMENT_SUBMIT: ["estimates"],
+    MEMORY_CHANGE: ["agent"],
+}
 
 
 class ProposalRefused(Exception):
@@ -96,15 +129,143 @@ def fingerprint_meeting(meeting: Meeting) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def fingerprint_estimate(estimate: Estimate) -> str:
+    """A hash of what a proposal about a supplement depends on.
+
+    Its header, its status, whether it is in the trash, and its rooms. A proposal to
+    archive a supplement was read back with a total; if a line was added since, that
+    total is no longer what the user approved.
+    """
+    content = {
+        "project_name": estimate.project_name,
+        "client_name": estimate.client_name,
+        "identifier": estimate.identifier,
+        "pm_name": estimate.pm_name,
+        "insurance_carrier": estimate.insurance_carrier,
+        "notes": estimate.notes,
+        "status": estimate.status,
+        "trashed": estimate.is_trashed,
+        "rooms": estimate.rooms,
+    }
+    encoded = json.dumps(content, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def fingerprint_memory(memory: AgentMemory) -> str:
+    return hashlib.sha256(f"{memory.category}\n{memory.content}".encode()).hexdigest()
+
+
 # ── Proposing ─────────────────────────────────────────────────────────────────
+
+
+def _zone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
+
+
+def _problems(exc: ValidationError) -> str:
+    return "; ".join(
+        f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in exc.errors()
+    )
+
+
+def _uuid(value: str, what: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(str(value))
+    except ValueError as exc:
+        raise ProposalRefused(
+            f"That is not the id of {what}. Look it up first and pass the id you are given."
+        ) from exc
+
+
+@dataclass(slots=True)
+class Draft:
+    """A proposal worked out and not yet stored."""
+
+    kind: str
+    payload: dict[str, Any]
+    summary: str
+    policy: AgentApprovalPolicy
+    #: What the staged screen shows that the payload alone does not say. ``route`` is
+    #: where in the app it is staged.
+    labels: dict[str, Any] = field(default_factory=dict)
+    required_terms: list[Term] = field(default_factory=list)
+    target_type: str | None = None
+    target_id: uuid.UUID | None = None
+    target_fingerprint: str | None = None
+
+
+async def _store(
+    session: AsyncSession, actor: Profile, conversation: AgentConversation, draft: Draft
+) -> AgentAction:
+    """Record a proposal, replacing whichever one was open.
+
+    At most one open proposal per conversation: a correction replaces what it corrects,
+    and an approval never carries over to values the user has not seen.
+    """
+    now = datetime.now(UTC)
+    replaced = await session.execute(
+        update(AgentAction)
+        .where(
+            AgentAction.conversation_id == conversation.id,
+            AgentAction.status == AgentActionStatus.PROPOSED.value,
+        )
+        .values(status=AgentActionStatus.SUPERSEDED.value, resolved_at=now)
+    )
+    if replaced.rowcount:  # type: ignore[attr-defined]
+        log.info("agent_proposal_superseded", conversation_id=str(conversation.id))
+
+    action = AgentAction(
+        conversation_id=conversation.id,
+        user_id=actor.id,
+        kind=draft.kind,
+        status=AgentActionStatus.PROPOSED.value,
+        payload=draft.payload,
+        labels=draft.labels,
+        summary=draft.summary,
+        approval_policy=draft.policy.value,
+        target_type=draft.target_type,
+        target_id=draft.target_id,
+        target_fingerprint=draft.target_fingerprint,
+        required_terms=draft.required_terms,
+        expires_at=now + timedelta(seconds=get_settings().agent_proposal_ttl_seconds),
+    )
+    session.add(action)
+    await session.flush()
+    log.info(
+        "agent_proposal_created",
+        conversation_id=str(conversation.id),
+        action_id=str(action.id),
+        kind=action.kind,
+        approval_policy=action.approval_policy,
+    )
+    return action
+
+
+def describe(action: AgentAction) -> dict[str, Any]:
+    """A proposal as the browser is shown it: the approval card and the staged screen."""
+    return {
+        "id": str(action.id),
+        "kind": action.kind,
+        "summary": action.summary,
+        "payload": action.payload,
+        "labels": action.labels,
+        "warnings": list(action.labels.get("warnings", [])),
+        "approval": action.approval_policy,
+        "expires_at": _as_utc(action.expires_at).isoformat(),
+    }
+
+
+def done_summary(action: AgentAction) -> str:
+    """A committed proposal's summary, reworded as something that has happened."""
+    return "Saved: " + action.summary.replace("I am about to ", "", 1)
 
 
 def _local_instant(day: str, clock: str, zone: str) -> datetime:
     """``2026-10-14`` and ``14:30`` in the user's zone, as an aware datetime."""
-    try:
-        tz = ZoneInfo(zone)
-    except (ZoneInfoNotFoundError, ValueError):
-        tz = ZoneInfo("UTC")
+    tz = _zone(zone)
     try:
         naive = datetime.strptime(f"{day} {clock}", "%Y-%m-%d %H:%M")
     except ValueError as exc:
@@ -128,6 +289,7 @@ async def propose_meeting_create(
     guest_emails: Sequence[str] = (),
     location: str = "",
     description: str = "",
+    remembered_fields: Sequence[str] | None = None,
 ) -> AgentAction:
     """Stage a new meeting. Writes the proposal and nothing else.
 
@@ -182,54 +344,580 @@ async def propose_meeting_create(
             "right person, or ask the user who they meant."
         )
 
-    people = [Invitee(label=person.display_name) for person in invitees.members] + [
-        Invitee(label=email, outside_email=email) for email in invitees.guests
-    ]
+    people = _people(invitees.members, invitees.guests)
+    remembered = _remembered(remembered_fields)
     summary = agent_rules.meeting_summary(
         title=body.title, start=start, end=end, location=body.location, invitees=people
     )
-    policy = agent_rules.meeting_approval_policy(emails_anyone=bool(people))
+    note = agent_rules.memory_note(remembered)
+    return await _store(
+        session,
+        actor,
+        conversation,
+        Draft(
+            kind=MEETING_CREATE,
+            payload=body.model_dump(mode="json", exclude={"google_access_token"}),
+            summary=f"{summary} {note}".strip(),
+            policy=agent_rules.approval_policy(MEETING_CREATE, emails_anyone=bool(people)),
+            labels={
+                "route": f"/calendar?on={start.date().isoformat()}",
+                "when": agent_rules.describe_when(start, end),
+                "attendees": _attendee_labels(people),
+                "warnings": [note] if note else [],
+            },
+            required_terms=agent_rules.meeting_terms(
+                title=body.title, start=start, invitees=people, remembered=remembered
+            ),
+        ),
+    )
 
-    # At most one open proposal per conversation: a correction replaces what it corrects.
-    now = datetime.now(UTC)
+
+def _people(members: Sequence[Profile], guests: Sequence[str]) -> list[Invitee]:
+    return [Invitee(label=person.display_name) for person in members] + [
+        Invitee(label=email, outside_email=email) for email in guests
+    ]
+
+
+def _attendee_labels(people: Sequence[Invitee]) -> list[dict[str, str]]:
+    """A label for every attendee in the payload, so the staged form shows exactly them."""
+    return [
+        {"label": person.label, **({"note": "outside guest"} if person.outside_email else {})}
+        for person in people
+    ]
+
+
+def _remembered(fields: Sequence[str] | None) -> list[str]:
+    return [str(name).strip() for name in fields or [] if str(name).strip()]
+
+
+async def propose_meeting_update(
+    session: AsyncSession,
+    actor: Profile,
+    conversation: AgentConversation,
+    *,
+    meeting_id: str,
+    title: str | None = None,
+    date: str | None = None,
+    start_time: str | None = None,
+    duration_minutes: int | None = None,
+    location: str | None = None,
+    description: str | None = None,
+    attendee_ids: Sequence[str] | None = None,
+    guest_emails: Sequence[str] | None = None,
+) -> AgentAction:
+    """Stage a change to a meeting. ``None`` leaves that part of it as it is.
+
+    The plan comes from ``meeting_service.plan_update``, which is what the write itself
+    applies. So whether this proposal would email anyone, who would be on the meeting
+    afterwards, and which removed people would come off it are the write's own answers
+    and not a second opinion.
+    """
+    zone = _zone(conversation.client_timezone)
+    try:
+        meeting = await meeting_service.get_meeting(session, actor, _uuid(meeting_id, "a meeting"))
+    except AppError as exc:
+        raise ProposalRefused(exc.message) from exc
+
+    was_start = _as_utc(meeting.start_time).astimezone(zone)
+    was_end = _as_utc(meeting.end_time).astimezone(zone)
+    start, end = was_start, was_end
+    if date is not None or start_time is not None:
+        start = _local_instant(
+            date or was_start.strftime("%Y-%m-%d"),
+            start_time or was_start.strftime("%H:%M"),
+            conversation.client_timezone,
+        )
+        end = start + (was_end - was_start)
+    if duration_minutes is not None:
+        if duration_minutes <= 0:
+            raise ProposalRefused("A meeting needs a length. How long should it be?")
+        end = start + timedelta(minutes=duration_minutes)
+
+    fields: dict[str, Any] = {}
+    said: list[str] = []
+    if title is not None and title.strip() != meeting.title:
+        fields["title"] = title.strip()
+        said.append(f"New title: {title.strip()}.")
+    if start != was_start or end != was_end:
+        fields["start_time"] = start.astimezone(UTC)
+        fields["end_time"] = end.astimezone(UTC)
+        said.append("The time changes.")
+    if location is not None and location != meeting.location:
+        fields["location"] = location
+        said.append(f"Location: {location or 'none'}.")
+    if description is not None and description != meeting.description:
+        fields["description"] = description
+        said.append("The description changes.")
+    if attendee_ids is not None:
+        fields["attendee_ids"] = [_uuid(value, "a team member") for value in attendee_ids]
+    if guest_emails is not None:
+        fields["attendee_emails"] = list(guest_emails)
+
+    try:
+        body = MeetingUpdate(**fields)
+    except ValidationError as exc:
+        raise ProposalRefused(
+            f"That meeting cannot be changed as described ({_problems(exc)})."
+        ) from exc
+
+    changes = body.model_dump(exclude_unset=True, exclude={"attendee_ids", "attendee_emails"})
+    try:
+        plan = await meeting_service.plan_update(
+            session,
+            actor,
+            meeting,
+            changes=changes,
+            attendee_ids=body.attendee_ids,
+            attendee_emails=(
+                None if body.attendee_emails is None else [str(e) for e in body.attendee_emails]
+            ),
+        )
+    except AppError as exc:
+        raise ProposalRefused(exc.message) from exc
+
+    known = {person.id for person in [*plan.members, *plan.dropped]}
+    if any(member_id not in known for member_id in body.attendee_ids or []):
+        raise ProposalRefused(
+            "One of those people is not on the team. Use list_team_members to find the "
+            "right person, or ask the user who they meant."
+        )
+    if not (fields.keys() - {"attendee_ids", "attendee_emails"}) and not plan.attendees_changed:
+        raise ProposalRefused(
+            "That would change nothing about the meeting. Ask what should change."
+        )
+    if plan.attendees_changed:
+        said.append("The list of people invited changes.")
+
+    people = _people(plan.members, plan.guests)
+    dropped = [person.display_name for person in plan.dropped]
+    result_title = fields.get("title", meeting.title)
+    summary = agent_rules.meeting_update_summary(
+        title=result_title,
+        start=start,
+        end=end,
+        changes=said,
+        invitees=people,
+        reinvites=plan.reinvites,
+        dropped=dropped,
+    )
+    terms = agent_rules.meeting_terms(
+        title=result_title, start=start, invitees=people if plan.reinvites else []
+    )
+    terms += [
+        agent_readback.text_term("a removed person coming off the meeting", name)
+        for name in dropped
+    ]
+    return await _store(
+        session,
+        actor,
+        conversation,
+        Draft(
+            kind=MEETING_UPDATE,
+            payload={
+                "meeting_id": str(meeting.id),
+                "changes": body.model_dump(mode="json", exclude_unset=True),
+            },
+            summary=summary,
+            policy=agent_rules.approval_policy(MEETING_UPDATE, emails_anyone=plan.reinvites),
+            labels={
+                "route": f"/calendar?on={start.date().isoformat()}",
+                "when": agent_rules.describe_when(start, end),
+                # The whole form as it would be after the change, for the staged screen.
+                "form": {
+                    "title": result_title,
+                    "description": fields.get("description", meeting.description),
+                    "location": fields.get("location", meeting.location),
+                    "start_time": start.astimezone(UTC).isoformat(),
+                    "end_time": end.astimezone(UTC).isoformat(),
+                },
+                "attendees": _attendee_labels(people),
+                "dropped": dropped,
+                "warnings": [
+                    f"{name} has been removed from the team and comes off this meeting."
+                    for name in dropped
+                ],
+            },
+            required_terms=terms,
+            target_type="meeting",
+            target_id=meeting.id,
+            target_fingerprint=fingerprint_meeting(meeting),
+        ),
+    )
+
+
+# ── Supplements ───────────────────────────────────────────────────────────────
+
+#: The details of a supplement the assistant may change, and how each is named aloud.
+DETAIL_FIELDS: dict[str, str] = {
+    "project_name": "Project name",
+    "client_name": "Client",
+    "identifier": "Claim ID",
+    "pm_name": "Project manager",
+    "insurance_carrier": "Carrier",
+    "notes": "Notes",
+}
+
+
+def _name_of(estimate: Estimate) -> str:
+    return agent_rules.supplement_name(
+        project_name=estimate.project_name,
+        client_name=estimate.client_name,
+        identifier=estimate.identifier,
+    )
+
+
+def _terms_of(estimate: Estimate, *, with_total: bool) -> list[Term]:
+    return agent_rules.supplement_terms(
+        project_name=estimate.project_name,
+        client_name=estimate.client_name,
+        identifier=estimate.identifier,
+        total=estimate.total_amount if with_total else None,
+    )
+
+
+async def _supplement(session: AsyncSession, actor: Profile, supplement_id: str) -> Estimate:
+    """A supplement the actor may see, that is not in the trash."""
+    try:
+        estimate = await estimate_service.get_estimate(
+            session, actor, _uuid(supplement_id, "a supplement")
+        )
+    except AppError as exc:
+        raise ProposalRefused(exc.message) from exc
+    if estimate.is_trashed:
+        raise ProposalRefused(
+            "That supplement is in the trash. It has to be restored by hand before "
+            "anything can be done with it."
+        )
+    return estimate
+
+
+async def propose_supplement_create(
+    session: AsyncSession,
+    actor: Profile,
+    conversation: AgentConversation,
+    *,
+    project_name: str,
+    client_name: str = "",
+    identifier: str = "",
+    pm_name: str = "",
+    insurance_carrier: str = "",
+    notes: str = "",
+    remembered_fields: Sequence[str] | None = None,
+) -> AgentAction:
+    """Stage a new supplement: its header only. Rooms and lines are added by hand."""
+    if not project_name.strip() and not client_name.strip():
+        raise ProposalRefused("A supplement needs a project or client name. Ask for one.")
+    try:
+        body = EstimateCreate(
+            project_name=project_name.strip(),
+            client_name=client_name.strip(),
+            identifier=identifier or None,
+            pm_name=pm_name.strip(),
+            insurance_carrier=insurance_carrier.strip(),
+            notes=notes,
+        )
+    except ValidationError as exc:
+        raise ProposalRefused(
+            f"That supplement cannot be created as described ({_problems(exc)})."
+        ) from exc
+
+    remembered = _remembered(remembered_fields)
+    note = agent_rules.memory_note(remembered)
+    terms = agent_rules.supplement_terms(
+        project_name=body.project_name,
+        client_name=body.client_name,
+        identifier=body.identifier or "",
+    )
+    if remembered:
+        terms.append(
+            agent_readback.any_term("that a value came from memory", ["remember", "memory"])
+        )
+    return await _store(
+        session,
+        actor,
+        conversation,
+        Draft(
+            kind=SUPPLEMENT_CREATE,
+            payload=body.model_dump(mode="json"),
+            summary=agent_rules.supplement_create_summary(
+                project_name=body.project_name,
+                client_name=body.client_name,
+                identifier=body.identifier,
+                pm_name=body.pm_name,
+                insurance_carrier=body.insurance_carrier,
+                remembered=remembered,
+            ),
+            policy=agent_rules.approval_policy(SUPPLEMENT_CREATE),
+            labels={"route": "/estimates", "warnings": [note] if note else []},
+            required_terms=terms,
+        ),
+    )
+
+
+async def propose_supplement_update(
+    session: AsyncSession,
+    actor: Profile,
+    conversation: AgentConversation,
+    *,
+    supplement_id: str,
+    project_name: str | None = None,
+    client_name: str | None = None,
+    identifier: str | None = None,
+    pm_name: str | None = None,
+    insurance_carrier: str | None = None,
+    notes: str | None = None,
+) -> AgentAction:
+    """Stage a change to a supplement's details. ``None`` leaves a field as it is."""
+    estimate = await _supplement(session, actor, supplement_id)
+    if not estimate_rules.can_edit(
+        estimate_service.actor_of(actor), estimate_service.snapshot_of(estimate)
+    ):
+        raise ProposalRefused(
+            "This supplement is locked. Only the owner can edit it."
+            if estimate.status == EstimateStatus.LOCKED.value
+            else "You can only edit supplements you created."
+        )
+
+    asked = {
+        "project_name": project_name,
+        "client_name": client_name,
+        "identifier": identifier,
+        "pm_name": pm_name,
+        "insurance_carrier": insurance_carrier,
+        "notes": notes,
+    }
+    wanted = {
+        name: value.strip() if name != "notes" else value
+        for name, value in asked.items()
+        if value is not None
+    }
+    different = {name: value for name, value in wanted.items() if value != getattr(estimate, name)}
+    if not different:
+        raise ProposalRefused(
+            "That would change nothing about the supplement. Ask what should change."
+        )
+    try:
+        body = EstimateUpdate(**different)
+    except ValidationError as exc:
+        raise ProposalRefused(
+            f"Those details cannot be saved as described ({_problems(exc)})."
+        ) from exc
+
+    changes = [
+        FieldChange(label=DETAIL_FIELDS[name], old=str(getattr(estimate, name) or ""), new=value)
+        for name, value in different.items()
+    ]
+    terms = _terms_of(estimate, with_total=False)
+    status_note = ""
+    if estimate.status in (EstimateStatus.SUBMITTED.value, EstimateStatus.APPROVED.value):
+        said = agent_rules.said_status(estimate.status)
+        status_note = f"Note that this supplement is already {said}."
+        terms.append(agent_readback.text_term("that the supplement is already out", said))
+
+    return await _store(
+        session,
+        actor,
+        conversation,
+        Draft(
+            kind=SUPPLEMENT_UPDATE,
+            payload={
+                "supplement_id": str(estimate.id),
+                "changes": body.model_dump(mode="json", exclude_unset=True),
+            },
+            summary=agent_rules.supplement_update_summary(
+                name=_name_of(estimate), changes=changes, status_note=status_note
+            ),
+            policy=agent_rules.approval_policy(SUPPLEMENT_UPDATE),
+            labels={
+                "route": f"/estimates/{estimate.id}",
+                "name": _name_of(estimate),
+                "changes": [
+                    {"field": name, "label": change.label, "old": change.old, "new": change.new}
+                    for name, change in zip(different, changes, strict=True)
+                ],
+                "warnings": [status_note] if status_note else [],
+            },
+            required_terms=terms,
+            target_type="supplement",
+            target_id=estimate.id,
+            target_fingerprint=fingerprint_estimate(estimate),
+        ),
+    )
+
+
+async def propose_supplement_transition(
+    session: AsyncSession,
+    actor: Profile,
+    conversation: AgentConversation,
+    *,
+    supplement_id: str,
+    action: str,
+) -> AgentAction:
+    """Stage a status change. Refused here if the real one would be refused."""
+    estimate = await _supplement(session, actor, supplement_id)
+    try:
+        estimate_rules.resolve_transition(
+            action, estimate_service.actor_of(actor), EstimateStatus(estimate.status)
+        )
+    except (
+        estimate_rules.UnknownTransition,
+        estimate_rules.TransitionNotPermitted,
+        estimate_rules.TransitionNotAvailable,
+    ) as exc:
+        raise ProposalRefused(f"{exc}.") from exc
+
+    verb, note = agent_rules.TRANSITION_WORDS[action]
+    return await _store(
+        session,
+        actor,
+        conversation,
+        Draft(
+            kind=SUPPLEMENT_TRANSITION,
+            payload={"supplement_id": str(estimate.id), "action": action},
+            summary=agent_rules.supplement_transition_summary(
+                name=_name_of(estimate),
+                action=action,
+                status=estimate.status,
+                total=estimate.total_amount,
+            ),
+            policy=agent_rules.approval_policy(SUPPLEMENT_TRANSITION, transition=action),
+            labels={
+                "route": f"/estimates/{estimate.id}",
+                "name": _name_of(estimate),
+                "action": action,
+                "action_label": verb[:1].upper() + verb[1:],
+                "status": estimate.status,
+                "total": agent_rules.money(estimate.total_amount),
+                "warnings": [note] if note else [],
+            },
+            required_terms=_terms_of(estimate, with_total=True),
+            target_type="supplement",
+            target_id=estimate.id,
+            target_fingerprint=fingerprint_estimate(estimate),
+        ),
+    )
+
+
+async def propose_supplement_submit(
+    session: AsyncSession,
+    actor: Profile,
+    conversation: AgentConversation,
+    *,
+    supplement_id: str,
+) -> AgentAction:
+    """Stage sending a supplement to the reviewer. Always needs a click: it emails them."""
+    estimate = await _supplement(session, actor, supplement_id)
+    try:
+        reviewer = await settings_service.reviewer_or_error(session)
+    except AppError as exc:
+        raise ProposalRefused(exc.message) from exc
+    who, what = estimate_service.actor_of(actor), estimate_service.snapshot_of(estimate)
+    if not estimate_rules.can_submit_for_review(who, what):
+        raise ProposalRefused("You can only submit supplements you created.")
+    if not estimate_rules.can_be_submitted(what):
+        raise ProposalRefused(
+            f"A supplement that is {agent_rules.said_status(estimate.status)} cannot be sent "
+            "for review. If it is already with the reviewer it has to be recalled first."
+        )
+
+    terms = _terms_of(estimate, with_total=True)
+    terms.append(agent_readback.text_term("who will be emailed", reviewer.display_name))
+    return await _store(
+        session,
+        actor,
+        conversation,
+        Draft(
+            kind=SUPPLEMENT_SUBMIT,
+            payload={"supplement_id": str(estimate.id)},
+            summary=agent_rules.supplement_submit_summary(
+                name=_name_of(estimate),
+                total=estimate.total_amount,
+                reviewer_name=reviewer.display_name,
+                reviewer_email=reviewer.email,
+            ),
+            policy=agent_rules.approval_policy(SUPPLEMENT_SUBMIT),
+            labels={
+                "route": f"/estimates/{estimate.id}",
+                "name": _name_of(estimate),
+                "total": agent_rules.money(estimate.total_amount),
+                "reviewer": {"name": reviewer.display_name, "email": reviewer.email},
+                "warnings": [f"{reviewer.display_name} will be emailed the approval link."],
+            },
+            required_terms=terms,
+            target_type="supplement",
+            target_id=estimate.id,
+            target_fingerprint=fingerprint_estimate(estimate),
+        ),
+    )
+
+
+# ── Memory ────────────────────────────────────────────────────────────────────
+
+
+async def propose_memory_change(
+    session: AsyncSession,
+    actor: Profile,
+    conversation: AgentConversation,
+    *,
+    memory_id: str,
+    new_content: str | None,
+    user_words: Sequence[str],
+    known_names: Sequence[str] = (),
+) -> AgentAction:
+    """Stage changing or forgetting something the assistant remembers.
+
+    Adding a memory needs no approval; changing one does, with the old and new text
+    shown, so that what the assistant believes about a person cannot be quietly
+    rewritten. The new text is held to the same grounding rule as a new memory.
+    """
+    try:
+        memory = await agent_memory_service.get_memory(session, actor, _uuid(memory_id, "a memory"))
+    except AppError as exc:
+        raise ProposalRefused(exc.message) from exc
+
+    replacement = (new_content or "").strip() or None
+    if replacement is not None:
+        if replacement == memory.content:
+            raise ProposalRefused("That is already what is remembered.")
+        try:
+            agent_memory_service.check_groundable(
+                replacement, user_words=user_words, known_names=known_names
+            )
+        except agent_memory_service.MemoryRejected as exc:
+            raise ProposalRefused(exc.message) from exc
+
+    return await _store(
+        session,
+        actor,
+        conversation,
+        Draft(
+            kind=MEMORY_CHANGE,
+            payload={"memory_id": str(memory.id), "content": replacement},
+            summary=agent_rules.memory_change_summary(old=memory.content, new=replacement),
+            policy=agent_rules.approval_policy(MEMORY_CHANGE),
+            labels={"old": memory.content, "new": replacement},
+            target_type="memory",
+            target_id=memory.id,
+            target_fingerprint=fingerprint_memory(memory),
+        ),
+    )
+
+
+async def downgrade_to_click(session: AsyncSession, action_id: uuid.UUID) -> None:
+    """The read-back could not be verified: from now on only the button approves this."""
     await session.execute(
         update(AgentAction)
-        .where(
-            AgentAction.conversation_id == conversation.id,
-            AgentAction.status == AgentActionStatus.PROPOSED.value,
-        )
-        .values(status=AgentActionStatus.SUPERSEDED.value, resolved_at=now)
+        .where(AgentAction.id == action_id, AgentAction.status == AgentActionStatus.PROPOSED.value)
+        .values(approval_policy=AgentApprovalPolicy.CLICK.value, readback_verified=False)
     )
 
-    action = AgentAction(
-        conversation_id=conversation.id,
-        user_id=actor.id,
-        kind=MEETING_CREATE,
-        status=AgentActionStatus.PROPOSED.value,
-        payload=body.model_dump(mode="json", exclude={"google_access_token"}),
-        labels={
-            "when": agent_rules.describe_when(start, end),
-            "attendees": [
-                {
-                    "label": person.label,
-                    **({"note": "outside guest"} if person.outside_email else {}),
-                }
-                for person in people
-            ],
-        },
-        summary=summary,
-        approval_policy=policy.value,
-        expires_at=now + timedelta(seconds=get_settings().agent_proposal_ttl_seconds),
+
+async def mark_verified(session: AsyncSession, action_id: uuid.UUID) -> None:
+    await session.execute(
+        update(AgentAction)
+        .where(AgentAction.id == action_id, AgentAction.status == AgentActionStatus.PROPOSED.value)
+        .values(readback_verified=True)
     )
-    session.add(action)
-    await session.flush()
-    log.info(
-        "agent_proposal_created",
-        action_id=str(action.id),
-        kind=action.kind,
-        approval_policy=action.approval_policy,
-    )
-    return action
 
 
 # ── Resolving without committing ──────────────────────────────────────────────
@@ -288,12 +976,55 @@ async def _apply(
     session: AsyncSession, actor: Profile, action: AgentAction
 ) -> tuple[dict[str, Any], list[FollowUp]]:
     """Perform the proposed action. Dispatches on its kind."""
+    payload = action.payload
     if action.kind == MEETING_CREATE:
         written = await actions.create_meeting(
-            session, actor, MeetingCreate.model_validate(action.payload)
+            session, actor, MeetingCreate.model_validate(payload)
         )
-        return {"type": "meeting", "id": str(written.meeting.id)}, written.follow_ups
+        return _target("meeting", written.meeting.id), written.follow_ups
+    if action.kind == MEETING_UPDATE:
+        written = await actions.update_meeting(
+            session,
+            actor,
+            uuid.UUID(payload["meeting_id"]),
+            MeetingUpdate.model_validate(payload["changes"]),
+        )
+        return _target("meeting", written.meeting.id), written.follow_ups
+    if action.kind == SUPPLEMENT_CREATE:
+        created = await actions.create_estimate(
+            session, actor, EstimateCreate.model_validate(payload)
+        )
+        return _target("supplement", created.estimate.id), created.follow_ups
+    if action.kind == SUPPLEMENT_UPDATE:
+        updated = await actions.update_estimate(
+            session,
+            actor,
+            uuid.UUID(payload["supplement_id"]),
+            EstimateUpdate.model_validate(payload["changes"]),
+        )
+        return _target("supplement", updated.estimate.id), updated.follow_ups
+    if action.kind == SUPPLEMENT_TRANSITION:
+        moved = await actions.transition_estimate(
+            session, actor, uuid.UUID(payload["supplement_id"]), payload["action"]
+        )
+        return _target("supplement", moved.estimate.id), moved.follow_ups
+    if action.kind == SUPPLEMENT_SUBMIT:
+        sent = await actions.submit_estimate_for_review(
+            session, actor, uuid.UUID(payload["supplement_id"])
+        )
+        return _target("supplement", sent.submission.estimate.id), sent.follow_ups
+    if action.kind == MEMORY_CHANGE:
+        memory_id = uuid.UUID(payload["memory_id"])
+        if payload.get("content") is None:
+            await agent_memory_service.delete_memory(session, actor, memory_id)
+        else:
+            await agent_memory_service.rewrite_memory(session, actor, memory_id, payload["content"])
+        return _target("memory", memory_id), []
     raise _CommitFailed(f"Nothing knows how to commit a {action.kind!r} proposal.")
+
+
+def _target(kind: str, record_id: uuid.UUID) -> dict[str, Any]:
+    return {"type": kind, "id": str(record_id)}
 
 
 async def _check_target_unchanged(
@@ -312,6 +1043,16 @@ async def _check_target_unchanged(
             session, actor, action.target_id, for_update=True
         )
         current = fingerprint_meeting(meeting)
+    elif action.target_type == "supplement":
+        estimate = await estimate_service.get_estimate(
+            session, actor, action.target_id, for_update=True
+        )
+        current = fingerprint_estimate(estimate)
+    elif action.target_type == "memory":
+        memory = await agent_memory_service.get_memory(
+            session, actor, action.target_id, for_update=True
+        )
+        current = fingerprint_memory(memory)
     else:
         raise _CommitFailed(f"Nothing knows how to check a {action.target_type!r} target.")
     if current != action.target_fingerprint:

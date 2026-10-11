@@ -89,7 +89,7 @@ function Shell() {
     <AppFrame
       panel={agent?.panelOpen ? <AgentPanel /> : undefined}
       launcher={<AgentLauncher />}
-      locked={agent?.state.mode === "working"}
+      locked={agent?.locked === true}
       lockBanner={<AgentLockBanner />}
     >
       <AgentContextReporter />

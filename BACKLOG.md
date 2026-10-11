@@ -273,3 +273,31 @@ the indices on the client would make the mismatch harder to notice, not less lik
 Doing it properly means a real foreign key from `attachments` to a stable line-item id,
 which means giving line items ids in the `rooms` JSONB document, a migration, and a
 backfill. Worth doing before anyone relies on photo evidence for a claim.
+
+---
+
+## 15. BuildCo Assistant: what Release 1 leaves open
+
+Release 1 is built and ships switched off. `AGENT_SPEC.md` is the design; `DEPLOY_CHECKLIST.md`
+§3.10 is what has to happen before anyone uses it. What is left:
+
+- **Release 2: editing rooms and line items by voice.** Blocked on §14 above, which the
+  spec calls preparatory change C: rooms and lines need stable ids, and photos need to
+  follow their line, before the assistant may add or remove one. Until then it says that
+  rooms and lines are added in the editor.
+- **Two open questions in the spec.** Q1: an 8-second first connect, or a paid warm
+  instance. Q2: during a rollout the old and new revisions can each reach their own
+  instance cap, which overruns the connection budget on paper.
+- **Never run against the real thing:** iPad Safari (Windows and macOS Chrome were), the
+  real cost per minute, the Postgres step in Cloud Build (it has run locally), a
+  ten-minute approval pause, and sending for review by voice end to end (no reviewer is
+  configured in local development).
+- **The first response can be slow** when the model looks several things up before it
+  speaks. Not measured carefully; worth a look in the pilot.
+- **A conversation's time counts toward the day it started in.** One that runs across
+  00:00 UTC is charged entirely to the day before.
+- **The model's memory of early turns is not dependable** in a long conversation. The
+  server re-sends what matters (what was committed, what is open) each time a model
+  session starts, but small talk from the first minute can be forgotten by the last.
+- **Nobody but the user can see in the app what the assistant did on their behalf.** By
+  decision. An owner investigating a disputed change reads `agent_actions` directly.

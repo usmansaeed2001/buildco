@@ -55,8 +55,19 @@ export const handlers = [
   // The shell asks this on every page. Off by default, as it is in an environment with
   // nothing configured, so the assistant is absent unless a test asks for it.
   http.get(url("/agent/status"), () =>
-    HttpResponse.json({ enabled: false, max_session_seconds: 1800 }),
+    HttpResponse.json({
+      enabled: false,
+      max_session_seconds: 1800,
+      daily_limit_seconds: 600,
+      used_seconds: 0,
+      remaining_seconds: 600,
+      resets_at: "2026-10-15T00:00:00Z",
+    }),
   ),
+  http.get(url("/agent/conversations"), () =>
+    HttpResponse.json({ items: [], total: 0, limit: 20, offset: 0 }),
+  ),
+  http.get(url("/agent/memories"), () => HttpResponse.json([])),
   http.get(url("/catalogue-items"), () => HttpResponse.json([])),
   http.get(url("/settings"), () => HttpResponse.json(makeSettings())),
   http.get(url("/approval-requests"), () => HttpResponse.json([])),

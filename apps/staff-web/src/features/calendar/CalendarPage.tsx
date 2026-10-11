@@ -44,6 +44,7 @@ import { cn } from "@/lib/cn";
 import { formatTime } from "@/lib/format";
 import { useStagedProposal } from "@/features/agent/AgentProvider";
 import type { Proposal } from "@/features/agent/protocol";
+import { apiFetch } from "@/api/client";
 import { MeetingModal, type MeetingDraft } from "./MeetingModal";
 
 type View = "month" | "week" | "day" | "year";
@@ -102,8 +103,11 @@ export function CalendarPage() {
   // The assistant stages a new meeting here, on the real form. The server is told the
   // proposal is on screen only once this page has rendered it, which is what the effect
   // is for: saying so any earlier would let the agent describe a form nobody can see.
-  const assistant = useStagedProposal("meeting.create");
-  const [takenOver, setTakenOver] = useState<Proposal | null>(null);
+  const assistant = useStagedProposal("meeting.create", "meeting.update");
+  const [takenOver, setTakenOver] = useState<{
+    proposal: Proposal;
+    meeting: MeetingOut | null;
+  } | null>(null);
   const stagedId = assistant.staged?.id;
   const { confirm: confirmStaged, takeHandover, handover } = assistant;
   useEffect(() => {
@@ -111,8 +115,23 @@ export function CalendarPage() {
   }, [stagedId, confirmStaged]);
   useEffect(() => {
     if (!handover) return;
-    setTakenOver(handover);
     takeHandover();
+    const meetingId = handover.payload["meeting_id"];
+    if (typeof meetingId !== "string") {
+      setTakenOver({ proposal: handover, meeting: null });
+      return;
+    }
+    // A change to an existing meeting is finished on that meeting's own form, so the
+    // user saves an edit and not a second meeting. It may have been staged on a day
+    // this page has not loaded, so it is fetched rather than looked up.
+    let current = true;
+    void apiFetch<MeetingOut>(`/meetings/${meetingId}`).then(
+      (meeting) => current && setTakenOver({ proposal: handover, meeting }),
+      () => undefined,
+    );
+    return () => {
+      current = false;
+    };
   }, [handover, takeHandover]);
 
   const window =
@@ -288,7 +307,7 @@ export function CalendarPage() {
           meeting={null}
           defaultDate={anchor}
           canManage
-          draft={assistant.staged.payload as MeetingDraft}
+          draft={draftOf(assistant.staged)}
           staged={{ attendees: assistant.staged.labels.attendees ?? [] }}
           onClose={() => {}}
         />
@@ -298,12 +317,12 @@ export function CalendarPage() {
           finishes and saves as their own action. */}
       {takenOver && (
         <MeetingModal
-          key={`taken-over-${takenOver.id}`}
+          key={`taken-over-${takenOver.proposal.id}`}
           open
-          meeting={null}
+          meeting={takenOver.meeting}
           defaultDate={anchor}
           canManage
-          draft={takenOver.payload as MeetingDraft}
+          draft={draftOf(takenOver.proposal)}
           onClose={() => setTakenOver(null)}
         />
       )}
@@ -475,4 +494,21 @@ function YearView({
       ))}
     </div>
   );
+}
+
+/**
+ * The meeting form's values for a proposal.
+ *
+ * A new meeting's payload is the form. A change to a meeting carries only what changes,
+ * so the server sends the whole form as it would be afterwards beside it, and the
+ * attendee lists come from the change itself when the change touches them.
+ */
+function draftOf(proposal: Proposal): MeetingDraft {
+  if (proposal.kind !== "meeting.update") return proposal.payload as MeetingDraft;
+  const changes = (proposal.payload["changes"] ?? {}) as MeetingDraft;
+  return {
+    ...(proposal.labels.form as MeetingDraft | undefined),
+    ...(changes.attendee_ids ? { attendee_ids: changes.attendee_ids } : {}),
+    ...(changes.attendee_emails ? { attendee_emails: changes.attendee_emails } : {}),
+  };
 }

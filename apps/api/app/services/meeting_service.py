@@ -398,6 +398,100 @@ async def create_meeting(
     return meeting, _build_bundle(meeting, actor)
 
 
+#: A change to one of these is worth telling the attendees about.
+INVITE_WORTHY = frozenset({"start_time", "end_time", "location", "title"})
+
+
+@dataclass(frozen=True, slots=True)
+class UpdatePlan:
+    """What an update to a meeting would do, worked out before anything is changed."""
+
+    changed_fields: frozenset[str]
+    #: Who would be on the meeting afterwards.
+    members: list[Profile]
+    guests: list[str]
+    #: Removed people the update would take off it.
+    dropped: list[Profile]
+    attendees_changed: bool
+    #: The rows to replace, when the attendee list changes.
+    existing: list[MeetingAttendee]
+
+    @property
+    def reinvites(self) -> bool:
+        """Whether everyone on the meeting would be emailed an updated invite."""
+        return bool(self.changed_fields & INVITE_WORTHY or self.attendees_changed) and bool(
+            self.members or self.guests
+        )
+
+
+async def plan_update(
+    session: AsyncSession,
+    actor: Profile,
+    meeting: Meeting,
+    *,
+    changes: dict[str, Any],
+    attendee_ids: list[uuid.UUID] | None,
+    attendee_emails: list[str] | None = None,
+) -> UpdatePlan:
+    """Work out what an update would do, running every check, and change nothing.
+
+    ``update_meeting`` applies exactly this plan, so anything that shows a person what
+    an update is about to do, and whether it will email anyone, shows what will happen
+    and not a second opinion about it.
+    """
+    require_manageable(actor, meeting)
+
+    changed_fields = frozenset(
+        field for field, value in changes.items() if getattr(meeting, field) != value
+    )
+
+    # ``MeetingCreate`` validates this in the schema, but ``MeetingUpdate`` cannot: it is
+    # a partial, so a request carrying only ``end_time`` has nothing to compare against
+    # until the stored ``start_time`` is in hand. Without this, patching one end alone
+    # stores a meeting that finishes before it begins — which then renders as a negative
+    # duration and produces an ICS that Outlook rejects outright.
+    start = _as_utc(changes.get("start_time", meeting.start_time))
+    end = _as_utc(changes.get("end_time", meeting.end_time))
+    if end <= start:
+        raise ValidationFailed("end_time must be after start_time")
+
+    if attendee_ids is None and attendee_emails is None:
+        # Read from what is already loaded. Querying the rows here would put a second
+        # set of them in the session for a write that never touches the list.
+        return UpdatePlan(
+            changed_fields=changed_fields,
+            members=[a.profile for a in meeting.attendees if a.profile is not None],
+            guests=[a.email for a in meeting.attendees if a.user_id is None],
+            dropped=[],
+            attendees_changed=False,
+            existing=[],
+        )
+
+    existing = list(
+        await session.scalars(
+            select(MeetingAttendee).where(MeetingAttendee.meeting_id == meeting.id)
+        )
+    )
+    existing_ids = [a.user_id for a in existing if a.user_id is not None]
+    existing_guests = [a.email for a in existing if a.user_id is None]
+    invitees = await _resolve_invitees(
+        session,
+        attendee_ids if attendee_ids is not None else existing_ids,
+        attendee_emails if attendee_emails is not None else existing_guests,
+        already_on=frozenset(existing_ids),
+    )
+    same_members = {p.id for p in invitees.members} == set(existing_ids)
+    same_guests = set(invitees.guests) == set(_normalise_emails(existing_guests))
+    return UpdatePlan(
+        changed_fields=changed_fields,
+        members=invitees.members,
+        guests=invitees.guests,
+        dropped=invitees.dropped,
+        attendees_changed=not (same_members and same_guests),
+        existing=existing,
+    )
+
+
 async def update_meeting(
     session: AsyncSession,
     actor: Profile,
@@ -427,57 +521,32 @@ async def update_meeting(
     empty unless the attendee list was written. A caller that reads the change back to
     a person needs to name them.
     """
-    require_manageable(actor, meeting)
-
-    invite_worthy = {"start_time", "end_time", "location", "title"}
-    changed_fields = {field for field, value in changes.items() if getattr(meeting, field) != value}
-
-    # ``MeetingCreate`` validates this in the schema, but ``MeetingUpdate`` cannot: it is
-    # a partial, so a request carrying only ``end_time`` has nothing to compare against
-    # until the stored ``start_time`` is in hand. Without this, patching one end alone
-    # stores a meeting that finishes before it begins — which then renders as a negative
-    # duration and produces an ICS that Outlook rejects outright.
-    start = _as_utc(changes.get("start_time", meeting.start_time))
-    end = _as_utc(changes.get("end_time", meeting.end_time))
-    if end <= start:
-        raise ValidationFailed("end_time must be after start_time")
+    plan = await plan_update(
+        session,
+        actor,
+        meeting,
+        changes=changes,
+        attendee_ids=attendee_ids,
+        attendee_emails=attendee_emails,
+    )
+    dropped = plan.dropped
 
     for field, value in changes.items():
         setattr(meeting, field, value)
 
-    attendees_changed = False
-    dropped: list[Profile] = []
-    if attendee_ids is not None or attendee_emails is not None:
-        existing = list(
-            await session.scalars(
-                select(MeetingAttendee).where(MeetingAttendee.meeting_id == meeting.id)
-            )
-        )
-        existing_ids = [a.user_id for a in existing if a.user_id is not None]
-        existing_guests = [a.email for a in existing if a.user_id is None]
-        invitees = await _resolve_invitees(
-            session,
-            attendee_ids if attendee_ids is not None else existing_ids,
-            attendee_emails if attendee_emails is not None else existing_guests,
-            already_on=frozenset(existing_ids),
-        )
-        dropped = invitees.dropped
-        same_members = {p.id for p in invitees.members} == set(existing_ids)
-        same_guests = set(invitees.guests) == set(_normalise_emails(existing_guests))
-        if not (same_members and same_guests):
-            attendees_changed = True
-            # Deleted and flushed before the replacements go in: a member who stays on
-            # the list would otherwise collide with their own outgoing row on
-            # ``uq_meeting_attendee``, since a flush writes inserts ahead of deletes.
-            for row in existing:
-                await session.delete(row)
-            await session.flush()
-            meeting.attendees.extend(_attendee_rows(invitees.members, invitees.guests))
+    if plan.attendees_changed:
+        # Deleted and flushed before the replacements go in: a member who stays on
+        # the list would otherwise collide with their own outgoing row on
+        # ``uq_meeting_attendee``, since a flush writes inserts ahead of deletes.
+        for row in plan.existing:
+            await session.delete(row)
+        await session.flush()
+        meeting.attendees.extend(_attendee_rows(plan.members, plan.guests))
 
     await session.flush()
     await session.refresh(meeting)
 
-    if not (changed_fields & invite_worthy or attendees_changed):
+    if not (plan.changed_fields & INVITE_WORTHY or plan.attendees_changed):
         return meeting, None, dropped
 
     # SEQUENCE must increase for calendar clients to accept the revision. Seconds

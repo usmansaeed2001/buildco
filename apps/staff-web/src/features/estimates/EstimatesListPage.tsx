@@ -43,6 +43,8 @@ import { endOfLocalDay, startOfLocalDay } from "@/lib/dateRange";
 import { ApiError } from "@/api/client";
 import { EstimatesGridSkeleton } from "./EstimateCardSkeleton";
 import { NewEstimateModal, type NewEstimateValues } from "./NewEstimateModal";
+import { useStagedProposal } from "@/features/agent/AgentProvider";
+import type { Proposal } from "@/features/agent/protocol";
 import { TrashList } from "./TrashList";
 
 export function EstimatesListPage() {
@@ -96,6 +98,22 @@ export function EstimatesListPage() {
 
   const createEstimate = useCreateEstimate();
   const [creating, setCreating] = useState(false);
+
+  // The assistant stages a new supplement here, on the real form, and is told it is on
+  // screen only once this page has rendered it. After Stop the same values open as an
+  // ordinary form for the user to finish.
+  const assistant = useStagedProposal("supplement.create");
+  const [takenOver, setTakenOver] = useState<Proposal | null>(null);
+  const stagedId = assistant.staged?.id;
+  const { confirm: confirmStaged, takeHandover, handover } = assistant;
+  useEffect(() => {
+    if (stagedId) confirmStaged(stagedId);
+  }, [stagedId, confirmStaged]);
+  useEffect(() => {
+    if (!handover) return;
+    setTakenOver(handover);
+    takeHandover();
+  }, [handover, takeHandover]);
 
   function setParam(key: string, value: string | null) {
     const next = new URLSearchParams(params);
@@ -298,6 +316,40 @@ export function EstimatesListPage() {
         onClose={() => setCreating(false)}
         onCreate={handleCreate}
       />
+
+      {assistant.staged && (
+        <NewEstimateModal
+          key={assistant.staged.id}
+          open
+          staged
+          busy={false}
+          initial={proposedValues(assistant.staged)}
+          also={proposedExtras(assistant.staged)}
+          onClose={() => {}}
+          onCreate={async () => {}}
+        />
+      )}
+
+      {takenOver && (
+        <NewEstimateModal
+          key={`taken-over-${takenOver.id}`}
+          open
+          busy={createEstimate.isPending}
+          initial={proposedValues(takenOver)}
+          also={proposedExtras(takenOver)}
+          onClose={() => setTakenOver(null)}
+          onCreate={async (values) => {
+            // What the form has no field for is still part of what was proposed, and
+            // is shown on it. It is saved with the rest and not quietly dropped.
+            const created = await createEstimate.mutateAsync({
+              ...extraValues(takenOver),
+              ...values,
+            });
+            setTakenOver(null);
+            navigate(`/estimates/${created.id}`);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -569,4 +621,39 @@ function estimateName(estimate: EstimateOut): string {
 /** Zero money *and* no rooms — an estimate nobody has priced, rather than one worth nothing. */
 function isUnpriced(total: string, roomCount: number): boolean {
   return roomCount === 0 && Number(total) === 0;
+}
+
+const text = (value: unknown): string => (typeof value === "string" ? value : "");
+
+/** The fields the New Supplement form has, from what the assistant proposes. */
+function proposedValues(proposal: Proposal): Partial<NewEstimateValues> {
+  const { project_name, client_name, identifier } = proposal.payload;
+  return {
+    project_name: text(project_name),
+    client_name: text(client_name),
+    ...(text(identifier) ? { identifier: text(identifier) } : {}),
+  };
+}
+
+/** What it proposes that the form has no field for, to be saved along with the rest. */
+function extraValues(proposal: Proposal): {
+  pm_name?: string;
+  insurance_carrier?: string;
+  notes?: string;
+} {
+  const { pm_name, insurance_carrier, notes } = proposal.payload;
+  return {
+    ...(text(pm_name) ? { pm_name: text(pm_name) } : {}),
+    ...(text(insurance_carrier) ? { insurance_carrier: text(insurance_carrier) } : {}),
+    ...(text(notes) ? { notes: text(notes) } : {}),
+  };
+}
+
+function proposedExtras(proposal: Proposal): { label: string; value: string }[] {
+  const extra = extraValues(proposal);
+  return [
+    { label: "Project manager", value: extra.pm_name ?? "" },
+    { label: "Carrier", value: extra.insurance_carrier ?? "" },
+    { label: "Notes", value: extra.notes ?? "" },
+  ].filter((row) => row.value);
 }

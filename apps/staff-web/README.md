@@ -192,6 +192,47 @@ without it the next keystroke puts the old values back.
 
 ---
 
+## BuildCo Assistant
+
+`src/features/agent/`. A voice and text assistant in a panel beside the app. It is off
+unless the API says otherwise (`GET /agent/status`), so with nothing configured there is
+no launcher and none of this runs. The design is `AGENT_SPEC.md` at the repository root;
+the server half is described in `apps/api/README.md`.
+
+| File | What it is |
+|---|---|
+| `AgentProvider.tsx` | Mounted once in `AppShell`. Owns the socket and the audio; everything else is the reducer |
+| `agentState.ts` | A pure reducer over the frames the server sends. Test it by handing it frames |
+| `protocol.ts` | The WebSocket frames, mirroring `apps/api/app/agent/conversation.py`. The server is the authority |
+| `transport.ts`, `audio.ts` | The socket behind an interface, and the microphone and speaker worklets |
+| `AgentPanel.tsx`, `AgentHistory.tsx`, `AgentMemories.tsx` | The panel, past conversations, and the Profile section |
+
+**It writes nothing itself.** A change is *staged*: the server sends a proposal, the
+real page shows the real form filled in and read-only, and the user approves or rejects
+from the panel. Three pages stage proposals, each with `useStagedProposal(...kinds)`:
+the calendar (a meeting), the supplements list (a new supplement) and the supplement
+editor (details, status, sending for review). A page tells the provider when the form is
+actually on screen, and only then is the server told; that is what stops the assistant
+describing a form nobody can see. **To stage a new kind, add it to one page's
+`useStagedProposal` call and render it there. The route comes from the server.**
+
+**While it works, the app column is `inert`** and the panel is not (`AppFrame`'s
+`locked`). The lock is never left on behind a dead connection: see `isLocked`.
+
+**The editor hands itself to the assistant three ways** (`EstimateEditorPage`): which
+supplement is open (`useAgentRecord`), a way to make sure pending edits are saved before
+anything is proposed against them (`registerEditor`), and a re-seed after a commit, so
+that the next keystroke does not autosave the old values over what was just approved.
+
+**A dropped connection is not the end.** The provider asks for the same conversation
+back for a minute, then asks the server what became of the last action either way, so
+the panel never says something was lost when it was saved.
+
+In tests, `./transport` and `./audio` are mocked and the conversation is driven by
+handing the provider frames: see `AgentProvider.test.tsx`.
+
+---
+
 ## The estimates list sorts server-side, and so does everything else on it
 
 Status, search, the date window, pagination **and the sort order** are all the API's job.

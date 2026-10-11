@@ -363,6 +363,70 @@ app and must not be paraphrased — someone has agreed to those exact sentences.
 
 ---
 
+### 3.10 BuildCo Assistant *(only once it is switched on)*
+
+Nothing here applies while `AGENT_ENABLED` is unset: the release is safe to ship with
+the assistant off, and that is how it should first go out.
+
+**Before the pilot starts**
+
+- [ ] Release with `AGENT_ENABLED` unset and confirm nothing has changed for anyone.
+- [ ] Create `buildco-agent` (`apps/api/docs/DEPLOY_CLOUD_RUN.md` §8b) and compare its
+      environment variables and secret bindings with `buildco-api`'s, line by line.
+- [ ] Look up the project's **Vertex AI Live quota for concurrent sessions** and write
+      it here: `____`. A quota below the pilot's size is refused conversations at busy
+      moments, which should be a known number and not a surprise.
+- [ ] Set a **budget alert on Vertex AI spend**. Worst case per day is team size ×
+      the daily allowance.
+- [ ] Decide `AGENT_SPEC.md` Q1 (cold start) and Q2 (instance caps).
+- [ ] Put two or three people in `AGENT_PILOT_EMAILS` and set `AGENT_AUDIENCE=pilot`.
+
+**Walkthrough: real microphone, real model, real Cloud Run, on laptop speakers and on
+an iPad.** The automated tests script the model; these are what only a person can check.
+
+- [ ] Someone not on the pilot list sees no launcher. Someone on it does.
+- [ ] Start, ask for a meeting with nobody invited, hear the read-back, say yes after it
+      ends. It is saved.
+- [ ] Say yes *over* the read-back. It is not saved, and the assistant asks again.
+- [ ] **An invite booked through the assistant arrives.** Ask for a meeting with an
+      outside guest by email; the address is spelled back; approval needs a click; the
+      guest receives the invite with its `.ics`. Nothing else proves the voice service
+      can send email.
+- [ ] **A review link sent through the assistant opens the real review page.** Ask it to
+      send a supplement for review, click Approve, open the emailed link. A link to
+      `localhost` means `SITE_URL` is wrong on `buildco-agent`.
+- [ ] Ask it to archive "this one" with a supplement open; it names that supplement.
+- [ ] Ask it to delete something. It says it cannot and where to do it by hand.
+- [ ] Open a dialog yourself, then ask for something. It asks you to close it first, and
+      the panel stays usable beside the dialog.
+- [ ] Press Stop on a staged meeting. The form becomes yours, still filled.
+- [ ] Leave a proposal unanswered for 30 seconds. The microphone pauses; Tap to talk
+      brings it back; Approve works throughout.
+- [ ] Turn Wi-Fi off for ten seconds mid-conversation. It reconnects and carries on.
+- [ ] "Remember that I like 45 minute meetings." It appears under Profile, What the
+      assistant remembers, and can be deleted there.
+- [ ] As an owner, set the daily allowance to 0 in Settings while someone is talking.
+      Their conversation ends within a few seconds. Set it back.
+- [ ] On the iPad: all of the above that involve audio, in Safari.
+
+**In the first week, watch** (structured logs, by event name)
+
+| Signal | Reading |
+|---|---|
+| `agent_proposal_superseded` per `agent_proposal_committed` | High means it is mishearing and being corrected |
+| `agent_voice_commit_rejected` against voice approvals accepted | High means the timing guard is too strict for real speech |
+| `agent_readback_unverified` | High means most voice approvals are being turned into clicks |
+| `agent_proposal_handed_over` | People giving up on it mid-task |
+| `agent_reconnected` per conversation | Network or Cloud Run trouble |
+| `agent_live_error` | Vertex AI failures, quota included |
+| `agent_allowance_exhausted`, and minutes used per person | Whether ten minutes fits real work |
+| Cloud SQL connections in use | Whether the budget holds, especially during a deploy |
+| Daily Vertex AI spend | Against team size × allowance |
+
+Open it to everyone (`AGENT_AUDIENCE=everyone`) only when that list is quiet.
+
+---
+
 ## 4. Decisions waiting on you
 
 Things I have deliberately not chosen unilaterally.
@@ -373,6 +437,9 @@ Things I have deliberately not chosen unilaterally.
 | Google sign-in for the beta, or email/password only | Testing-mode allowlisting is real friction and the 7-day refresh expiry affects Calendar | §1.3 |
 | Whether the settings screen keeps per-browser storage or moves server-side | Plan currently adds tables and endpoints for it; that is schema you may not want yet | Phase 8 of the plan |
 | When to reconnect CI | Everything but the repo connection is done and exercised | `BACKLOG.md` §1 |
+| BuildCo Assistant: a warm voice instance, or an 8-second first connect | `--min-instances=1` on `buildco-agent` costs money every month | `AGENT_SPEC.md` Q1; §3.10 |
+| BuildCo Assistant: instance caps during a rollout | Old and new revisions can each reach their cap, which overruns the connection budget on paper | `AGENT_SPEC.md` Q2; `apps/api/docs/DATABASE.md` |
+| BuildCo Assistant: who is in the pilot, and when it opens to everyone | It is a list of people and a judgement about a week of real use | §3.10 |
 
 ---
 
@@ -394,6 +461,9 @@ editing `cloudbuild.yaml` will not do it.
 | `GROQ_MODEL` / `GROQ_API_KEY` | Cloud Run env var / Secret Manager | **Fallback only, for one release.** Remove both once OpenAI is configured everywhere |
 | `SITE_URL` | Secret Manager `site-url` | Reviewer links are built from it. Wrong value = links to the wrong host |
 | `GCS_ATTACHMENTS_BUCKET` / `GCS_AVATARS_BUCKET` | Cloud Run env vars | Unset means download URLs come back `null` and uploads 503 |
+| `AGENT_ENABLED`, `AGENT_AUDIENCE`, `AGENT_PILOT_EMAILS`, `AGENT_WS_BASE_URL` | `buildco-api` env vars | Unset means the assistant does not exist: no launcher for anyone. The pilot list fails closed |
+| Everything on `buildco-agent` | A second Cloud Run service | `apps/api/docs/DEPLOY_CLOUD_RUN.md` §8b. It must carry the **same** email settings and secrets as `buildco-api`, and refuses to start without them |
+| The team's daily allowance | Settings page, owners and admins | Not an environment variable, on purpose: **0 switches the assistant off at once**, live conversations included |
 
 ---
 
@@ -413,6 +483,20 @@ editing `cloudbuild.yaml` will not do it.
 ## 7. Change log for this file
 
 Newest first. Each phase appends what it added and what it now needs from you.
+
+### BuildCo Assistant, Release 1
+- §3.10 added: what to do before the pilot, the walkthrough, and what to watch.
+- §4 gained three decisions, §5 the assistant's settings.
+- **Ships switched off.** With `AGENT_ENABLED` unset nothing changes for anyone and no
+  second service is needed. The migration is additive.
+- **Needs from you, when you want it on:** the `buildco-agent` service, the Vertex AI
+  quota and budget alert, the pilot list, and the walkthrough, which includes the only
+  two checks that prove the voice service can send email.
+- **A hole in the test suite was closed along the way.** The tests could reach a real
+  integration through a developer's `.env`, and did: a production Slack webhook in a
+  local file received every test submission. `tests/conftest.py` now makes that
+  impossible three ways over. Keep production secrets out of local `.env` files anyway:
+  the dev server uses whatever is there.
 
 ### Phase 9 — the parity sweep
 - §3.8 added; attachments moved to §3.9.

@@ -1184,11 +1184,11 @@ export interface paths {
         };
         /**
          * Agent Status
-         * @description Whether the assistant is offered to the caller.
+         * @description Whether the assistant is offered to the caller, and how much of today is left.
          *
-         *     False when it is switched off, and false for anyone not on the pilot list while the
-         *     audience is ``pilot``. The browser draws the launcher from this, so a person who is
-         *     not offered it never sees it.
+         *     ``enabled`` is false when it is switched off, and false for anyone not on the pilot
+         *     list while the audience is ``pilot``. The browser draws the launcher from this, so a
+         *     person who is not offered it never sees it.
          */
         get: operations["agent_status_api_v1_agent_status_get"];
         put?: never;
@@ -1212,15 +1212,59 @@ export interface paths {
          * Create Session
          * @description Start a conversation and get the ticket that opens its WebSocket.
          *
-         *     503 when the assistant is switched off; 403 for a caller outside the pilot list.
-         *     Starting a conversation ends any other the caller has open, for instance in another
-         *     tab.
+         *     503 when the assistant is switched off; 403 for a caller outside the pilot list;
+         *     429 ``limit_reached`` when today's allowance is spent. Starting a conversation ends
+         *     any other the caller has open, for instance in another tab.
          *
          *     The ticket is single-use and expires in a minute. It exists because a browser cannot
          *     send an ``Authorization`` header on a WebSocket, and an ID token in a URL would end
          *     up in request logs.
          */
         post: operations["create_session_api_v1_agent_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/sessions/{conversation_id}/reconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reconnect
+         * @description A fresh ticket for a conversation whose connection dropped.
+         *
+         *     Works for a minute after the drop. After that, and for any conversation that has
+         *     ended, it is a 409: a conversation cannot be resumed. 429 when the allowance has
+         *     run out in the meantime.
+         */
+        post: operations["reconnect_api_v1_agent_sessions__conversation_id__reconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Conversations
+         * @description The caller's own past conversations, newest first.
+         */
+        get: operations["list_conversations_api_v1_agent_conversations_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1239,12 +1283,53 @@ export interface paths {
          * @description One of the caller's own conversations, with its transcript and its actions.
          *
          *     Also how the panel learns what became of the last action after a dropped connection.
-         *     Someone else's conversation is a 404.
+         *     Someone else's conversation is a 404. A transcript older than the retention period
+         *     is not returned; the actions always are.
          */
         get: operations["get_conversation_api_v1_agent_conversations__conversation_id__get"];
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/memories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Memories
+         * @description What the assistant remembers about the caller, oldest first.
+         */
+        get: operations["list_memories_api_v1_agent_memories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/memories/{memory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Memory
+         * @description Make the assistant forget one thing. Someone else's memory is a 404.
+         */
+        delete: operations["delete_memory_api_v1_agent_memories__memory_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1380,15 +1465,75 @@ export interface components {
             ended_at: string | null;
             /** End Reason */
             end_reason: string | null;
+            /**
+             * Transcript Expired
+             * @default false
+             */
+            transcript_expired: boolean;
             /** Messages */
             messages?: components["schemas"]["AgentMessageOut"][];
             /** Actions */
             actions?: components["schemas"]["AgentActionOut"][];
         };
+        /**
+         * AgentConversationSummaryOut
+         * @description One row of the history list.
+         */
+        AgentConversationSummaryOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+            /** Started At */
+            started_at: string | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** End Reason */
+            end_reason: string | null;
+            /** Duration Seconds */
+            duration_seconds: number;
+            /** Action Count */
+            action_count: number;
+            /** Transcript Expired */
+            transcript_expired: boolean;
+        };
         /** AgentLimitsOut */
         AgentLimitsOut: {
             /** Max Session Seconds */
             max_session_seconds: number;
+            /** Remaining Seconds */
+            remaining_seconds: number;
+        };
+        /** AgentMemoryOut */
+        AgentMemoryOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Category */
+            category: string;
+            /** Content */
+            content: string;
+            /** Source */
+            source: string;
+            /** Evidence */
+            evidence: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** AgentMessageOut */
         AgentMessageOut: {
@@ -1433,6 +1578,17 @@ export interface components {
             enabled: boolean;
             /** Max Session Seconds */
             max_session_seconds: number;
+            /** Daily Limit Seconds */
+            daily_limit_seconds: number;
+            /** Used Seconds */
+            used_seconds: number;
+            /** Remaining Seconds */
+            remaining_seconds: number;
+            /**
+             * Resets At
+             * Format: date-time
+             */
+            resets_at: string;
         };
         /** ApprovalRequestOut */
         ApprovalRequestOut: {
@@ -2124,6 +2280,20 @@ export interface components {
             /** Paid */
             paid?: boolean | null;
         };
+        /** Page[AgentConversationSummaryOut] */
+        Page_AgentConversationSummaryOut_: {
+            /** Items */
+            items: components["schemas"]["AgentConversationSummaryOut"][];
+            /**
+             * Total
+             * @description Total rows matching the filter, ignoring paging.
+             */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
         /** Page[EstimateOut] */
         Page_EstimateOut_: {
             /** Items */
@@ -2640,6 +2810,11 @@ export interface components {
             };
             default_reviewer?: components["schemas"]["ActorRef"] | null;
             /**
+             * Agent Daily Minutes
+             * @default 0
+             */
+            agent_daily_minutes: number;
+            /**
              * Updated At
              * Format: date-time
              */
@@ -2662,6 +2837,8 @@ export interface components {
             } | null;
             /** Default Reviewer Id */
             default_reviewer_id?: string | null;
+            /** Agent Daily Minutes */
+            agent_daily_minutes?: number | null;
         };
         /** TransitionRequest */
         TransitionRequest: {
@@ -5057,6 +5234,73 @@ export interface operations {
             };
         };
     };
+    reconnect_api_v1_agent_sessions__conversation_id__reconnect_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_conversations_api_v1_agent_conversations_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_AgentConversationSummaryOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_conversation_api_v1_agent_conversations__conversation_id__get: {
         parameters: {
             query?: never;
@@ -5077,6 +5321,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentConversationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_memories_api_v1_agent_memories_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMemoryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_memory_api_v1_agent_memories__memory_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ack"];
                 };
             };
             /** @description Validation Error */

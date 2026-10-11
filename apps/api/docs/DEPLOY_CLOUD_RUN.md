@@ -233,7 +233,7 @@ gcloud run deploy "$SERVICE" \
   --add-cloudsql-instances="$CONN" \
   --allow-unauthenticated \
   --min-instances=0 \
-  --max-instances=10 \
+  --max-instances=7 \
   --cpu=1 --memory=512Mi \
   --no-cpu-throttling \
   --timeout=300 \
@@ -241,8 +241,8 @@ gcloud run deploy "$SERVICE" \
   --set-secrets="DATABASE_URL=database-url:latest,SITE_URL=site-url:latest,RESEND_API_KEY=resend-key:latest,SLACK_WEBHOOK_URL=slack-webhook:latest,GROQ_API_KEY=groq-key:latest"
 ```
 
-- `--max-instances=10` is the connection budget, not an arbitrary cap. Raising it means
-  revisiting §2.
+- `--max-instances=7` is the connection budget, not an arbitrary cap: it leaves room for
+  the voice service in §8b. Raising it means revisiting `DATABASE.md`.
 - `ENVIRONMENT=production` makes `config.py` reject `AUTH_DISABLED` outright. Keep it.
 - **`--no-cpu-throttling` is why reviewer emails arrive.** Resend sends and Slack
   posts are dispatched from FastAPI `BackgroundTasks`, which run *after* the response
@@ -252,6 +252,76 @@ gcloud run deploy "$SERVICE" \
   auth would block the browser.
 
 - [ ] Deployed; revision serving
+
+---
+
+## 8b. The voice service, `buildco-agent`
+
+BuildCo Assistant's voice stream is a WebSocket, and Firebase Hosting does not proxy
+WebSockets. So the **same image** is deployed a second time as a service the browser
+reaches directly. It serves only that socket and is the only one that loads the model
+SDK. Nothing about it is needed until the assistant is switched on.
+
+One-time, before the first deploy:
+
+```bash
+gcloud services enable aiplatform.googleapis.com
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:$SA" --role="roles/aiplatform.user"
+```
+
+```bash
+gcloud run deploy buildco-agent \
+  --image="$IMAGE" \
+  --region="$REGION" \
+  --service-account="$SA" \
+  --add-cloudsql-instances="$CONN" \
+  --allow-unauthenticated \
+  --min-instances=0 \
+  --max-instances=2 \
+  --concurrency=40 \
+  --cpu=1 --memory=512Mi \
+  --no-cpu-throttling \
+  --cpu-boost \
+  --timeout=3600 \
+  --set-env-vars="ENVIRONMENT=production,AGENT_ENABLED=true,AGENT_SERVE_LIVE=true,GOOGLE_CLOUD_PROJECT=$PROJECT,DB_POOL_SIZE=1,DB_MAX_OVERFLOW=2,FIREBASE_PROJECT_ID=$PROJECT,CORS_ORIGINS=https://your-app.web.app,NOTIFY_FROM_EMAIL=<the same sender as buildco-api>" \
+  --set-secrets="DATABASE_URL=database-url:latest,SITE_URL=site-url:latest,RESEND_API_KEY=resend-key:latest,SLACK_WEBHOOK_URL=slack-webhook:latest"
+```
+
+Then tell the API where it is, and who gets it. The pilot list is comma-separated and so
+is this flag, so `^##^` tells gcloud to split on `##` instead and leave the commas alone:
+
+```bash
+AGENT_URL=$(gcloud run services describe buildco-agent --region="$REGION" --format='value(status.url)')
+gcloud run services update buildco-api --region="$REGION" \
+  --update-env-vars="^##^AGENT_ENABLED=true##AGENT_AUDIENCE=pilot##AGENT_PILOT_EMAILS=first@example.com,second@example.com##AGENT_WS_BASE_URL=${AGENT_URL/https:/wss:}"
+```
+
+- **`--timeout=3600`**, against the API's 300. A conversation can last 30 minutes and
+  the socket is one request.
+- **`DB_POOL_SIZE=1`, `DB_MAX_OVERFLOW=2`, `--max-instances=2`** are its share of the
+  connection budget in `DATABASE.md`. It touches the database in short bursts.
+- **It will not start half-configured.** In staging and production a process with
+  `AGENT_SERVE_LIVE=true` refuses to boot without `RESEND_API_KEY`, a `SITE_URL` that is
+  not localhost and a `NOTIFY_FROM_EMAIL` that is not the Resend sandbox sender. It is
+  the process that sends the invites and reviewer emails for whatever the assistant
+  commits; a missing key becomes a failed deploy, which someone sees, and not a meeting
+  nobody was invited to. **Give it the same email settings and secrets as `buildco-api`.**
+- **`CORS_ORIGINS` is also who may open the socket.** A WebSocket is not subject to
+  CORS, so the service checks `Origin` itself against this list.
+- **`AGENT_PILOT_EMAILS` lives on `buildco-api` only**, which is where tickets are
+  issued. It fails closed: while the audience is `pilot`, an empty list means nobody.
+  `AGENT_AUDIENCE=everyone` has to be typed out.
+- **`--cpu-boost`**: an instance takes about 8 seconds from cold to ready with the model
+  SDK loaded. `--min-instances=1` removes that at a monthly cost; see `AGENT_SPEC.md` Q1.
+- Session affinity is not needed: a WebSocket stays on the instance that accepted it.
+- **Once this service exists, the build rolls the image to it** in the same release
+  (`cloudbuild.yaml`, the `deploy-agent` step). Until it exists that step skips itself.
+- **The off switch is not a deploy.** An owner sets the daily allowance to 0 in
+  Settings. `AGENT_ENABLED=false` only stops new instances offering the assistant.
+
+- [ ] `buildco-agent` deployed, and `buildco-api` pointed at it
+- [ ] The two services' environment variables and secret bindings compared
 
 ---
 

@@ -16,8 +16,11 @@ side would hide every bug that depends on that.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from app.agent.conversation import MIC_BYTES_PER_SECOND
@@ -36,6 +39,10 @@ class FakeSocket:
         #: What this browser answers to a ``stage`` directive. A real page stages the
         #: form and says so; set ``ok`` False to be a page that could not.
         self.stage_answer: dict[str, Any] | None = {"ok": True}
+        #: What it answers when asked to make sure a supplement's editor has saved. A
+        #: page with no editor open, or a clean one, says yes at once.
+        self.prepare_answer: dict[str, Any] | None = {"ok": True}
+        self.navigate_answer: dict[str, Any] | None = {"ok": True}
         self._arrived = asyncio.Event()
 
     # ── What the conversation calls ───────────────────────────────────────────
@@ -47,8 +54,14 @@ class FakeSocket:
         frame = json.loads(data)
         self.sent.append(frame)
         self._arrived.set()
-        if frame["type"] == "ui" and frame.get("action") == "stage" and self.stage_answer:
-            self.frame("ui_ack", directive_id=frame["directive_id"], **self.stage_answer)
+        if frame["type"] == "ui":
+            answer = {
+                "stage": self.stage_answer,
+                "prepare": self.prepare_answer,
+                "navigate": self.navigate_answer,
+            }.get(frame.get("action"))
+            if answer:
+                self.frame("ui_ack", directive_id=frame["directive_id"], **answer)
 
     async def send_bytes(self, data: bytes) -> None:
         self.audio.append(data)
@@ -78,7 +91,7 @@ class FakeSocket:
     def kinds(self) -> list[str]:
         return [frame["type"] for frame in self.sent]
 
-    async def wait_for(self, kind: str, timeout: float = 3.0, **matching: Any) -> dict[str, Any]:
+    async def wait_for(self, kind: str, /, timeout: float = 3.0, **matching: Any) -> dict[str, Any]:
         """The first frame of this kind with these fields, waiting for it if need be."""
 
         def found() -> dict[str, Any] | None:
@@ -230,3 +243,78 @@ class ScriptedModel:
             return self.sessions[number - 1]
 
         return await asyncio.wait_for(poll(), timeout)
+
+
+# ── A whole conversation, ready to script ─────────────────────────────────────
+
+
+@dataclass
+class Talk:
+    conversation: Any
+    socket: FakeSocket
+    model: ScriptedModel
+    running: asyncio.Task[Any]
+    id: uuid.UUID
+    generation: int = 0
+
+
+@contextlib.asynccontextmanager
+async def open_talk(
+    session_factory: Any,
+    user: Any,
+    *,
+    timezone: str = "America/Los_Angeles",
+    clock: Callable[[], float] | None = None,
+) -> AsyncIterator[Talk]:
+    """A live conversation for ``user``, already under way, ended when the block exits.
+
+    The assistant has to be switched on first; ``agent_on`` in the test modules does it.
+    """
+    from app.agent.conversation import LiveConversation
+    from app.models.profile import Profile
+    from app.services import agent_service
+
+    async with session_factory() as db:
+        issued = await agent_service.create_session(
+            db, await db.get(Profile, user.id), client_timezone=timezone
+        )
+        await db.commit()
+        opened, _ = await agent_service.redeem_ticket(db, issued.ticket)
+        await db.commit()
+
+    socket, model = FakeSocket(), ScriptedModel()
+    extra = {"clock": clock} if clock is not None else {}
+    live = LiveConversation(
+        socket=socket,
+        model=model,
+        factory=session_factory,
+        conversation_id=opened.id,
+        user_id=user.id,
+        generation=opened.connection_generation,
+        **extra,
+    )
+    running = asyncio.create_task(live.run())
+    await socket.wait_for("ready")
+    await model.wait_for_session(1)
+    # The model session exists a moment before the conversation's own tasks do. Let
+    # them start, so that a test which moves the clock at once is seen to move it.
+    await asyncio.sleep(0.03)
+    try:
+        yield Talk(live, socket, model, running, opened.id, opened.connection_generation)
+    finally:
+        if not running.done():
+            socket.frame("end")
+            await asyncio.wait_for(running, 3)
+
+
+async def eventually(check: Callable[[], Awaitable[Any]], timeout: float = 3.0) -> Any:
+    """Wait for something the server does on its own time to have happened."""
+
+    async def poll() -> Any:
+        while True:
+            value = await check()
+            if value:
+                return value
+            await asyncio.sleep(0.01)
+
+    return await asyncio.wait_for(poll(), timeout)

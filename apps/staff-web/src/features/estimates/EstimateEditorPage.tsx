@@ -12,7 +12,7 @@
  *
  * The one exception is a write this editor did not make: see `reseed`.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError } from "@/api/client";
 import type { EstimateOut } from "@/api/types";
@@ -50,6 +50,11 @@ import { CataloguePicker } from "./CataloguePicker";
 import { ParseNotesDrawer } from "./ParseNotesDrawer";
 import { ReportModal } from "./ReportModal";
 import { SubmitForReviewModal } from "./SubmitForReviewModal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { apiFetch } from "@/api/client";
+import { queryKeys } from "@/api/queries/keys";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAgent, useAgentRecord, useStagedProposal } from "@/features/agent/AgentProvider";
 import { RoomRail } from "./RoomRail";
 
 const TABS = [
@@ -168,6 +173,71 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
     // Same shape and key order as `payload` below, since this is compared as text.
     autosave.markSaved({ ...nextDetails, rooms: nextRooms });
   }
+
+  // ── BuildCo Assistant ─────────────────────────────────────────────────────
+  //
+  // Three things, all so that the assistant and this editor never disagree about what
+  // the supplement holds.
+  //
+  // It is told which supplement is open and whether its edits are saved, and it is
+  // given a way to make sure they are: a change proposed against a document with a save
+  // still on its way would be checked against something about to change.
+  const agent = useAgent();
+  useAgentRecord(
+    { type: "supplement", id: estimate.id, label: details.project_name },
+    autosave.state,
+  );
+  const flushRef = useRef(autosave.flush);
+  flushRef.current = autosave.flush;
+  const registerEditor = agent?.registerEditor;
+  useEffect(() => {
+    if (!registerEditor) return;
+    registerEditor({ supplementId: estimate.id, flush: () => flushRef.current() });
+    return () => registerEditor(null);
+  }, [registerEditor, estimate.id]);
+
+  // What it proposes for this supplement is staged here, and it is told so once shown.
+  const assistant = useStagedProposal(
+    "supplement.update_details",
+    "supplement.transition",
+    "supplement.submit",
+  );
+  const staged =
+    assistant.staged?.payload["supplement_id"] === estimate.id ? assistant.staged : null;
+  const stagedId = staged?.id;
+  const { confirm: confirmStaged, takeHandover, handover, commits, lastTarget } = assistant;
+  useEffect(() => {
+    if (stagedId) confirmStaged(stagedId);
+  }, [stagedId, confirmStaged]);
+  // After Stop there is nothing to hand over: these are confirmations, not forms. The
+  // staged dialog closes and nothing was written.
+  useEffect(() => {
+    if (handover) takeHandover();
+  }, [handover, takeHandover]);
+
+  // And when it has committed a change to this supplement, the saved values are taken
+  // in. Without this the editor would still hold the old ones, and the next keystroke
+  // would autosave the whole payload and silently undo what was just approved.
+  const reseedRef = useRef(reseed);
+  reseedRef.current = reseed;
+  const isDirtyRef = useRef(autosave.isDirty);
+  isDirtyRef.current = autosave.isDirty;
+  const seenCommits = useRef(commits);
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (commits === seenCommits.current) return;
+    seenCommits.current = commits;
+    if (lastTarget?.type !== "supplement" || lastTarget.id !== estimate.id) return;
+    let current = true;
+    void apiFetch<EstimateOut>(`/estimates/${estimate.id}`).then((fresh) => {
+      if (!current) return;
+      queryClient.setQueryData(queryKeys.estimates.detail(estimate.id), fresh);
+      if (!isDirtyRef.current()) reseedRef.current(fresh);
+    });
+    return () => {
+      current = false;
+    };
+  }, [commits, lastTarget, estimate.id, queryClient]);
 
   async function runTransition(action: TransitionAction) {
     // Save pending edits first, and wait for it: a transition replies with the whole
@@ -433,6 +503,62 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
         total={totals.total}
         onClose={() => setShowSubmit(false)}
       />
+
+      {/* What the assistant proposes for this supplement. Read-only, and approved or
+          rejected from its panel: nothing here is a button the user presses. */}
+      {staged?.kind === "supplement.submit" && (
+        <SubmitForReviewModal
+          key={staged.id}
+          open
+          staged
+          estimateId={estimate.id}
+          projectName={details.project_name}
+          total={totals.total}
+          onClose={() => {}}
+        />
+      )}
+      {staged?.kind === "supplement.transition" && (
+        <ConfirmDialog
+          key={staged.id}
+          open
+          staged
+          tone="primary"
+          title={`${staged.labels.action_label ?? "Change the status of"} this supplement?`}
+          confirmLabel={staged.labels.action_label ?? "Confirm"}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+        >
+          <p className="text-sm text-gray-700">{staged.summary}</p>
+        </ConfirmDialog>
+      )}
+      {staged?.kind === "supplement.update_details" && (
+        <Modal key={staged.id} open staged title="Change details" onClose={() => {}}>
+          <table className="w-full text-left text-sm">
+            <thead className="text-gray-500">
+              <tr>
+                <th className="pr-3 pb-1 font-medium">Detail</th>
+                <th className="pr-3 pb-1 font-medium">Now</th>
+                <th className="pb-1 font-medium">Would become</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(staged.labels.changes ?? []).map((change) => (
+                <tr key={change.field} className="border-t border-gray-100 align-top">
+                  <th scope="row" className="py-1.5 pr-3 font-medium text-gray-700">
+                    {change.label}
+                  </th>
+                  <td className="py-1.5 pr-3 whitespace-pre-wrap text-gray-500">
+                    {change.old || "blank"}
+                  </td>
+                  <td className="py-1.5 whitespace-pre-wrap text-gray-900">
+                    {change.new || "blank"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Modal>
+      )}
 
       <Modal
         open={showChanges}

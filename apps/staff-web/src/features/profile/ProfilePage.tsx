@@ -22,6 +22,7 @@ import { Avatar } from "@/components/AppShell";
 import { Button } from "@/components/Button";
 import { RoleBadge } from "@/components/Badge";
 import { Alert, Card, ErrorState, LoadingState, PageHeader } from "@/components/feedback";
+import { AgentMemories } from "@/features/agent/AgentMemories";
 import { Field, Input, TextField } from "@/components/form";
 import { useToast } from "@/components/Toast";
 import type { Role } from "@/domain/enums";
@@ -170,6 +171,8 @@ function Profile({ me }: { me: UserOut }) {
           </Button>
         </div>
       </Card>
+
+      <AgentMemories />
     </div>
   );
 }
