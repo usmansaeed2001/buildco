@@ -1,12 +1,18 @@
 /**
  * The frame the signed-in app sits in: an app column, and room for a panel beside it.
  *
- * Three things live here because all three follow from a panel being able to dock on
- * the right.
+ * Several things live here because they all follow from a panel sitting beside the app.
  *
  * **The column is a container.** Page layouts ask it how wide it is (the `app-sm:`
  * variants in `styles/index.css`) rather than asking the window, so opening a panel
  * reflows the app into the space that is left.
+ *
+ * **The panel is a floating card.** 400px wide, inset 12px from the window on three
+ * sides, with rounded corners and one shadow, so the page ground shows round it. It
+ * takes 424px of the window and the app still reflows beside it: at 1024px and up the
+ * app is never covered. The column takes its new width in one step. Its width is never
+ * animated, because laying the whole app out again on every frame is the one animation
+ * certain to stutter; the card is what moves.
  *
  * **Dialogs get somewhere to go.** A native `<dialog>` opened with `showModal()` makes
  * everything outside itself inert, the panel included. So while a panel is open,
@@ -20,16 +26,20 @@
  * **The column can be locked.** While the assistant is working, the whole column is made
  * inert, its dialog layer included, and framed so that it is plain why nothing responds.
  * The panel is outside the column and stays live, and so does the banner drawn over the
- * column, because it carries the Stop button.
+ * column, because it carries the Stop button. A click on the locked column is caught by
+ * the frame and counted, so that the banner can answer it.
  */
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { usePresence } from "@/features/agent/usePresence";
 
 export interface AppFrameState {
   /** Whether a panel is docked beside the app right now. */
@@ -40,6 +50,8 @@ export interface AppFrameState {
   openDialogs: number;
   /** Report a dialog as open. The function it returns reports it closed. */
   registerDialog: () => () => void;
+  /** How many times the locked app has been clicked. The lock's banner answers each. */
+  lockedClicks: number;
 }
 
 const AppFrameContext = createContext<AppFrameState | null>(null);
@@ -49,8 +61,61 @@ export function useAppFrame(): AppFrameState | null {
   return useContext(AppFrameContext);
 }
 
+/**
+ * A locked column is inert, and an inert scroll area does not answer the wheel or a
+ * finger. A staged form taller than the window would then have a foot nobody could
+ * read, on the one screen where reading all of it is the point. The lock's own layer is
+ * not inert and is what the pointer lands on, so it passes the scrolling on to the
+ * staged form underneath. Nothing in the form becomes operable by this.
+ */
+function useStagedScrolling(layer: HTMLElement | null) {
+  useEffect(() => {
+    if (!layer) return;
+
+    const bodyUnder = (x: number, y: number): HTMLElement | null => {
+      for (const body of document.querySelectorAll<HTMLElement>("[data-staged-body]")) {
+        const box = body.getBoundingClientRect();
+        const inside = x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+        if (inside && body.scrollHeight > body.clientHeight) return body;
+      }
+      return null;
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      const body = bodyUnder(event.clientX, event.clientY);
+      if (!body) return;
+      body.scrollTop += event.deltaY;
+      event.preventDefault();
+    };
+
+    let dragging: { body: HTMLElement; y: number } | null = null;
+    const onTouchStart = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      const body = touch ? bodyUnder(touch.clientX, touch.clientY) : null;
+      dragging = body && touch ? { body, y: touch.clientY } : null;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (!dragging || !touch) return;
+      dragging.body.scrollTop += dragging.y - touch.clientY;
+      dragging.y = touch.clientY;
+      event.preventDefault();
+    };
+
+    layer.addEventListener("wheel", onWheel, { passive: false });
+    layer.addEventListener("touchstart", onTouchStart, { passive: true });
+    layer.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      layer.removeEventListener("wheel", onWheel);
+      layer.removeEventListener("touchstart", onTouchStart);
+      layer.removeEventListener("touchmove", onTouchMove);
+    };
+  }, [layer]);
+}
+
 export function AppFrame({
   panel,
+  panelClosing = false,
   launcher,
   locked = false,
   lockBanner,
@@ -58,6 +123,8 @@ export function AppFrame({
 }: {
   /** What is docked beside the app. Leave it out and the app has the whole window. */
   panel?: ReactNode;
+  /** The panel is on its way out: it can still be seen and can no longer be used. */
+  panelClosing?: boolean;
   /**
    * The control that opens the panel. Rendered outside the app column because it is
    * fixed to the window, and the column, being a container, would capture it: a fixed
@@ -71,17 +138,26 @@ export function AppFrame({
   children: ReactNode;
 }) {
   const [dialogLayer, setDialogLayer] = useState<HTMLElement | null>(null);
+  const [lockLayer, setLockLayer] = useState<HTMLElement | null>(null);
   const [openDialogs, setOpenDialogs] = useState(0);
+  const [lockedClicks, setLockedClicks] = useState(0);
 
   const registerDialog = useCallback(() => {
     setOpenDialogs((count) => count + 1);
     return () => setOpenDialogs((count) => count - 1);
   }, []);
 
+  // The frame fades out when the lock lifts. The column itself is unlocked at once:
+  // only the frame lingers, and while it does it cannot be pressed.
+  const lock = usePresence(locked);
+  const banner = useRef(lockBanner);
+  if (locked) banner.current = lockBanner;
+  useStagedScrolling(locked ? lockLayer : null);
+
   const panelOpen = panel !== undefined && panel !== null;
   const state = useMemo(
-    () => ({ panelOpen, dialogLayer, openDialogs, registerDialog }),
-    [panelOpen, dialogLayer, openDialogs, registerDialog],
+    () => ({ panelOpen, dialogLayer, openDialogs, registerDialog, lockedClicks }),
+    [panelOpen, dialogLayer, openDialogs, registerDialog, lockedClicks],
   );
 
   return (
@@ -108,14 +184,24 @@ export function AppFrame({
             <div ref={setDialogLayer} data-dialog-layer />
           </div>
 
-          {locked && (
+          {lock.mounted && (
             // Covers the column, which is as tall as the page; the banner inside is
-            // sticky, so it stays at the top of the window while the page is scrolled.
+            // sticky, so it stays in view while the page is scrolled. It sits under
+            // the navigation bar, not on it. The page is not dimmed: the user has to
+            // read what is on it.
             <div
+              ref={setLockLayer}
               data-app-lock
-              className="pointer-events-none absolute inset-0 z-50 ring-4 ring-brand-500 ring-inset"
+              {...(lock.closing ? { "data-closing": "" } : {})}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) setLockedClicks((count) => count + 1);
+              }}
+              className="ast-lock absolute inset-0 z-50"
             >
-              <div className="pointer-events-auto sticky top-3 mx-auto w-fit">{lockBanner}</div>
+              <span aria-hidden="true" className="ast-lock-sweep" />
+              <div className="sticky top-[65px] mx-auto w-fit max-w-[calc(100%-1.5rem)]">
+                {banner.current}
+              </div>
             </div>
           )}
         </div>
@@ -123,13 +209,15 @@ export function AppFrame({
         {panelOpen && (
           <aside
             aria-label="Side panel"
-            // Sticky and viewport-tall: the page scrolls on the document, and the panel
-            // has to stay where it is while it does.
+            {...(panelClosing ? { "data-closing": "" } : {})}
+            // Sticky and nearly viewport-tall: the page scrolls on the document, and
+            // the card has to stay where it is while it does.
             //
-            // Below 1024px there is no room to dock it, so it overlays the app's right
-            // side instead. A panel is never hidden for want of room: it may be holding
-            // a live conversation, and Stop, Approve and End have to stay reachable.
-            className="sticky top-0 h-dvh w-[400px] max-w-full shrink-0 border-l border-gray-200 bg-surface max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:z-50 max-lg:shadow-2xl"
+            // Below 1024px there is no room beside the app, so it overlays the app's
+            // right side instead, with the same inset. A panel is never hidden for want
+            // of room: it may be holding a live conversation, and Stop, Approve and End
+            // have to stay reachable.
+            className="ast-card sticky top-3 m-3 h-[calc(100dvh-1.5rem)] w-[400px] shrink-0 self-start overflow-hidden rounded-2xl border border-gray-200 bg-surface shadow-panel max-lg:fixed max-lg:top-3 max-lg:right-3 max-lg:z-50 max-lg:m-0 max-lg:max-w-[calc(100vw-1.5rem)]"
           >
             {panel}
           </aside>

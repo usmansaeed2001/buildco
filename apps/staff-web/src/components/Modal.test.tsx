@@ -249,7 +249,7 @@ describe("Modal", () => {
 
       await user.click(screen.getByRole("button", { name: "Open dialog" }));
 
-      expect(screen.getByText("Filled in by BuildCo Assistant. Not saved yet.")).toBeVisible();
+      expect(screen.getByText("Filled in by BuildCo Assistant · Not saved yet")).toBeVisible();
     });
 
     it("cannot be operated: no close, no save, and the fields are inert", async () => {

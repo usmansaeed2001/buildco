@@ -419,3 +419,106 @@ describe("describeSeconds", () => {
     expect(describeSeconds(seconds)).toBe(said);
   });
 });
+
+describe("what the panel draws from", () => {
+  const result = (id: string, status: "committed" | "cancelled" | "superseded"): ServerFrame => ({
+    type: "proposal_result",
+    id,
+    status,
+  });
+
+  it("keeps every outcome as a receipt, where the last result is replaced", () => {
+    const state = after(
+      [
+        result("p-1", "committed"),
+        { type: "transcript", role: "user", text: "And another.", final: true },
+        { type: "proposal", ...PROPOSAL, id: "p-2" },
+        result("p-2", "cancelled"),
+      ],
+      staged(),
+    );
+
+    expect(state.receipts.map((receipt) => [receipt.id, receipt.status])).toEqual([
+      ["p-1", "committed"],
+      ["p-2", "cancelled"],
+    ]);
+    // What pages read is as it was: only the last.
+    expect(state.lastResult?.id).toBe("p-2");
+  });
+
+  it("names each receipt from its proposal, and places it after the line it followed", () => {
+    const state = after([
+      { type: "transcript", role: "user", text: "Book it.", final: true },
+      { type: "proposal", ...PROPOSAL, labels: { ...PROPOSAL.labels, when: "Thu 15 Oct, 2:00 PM" } },
+      result("p-1", "committed"),
+    ]);
+
+    expect(state.receipts[0]).toMatchObject({
+      kind: "meeting.create",
+      name: "Hendricks walkthrough",
+      when: "Thu 15 Oct, 2:00 PM",
+      after: 1,
+    });
+  });
+
+  it("leaves no receipt for a proposal that a correction replaced", () => {
+    expect(after([result("p-1", "superseded")], staged()).receipts).toEqual([]);
+  });
+
+  it("marks the turn that read a proposal back, and only that one", () => {
+    const state = after([
+      { type: "transcript", role: "assistant", text: "When?", final: true },
+      { type: "turn_complete", spoke: true, readback_for: null },
+      { type: "transcript", role: "user", text: "At two.", final: true },
+      { type: "transcript", role: "assistant", text: "I am about to create it.", final: true },
+      { type: "turn_complete", spoke: true, readback_for: "p-1" },
+    ]);
+
+    expect(state.transcript.map((line) => line.readbackFor)).toEqual([undefined, undefined, "p-1"]);
+  });
+
+  it("marks a line the user talked over, and not one that simply ended", () => {
+    const state = after([
+      { type: "transcript", role: "assistant", text: "I am about to", final: false },
+      { type: "interrupted" },
+      { type: "transcript", role: "assistant", text: "Go on.", final: false },
+      { type: "turn_complete", spoke: true, readback_for: null },
+    ]);
+
+    expect(state.transcript.map((line) => [line.final, line.cut ?? false])).toEqual([
+      [true, true],
+      [true, false],
+    ]);
+  });
+
+  it("notes in the conversation what happened that nobody said", () => {
+    const state = after([
+      { type: "ui", directive_id: "d-1", action: "navigate", to: "/calendar?on=2026-10-14" },
+      { type: "transcript", role: "user", text: "Thanks.", final: true },
+      { type: "audio", state: "paused", reason: "approval" },
+      { type: "audio", state: "paused", reason: "approval" },
+      { type: "ready", conversation_id: "c-1", limits: { max_session_seconds: 1800 }, resumed: true },
+    ]);
+
+    expect(state.marks.map((mark) => [mark.after, mark.text])).toEqual([
+      [0, "Opened Calendar"],
+      [1, "Microphone paused"],
+      [1, "Reconnected"],
+    ]);
+  });
+
+  it("records that a read-back has been heard, for the card to say a yes will count", () => {
+    const state = agentReducer(staged(), { type: "readback_played", id: "p-1" });
+
+    expect(state.readbackPlayed).toBe("p-1");
+    expect(state.proposal).toEqual(PROPOSAL);
+  });
+
+  it("counts the seconds the audio was live, and not the ones it was paused", () => {
+    const tick = (state: AgentState) => agentReducer(state, { type: "tick" });
+    const paused = after([{ type: "audio", state: "paused", reason: "approval" }], tick(tick(live())));
+
+    expect(paused.elapsed).toBe(2);
+    expect(tick(paused).elapsed).toBe(2);
+  });
+});

@@ -26,7 +26,24 @@ export interface TranscriptLine {
   text: string;
   /** False while the words are still arriving. */
   final: boolean;
+  /** The proposal this turn read back, if it was a read-back. */
+  readbackFor?: string;
+  /** The user talked over it, so it stops where it was cut off. */
+  cut?: boolean;
 }
+
+/**
+ * One line of the conversation that nobody said: a page was opened, the microphone
+ * paused, the connection came back. `after` is the transcript line it follows.
+ */
+export interface Mark {
+  id: number;
+  after: number;
+  text: string;
+}
+
+/** Something the assistant has said it will remember, and where in the conversation. */
+export type Remembered = RememberedMemory & { after: number };
 
 export interface Step {
   id: string;
@@ -42,6 +59,13 @@ export interface ProposalResult {
   summary: string;
   /** What a commit created or changed, so the panel can link to it. */
   target: Target | null;
+  /** What kind of change it was, for the receipt's title. */
+  kind: string | null;
+  /** The record by name and, for a meeting, when: as the proposal gave them. */
+  name: string | null;
+  when: string | null;
+  /** The transcript line it followed, which is where its receipt is shown. */
+  after: number;
 }
 
 export interface AgentState {
@@ -71,12 +95,23 @@ export interface AgentState {
    * form and then clears this.
    */
   handover: Proposal | null;
-  /** What became of the last proposal. Shown until the next one. */
+  /** What became of the last proposal, until the next one. What pages read. */
   lastResult: ProposalResult | null;
+  /**
+   * What became of every proposal in this conversation, in order. Each is a receipt left
+   * in the transcript where it happened, and unlike `lastResult` none is ever replaced.
+   */
+  receipts: ProposalResult[];
+  /** The proposal whose read-back has finished playing, so a spoken yes can now count. */
+  readbackPlayed: string | null;
   /** Counts commits, so a page can notice one even when the same record is hit twice. */
   commits: number;
   /** What the assistant has just said it will remember, newest last. */
-  remembered: RememberedMemory[];
+  remembered: Remembered[];
+  /** The lines of the conversation that nobody said, in order. */
+  marks: Mark[];
+  /** Seconds this conversation's audio has been live. */
+  elapsed: number;
   /** One line about time running short or the conversation going quiet. */
   notice: string | null;
   problem: string | null;
@@ -99,8 +134,12 @@ export const initialState: AgentState = {
   staged: null,
   handover: null,
   lastResult: null,
+  receipts: [],
+  readbackPlayed: null,
   commits: 0,
   remembered: [],
+  marks: [],
+  elapsed: 0,
   notice: null,
   problem: null,
   endedReason: null,
@@ -122,6 +161,8 @@ export type AgentAction =
   | { type: "handover_taken" }
   /** A second went by with the audio live. */
   | { type: "tick" }
+  /** The server was told this proposal's read-back has been heard, or shown, in full. */
+  | { type: "readback_played"; id: string }
   /** A memory announced in this conversation was undone. */
   | { type: "forgotten"; id: string }
   | { type: "reset" };
@@ -148,6 +189,34 @@ function settle(lines: TranscriptLine[]): TranscriptLine[] {
   return last && !last.final ? [...lines.slice(0, -1), { ...last, final: true }] : lines;
 }
 
+/** The id of the newest transcript line: where whatever happens next belongs. */
+function latest(state: AgentState): number {
+  return state.transcript[state.transcript.length - 1]?.id ?? 0;
+}
+
+function mark(state: AgentState, text: string): Mark[] {
+  const last = state.marks[state.marks.length - 1];
+  return [...state.marks, { id: (last?.id ?? 0) + 1, after: latest(state), text }];
+}
+
+/** The page a route is, as the navigation names it. */
+function pageName(to: string): string {
+  const path = to.split("?")[0] ?? "";
+  if (path.startsWith("/estimates/")) return "the supplement";
+  if (path.startsWith("/estimates")) return "Supplements";
+  if (path.startsWith("/projects/")) return "the project";
+  if (path.startsWith("/projects")) return "Projects";
+  if (path.startsWith("/calendar")) return "Calendar";
+  if (path.startsWith("/team")) return "Team";
+  if (path.startsWith("/profile")) return "Profile";
+  if (path.startsWith("/settings")) return "Settings";
+  return "the page";
+}
+
+function words(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
 const NOTICES: Record<string, string> = {
   idle_warning: "Still there? The conversation ends soon if nothing is said.",
   time_limit_warning: "This conversation reaches its 30-minute limit in about two minutes.",
@@ -171,6 +240,7 @@ function onFrame(state: AgentState, frame: ServerFrame): AgentState {
         remainingSeconds: frame.limits.remaining_seconds ?? state.remainingSeconds,
         // A new socket starts with the microphone live, whatever the old one was doing.
         paused: null,
+        marks: frame.resumed ? mark(state, "Reconnected") : state.marks,
       };
 
     case "transcript":
@@ -180,9 +250,24 @@ function onFrame(state: AgentState, frame: ServerFrame): AgentState {
         transcript: addLine(state.transcript, frame.role, frame.text, frame.final),
       };
 
-    case "interrupted":
-    case "turn_complete":
-      return { ...state, transcript: settle(state.transcript) };
+    case "interrupted": {
+      const last = state.transcript[state.transcript.length - 1];
+      if (!last || last.final) return state;
+      return {
+        ...state,
+        transcript: [...state.transcript.slice(0, -1), { ...last, final: true, cut: true }],
+      };
+    }
+
+    case "turn_complete": {
+      const transcript = settle(state.transcript);
+      const last = transcript[transcript.length - 1];
+      if (!frame.readback_for || last?.role !== "assistant") return { ...state, transcript };
+      return {
+        ...state,
+        transcript: [...transcript.slice(0, -1), { ...last, readbackFor: frame.readback_for }],
+      };
+    }
 
     case "mode":
       // A new piece of work starts its step list afresh.
@@ -192,8 +277,17 @@ function onFrame(state: AgentState, frame: ServerFrame): AgentState {
         steps: frame.mode === "working" && state.mode !== "working" ? [] : state.steps,
       };
 
-    case "audio":
-      return { ...state, paused: frame.state === "paused" ? (frame.reason ?? "approval") : null };
+    case "audio": {
+      const paused = frame.state === "paused" ? (frame.reason ?? "approval") : null;
+      return {
+        ...state,
+        paused,
+        marks:
+          paused === "approval" && state.paused !== "approval"
+            ? mark(state, "Microphone paused")
+            : state.marks,
+      };
+    }
 
     case "step": {
       const step = { id: frame.id, label: frame.label, status: frame.status };
@@ -209,6 +303,9 @@ function onFrame(state: AgentState, frame: ServerFrame): AgentState {
     case "ui":
       if (frame.action === "stage") return { ...state, staged: frame.proposal };
       if (frame.action === "unstage") return { ...state, staged: null };
+      if (frame.action === "navigate") {
+        return { ...state, marks: mark(state, `Opened ${pageName(frame.to)}`) };
+      }
       return state;
 
     case "proposal": {
@@ -231,6 +328,15 @@ function onFrame(state: AgentState, frame: ServerFrame): AgentState {
         error: frame.error ?? null,
         summary: about?.id === frame.id ? about.summary : "",
         target: frame.target ?? null,
+        kind: about?.id === frame.id ? about.kind : null,
+        name:
+          about?.id === frame.id
+            ? (words(about.labels.name) ??
+              words(about.payload["title"]) ??
+              words(about.payload["project_name"]))
+            : null,
+        when: about?.id === frame.id ? words(about.labels.when) : null,
+        after: latest(state),
       };
       const mine = (proposal: Proposal | null) => (proposal?.id === frame.id ? null : proposal);
       return {
@@ -244,12 +350,16 @@ function onFrame(state: AgentState, frame: ServerFrame): AgentState {
             : state.handover,
         // Being replaced by a correction is not an outcome worth a line of its own.
         lastResult: frame.status === "superseded" ? state.lastResult : result,
+        receipts: frame.status === "superseded" ? state.receipts : [...state.receipts, result],
         commits: frame.status === "committed" ? state.commits + 1 : state.commits,
       };
     }
 
     case "memory":
-      return { ...state, remembered: [...state.remembered, frame.memory] };
+      return {
+        ...state,
+        remembered: [...state.remembered, { ...frame.memory, after: latest(state) }],
+      };
 
     case "notice": {
       const text = NOTICES[frame.kind];
@@ -338,8 +448,15 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
     case "handover_taken":
       return { ...state, handover: null };
     case "tick":
-      if (state.phase !== "live" || state.paused || state.remainingSeconds === null) return state;
-      return { ...state, remainingSeconds: Math.max(0, state.remainingSeconds - 1) };
+      if (state.phase !== "live" || state.paused) return state;
+      return {
+        ...state,
+        elapsed: state.elapsed + 1,
+        remainingSeconds:
+          state.remainingSeconds === null ? null : Math.max(0, state.remainingSeconds - 1),
+      };
+    case "readback_played":
+      return { ...state, readbackPlayed: action.id };
     case "forgotten":
       return { ...state, remembered: state.remembered.filter((memory) => memory.id !== action.id) };
     case "reset":

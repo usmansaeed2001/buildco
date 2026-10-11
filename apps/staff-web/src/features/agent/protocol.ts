@@ -26,8 +26,30 @@ export interface StagedChange {
   new: string;
 }
 
+/**
+ * One thing a proposal would save, laid out for the approval card: a label and the value
+ * exactly as it should be read. The server formats it, so the browser never works out a
+ * date or looks a person up itself.
+ */
+export interface ProposalFact {
+  label: string;
+  value: string;
+  /** What it is now, for an edit. */
+  was?: string;
+  /** Where the value came from: `memory`, `catalogue`, `stated` or `differs`. */
+  source?: string;
+}
+
+/** Why a proposal can only be approved by a click. */
+export type ApprovalReason = "sends_email" | "changes_access" | "readback_unverified";
+
 /** What a staged screen shows that the payload alone does not say. */
 export interface ProposalLabels {
+  /**
+   * The facts for the approval card, in order. Not sent yet: until it is, the card is
+   * drawn from the labels below.
+   */
+  facts?: ProposalFact[];
   /** Where in the app it is staged. Absent for a change shown only in the panel. */
   route?: string;
   when?: string;
@@ -62,6 +84,8 @@ export interface Proposal {
   labels: ProposalLabels;
   warnings: string[];
   approval: ApprovalPolicy;
+  /** Why it needs a click, when it does. Not sent yet: the card has a neutral line. */
+  approval_reason?: ApprovalReason;
   expires_at: string;
 }
 

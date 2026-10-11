@@ -19,6 +19,10 @@
  *   the browser knows a read-back has finished *playing*, as opposed to finished
  *   arriving, and it is the fact a spoken approval is checked against. A flush discards
  *   marks along with audio, so an interrupted read-back is never reported as played.
+ *
+ * It also says how loud what it is playing is, about thirty times a second while there
+ * is something to play and once more when there is not. That is what the orb shows while
+ * the assistant speaks. It is separate from the marks and changes nothing about them.
  */
 
 const CAPTURE = `
@@ -56,6 +60,8 @@ class Player extends AudioWorkletProcessor {
     super();
     this.q = []; this.cur = null; this.pos = 0; this.ratio = 24000 / sampleRate;
     this.frac = 0; this.a = 0; this.b = 0;
+    this.every = Math.round(sampleRate / 30); this.seen = 0;
+    this.energy = 0; this.n = 0; this.was = false;
     this.port.onmessage = (e) => {
       const m = e.data;
       if (m.flush) { this.q = []; this.cur = null; this.pos = 0; }
@@ -81,8 +87,17 @@ class Player extends AudioWorkletProcessor {
         this.frac -= 1; this.a = this.b;
         const s = this.next();
         this.b = s === null ? 0 : s;
+        if (s !== null) { this.energy += s * s; this.n++; }
       }
       out[i] = this.a + (this.b - this.a) * this.frac;
+    }
+    this.seen += out.length;
+    if (this.seen >= this.every) {
+      const playing = this.n > 0;
+      if (playing || this.was) {
+        this.port.postMessage({ level: playing ? Math.sqrt(this.energy / this.n) : 0, playing });
+      }
+      this.was = playing; this.seen = 0; this.energy = 0; this.n = 0;
     }
     return true;
   }
@@ -107,6 +122,8 @@ export interface AudioOptions {
   onMicrophone: (pcm: ArrayBuffer) => void;
   onLevel: (level: number) => void;
   onPlayed: (id: string) => void;
+  /** How loud the voice being played is, and whether anything is playing at all. */
+  onVoice?: (level: number, playing: boolean) => void;
 }
 
 export type OpenAudio = (options: AudioOptions) => Promise<AgentAudio>;
@@ -150,8 +167,13 @@ export const openAudio: OpenAudio = async (options) => {
     outputChannelCount: [1],
   });
   player.connect(context.destination);
-  player.port.onmessage = (event: MessageEvent<{ played?: string }>) => {
+  player.port.onmessage = (
+    event: MessageEvent<{ played?: string; level?: number; playing?: boolean }>,
+  ) => {
     if (event.data.played !== undefined) options.onPlayed(event.data.played);
+    if (event.data.level !== undefined) {
+      options.onVoice?.(event.data.level, event.data.playing === true);
+    }
   };
 
   let stream: MediaStream | null = null;

@@ -471,7 +471,11 @@ export function EstimateCard({ estimate }: { estimate: EstimateOut }) {
     // to be one big `<Link>`, which cannot hold a menu button: a `<button>` inside an
     // `<a>` is invalid HTML and clicking it navigates. This keeps the whole card
     // clickable while the menu is a real sibling rather than a nested control.
-    <article className="group relative flex h-full overflow-hidden rounded-card bg-surface ring-1 ring-gray-200 transition-shadow focus-within:shadow-md hover:shadow-md">
+    <article
+      // Named for the assistant, which tints a supplement for a moment after saving it.
+      data-agent-record={`supplement:${estimate.id}`}
+      className="group relative flex h-full overflow-hidden rounded-card bg-surface ring-1 ring-gray-200 transition-shadow focus-within:shadow-md hover:shadow-md"
+    >
       {/* A status stripe rather than only a pill. On a three-column grid it lets you scan
           a column by colour, and on a phone — where the cards stack full width — it is
           the thing that keeps the list from reading as one grey block. */}

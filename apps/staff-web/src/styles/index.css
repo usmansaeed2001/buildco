@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./assistant.css";
 
 /* `dark:` keys off an explicit attribute rather than `prefers-color-scheme`, because the
  * header toggle has to be able to override the OS. `applyTheme` in `src/lib/theme.ts`
@@ -64,6 +65,19 @@
   --color-brand-600: #2563eb;
   --color-brand-700: #1d4ed8;
 
+  /* ── The assistant. One hue that means "BuildCo Assistant's, and not saved yet", and
+   * is used for nothing else. It is the same lightness as the brand blue, so it is never
+   * the only signal: the same things are also dashed and say so in words. The values are
+   * Tailwind's violet, so they sit beside the other ramps. `500` is for frames, rings and
+   * the orb, never text; `600` and `700` are the text steps in light, `300` in dark. ── */
+  --color-assistant-50: #f5f3ff;
+  --color-assistant-100: #ede9fe;
+  --color-assistant-300: #c4b5fd;
+  --color-assistant-400: #a78bfa;
+  --color-assistant-500: #8b5cf6;
+  --color-assistant-600: #7c3aed;
+  --color-assistant-700: #6d28d9;
+
   /* ── Semantic. Separate from the brand hue, so "this is fine" never reads as
    * "this is a link". ─────────────────────────────────────────────────────── */
   --color-success-50: #ecfdf5;
@@ -107,6 +121,15 @@
   --font-display: "Sora", "Archivo", ui-sans-serif, system-ui, sans-serif;
 
   --radius-card: 10px;
+
+  /* ── Motion. Three ways of arriving and one of leaving. `soft` is a spring with no
+   * bounce, for anything large; `pop` overshoots by about a tenth, for anything small;
+   * `exit` leaves promptly. The durations that go with them are below, with the
+   * shadows. ──────────────────────────────────────────────────────────────── */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
 }
 
 /**
@@ -138,10 +161,23 @@
 
   --color-brand-50: #eff6ff;
   --color-brand-100: #dbeafe;
+  --color-assistant-50: #f5f3ff;
+  --color-assistant-100: #ede9fe;
   --color-success-50: #ecfdf5;
   --color-warning-50: #fffbeb;
   --color-warning-100: #fef3c7;
   --color-danger-50: #fef2f2;
+
+  /* The only two shadows the assistant uses. Variables, not `@theme` entries, because a
+   * shadow has to be a different shadow in dark and Tailwind inlines theme shadows. */
+  --shadow-panel: 0 8px 32px -8px rgb(0 0 0 / 0.18), 0 2px 6px rgb(0 0 0 / 0.06);
+  --shadow-float: 0 6px 20px -4px rgb(0 0 0 / 0.25);
+
+  --motion-instant: 80ms;
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
+  --motion-slow: 320ms;
+  --motion-slower: 480ms;
 }
 
 /**
@@ -176,16 +212,29 @@
 
   --color-brand-50: oklch(28% 0.06 262);
   --color-brand-100: oklch(34% 0.08 262);
+  --color-assistant-50: oklch(28% 0.06 295);
+  --color-assistant-100: oklch(34% 0.08 295);
   --color-success-50: oklch(28% 0.05 160);
   --color-warning-50: oklch(29% 0.05 75);
   --color-warning-100: oklch(33% 0.07 75);
   --color-danger-50: oklch(28% 0.06 25);
+
+  --shadow-panel: 0 12px 40px -8px rgb(0 0 0 / 0.6);
+  --shadow-float: 0 8px 24px -4px rgb(0 0 0 / 0.7);
 }
 
 /* Tabular figures wherever money lines up in a column. Without this, proportional
  * digits make a column of totals visibly ragged. */
 @utility tnum {
   font-variant-numeric: tabular-nums;
+}
+
+@utility shadow-panel {
+  box-shadow: var(--shadow-panel);
+}
+
+@utility shadow-float {
+  box-shadow: var(--shadow-float);
 }
 
 @layer base {

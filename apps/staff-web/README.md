@@ -231,6 +231,42 @@ the panel never says something was lost when it was saved.
 In tests, `./transport` and `./audio` are mocked and the conversation is driven by
 handing the provider frames: see `AgentProvider.test.tsx`.
 
+### How it looks
+
+The look is `AGENT_DESIGN.md` at the repository root. It changes how the assistant is
+drawn and nothing about what it does: what a frame means, when the app locks, and what
+Approve, Reject, Stop and End do are all still in the provider and the reducer.
+
+| File | What it is |
+|---|---|
+| `Orb.tsx`, `presence.ts` | The assistant's face, and which of its eleven states it is in. Worked out from what the panel already knows |
+| `AgentPanel.tsx` | The four zones: `PanelHeader`, the body (`HeroState`, `Conversation`, `AgentHistory`), `Dock`, `Controls` |
+| `ApprovalCard.tsx`, `Receipt.tsx` | What is waiting to be saved, pinned in the dock; and what became of it, left in the conversation |
+| `levels.ts` | The microphone and voice levels as two CSS variables on the card. **Not React state**: nothing re-renders for sound |
+| `motion.ts`, `usePresence.ts`, `settling.ts` | The little motion that script drives, and keeping a leaving element on screen long enough to be seen leaving |
+| `components/staged.tsx` | How a form the assistant filled in is marked. The form controls read it, so a staged form shows no placeholders |
+| `styles/assistant.css` | The orb, the aura and every movement. The colours, shadows and durations are tokens in `index.css` |
+
+Three things to keep true when changing any of it:
+
+- **Violet means "the assistant's, not saved yet", and nothing else.** Blue stays "your
+  action" and green stays "saved". Violet is the same lightness as the brand blue, so it
+  is never the only signal: the same things are dashed and say so in words.
+- **Only `transform` and `opacity` move**, and no animation delays, hides or moves a
+  control that could be pressed. Reduced motion needs nothing extra for CSS; script
+  checks `reducedMotion()`.
+- **The approval card shows what the server sent.** It lays values out; it never formats
+  a date or looks a person up. `labels.facts` and `approval_reason` on a proposal are
+  typed and used when present, and the server does not send them yet: until it does the
+  card draws the same layout from the labels it already has.
+
+**The gallery** is how the look is reviewed without holding a conversation. Run
+`npm run dev` and open `/dev/assistant`: the orb and the panel in every state, in light
+and dark, drawn from fixed frames through the real reducer (`galleryFixtures.ts`).
+`/dev/assistant?scene=stage` is the whole frame, with the launcher, the lock and a staged
+form, and buttons that send what a server would, for watching what happens between
+states. The route exists only in development and is not in a production build.
+
 ---
 
 ## The estimates list sorts server-side, and so does everything else on it

@@ -29,6 +29,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
 import { Alert } from "@/components/feedback";
 import { Field, Input, Select, TextField, Textarea } from "@/components/form";
+import { StagedMark } from "@/components/staged";
 import { useToast } from "@/components/Toast";
 import { MEETING_COLORS } from "@/domain/enums";
 import {
@@ -454,7 +455,10 @@ export function MeetingModal({
 
           <fieldset disabled={readOnly}>
             <legend className="text-sm font-medium text-gray-700">Colour</legend>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {/* On a staged form the colour is part of what would be saved, so it is
+                marked like the fields. Anywhere else this wrapper is not there. */}
+            <StagedMark className="mt-1.5">
+            <div className={cn("flex flex-wrap gap-1.5", staged === undefined && "mt-1.5")}>
               {MEETING_COLORS.map((value) => (
                 <button
                   key={value}
@@ -472,6 +476,7 @@ export function MeetingModal({
                 />
               ))}
             </div>
+            </StagedMark>
           </fieldset>
 
           {staged ? (
@@ -606,14 +611,16 @@ function StagedAttendees({ attendees }: { attendees: StagedAttendee[] }) {
       {attendees.length === 0 ? (
         <p className="mt-1.5 text-sm text-gray-500">Nobody is invited.</p>
       ) : (
-        <ul aria-label="Attendees" className="mt-1.5 flex flex-col gap-1">
-          {attendees.map((attendee) => (
-            <li key={attendee.label} className="text-sm text-gray-700">
-              {attendee.label}
-              {attendee.note && <span className="text-gray-500"> ({attendee.note})</span>}
-            </li>
-          ))}
-        </ul>
+        <StagedMark className="mt-1.5">
+          <ul aria-label="Attendees" className="flex flex-col gap-1">
+            {attendees.map((attendee) => (
+              <li key={attendee.label} className="text-sm text-gray-900">
+                {attendee.label}
+                {attendee.note && <span className="text-gray-500"> ({attendee.note})</span>}
+              </li>
+            ))}
+          </ul>
+        </StagedMark>
       )}
     </div>
   );

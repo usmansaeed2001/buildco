@@ -12,13 +12,15 @@ import { useState } from "react";
 import { ApiError } from "@/api/client";
 import { useAgentMemories, useAgentStatus, useDeleteAgentMemory } from "@/api/queries/agent";
 import type { AgentMemoryOut } from "@/api/types";
-import { Button } from "@/components/Button";
+import { Badge } from "@/components/Badge";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Alert, Card } from "@/components/feedback";
 import { useToast } from "@/components/Toast";
+import { TrashIcon } from "./icons";
+import { Orb } from "./Orb";
 
 const CATEGORIES: Record<string, string> = {
-  identity: "About you",
+  identity: "Identity",
   preference: "Preference",
   work_habit: "Work habit",
 };
@@ -50,10 +52,11 @@ export function AgentMemories() {
   return (
     <Card className="flex flex-col gap-4 p-5">
       <div>
-        <h2 className="text-xs font-medium tracking-wide text-gray-500 uppercase">
+        <h2 className="flex items-center gap-2 text-xs font-medium tracking-wide text-gray-500 uppercase">
+          <Orb size={20} />
           What the assistant remembers
         </h2>
-        <p className="mt-1 text-sm text-gray-600">
+        <p className="mt-1.5 text-sm text-gray-600">
           Things you have told BuildCo Assistant about yourself and how you work. Only you can
           see these. It can remember only what you said yourself.
         </p>
@@ -61,32 +64,35 @@ export function AgentMemories() {
 
       {memories.error && <Alert tone="danger">Your memories could not be loaded.</Alert>}
       {!memories.error && rows.length === 0 && (
-        <p className="text-sm text-gray-500">Nothing yet.</p>
+        <p className="rounded-card border border-dashed border-gray-200 px-4 py-5 text-center text-sm text-gray-500">
+          Nothing yet. When you tell the assistant your name, a preference or how you usually
+          work, it is listed here with the words it came from.
+        </p>
       )}
 
       {rows.length > 0 && (
         <ul className="flex flex-col divide-y divide-gray-100">
           {rows.map((memory) => (
-            <li key={memory.id} className="flex items-start justify-between gap-4 py-3">
+            <li key={memory.id} className="flex items-start justify-between gap-3 py-3">
               <div className="min-w-0">
-                <p className="text-sm text-gray-900">{memory.content}</p>
-                <p className="mt-0.5 text-xs text-gray-500">
-                  {CATEGORIES[memory.category] ?? memory.category}
-                  {" · saved "}
-                  {SAVED.format(new Date(memory.created_at))}
-                  {memory.source === "inferred" ? " · noticed, not asked for" : ""}
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
+                  <Badge>{CATEGORIES[memory.category] ?? memory.category}</Badge>
+                  <span>Saved {SAVED.format(new Date(memory.created_at))}</span>
+                  {memory.source === "inferred" && <span>· noticed, not asked for</span>}
                 </p>
+                <p className="mt-1.5 text-sm text-gray-900">{memory.content}</p>
                 <p className="mt-1 text-xs text-gray-500">
                   From your words: <q>{memory.evidence}</q>
                 </p>
               </div>
-              <Button
-                size="sm"
+              <button
+                type="button"
                 aria-label={`Delete memory: ${memory.content}`}
                 onClick={() => setDeleting(memory)}
+                className="-mt-1 -mr-2 grid size-11 shrink-0 place-items-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-danger-600 dark:hover:text-danger-400"
               >
-                Delete
-              </Button>
+                <TrashIcon />
+              </button>
             </li>
           ))}
         </ul>

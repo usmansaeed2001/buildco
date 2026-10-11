@@ -544,7 +544,7 @@ describe("MeetingModal", () => {
     it("is read-only and offers nothing to save or add with", () => {
       renderStaged([{ label: "Sam Member" }]);
 
-      expect(screen.getByText("Filled in by BuildCo Assistant. Not saved yet.")).toBeVisible();
+      expect(screen.getByText("Filled in by BuildCo Assistant · Not saved yet")).toBeVisible();
       expect(screen.getByLabelText(/^Title/)).toBeDisabled();
       expect(screen.queryByRole("button", { name: "Create meeting" })).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Invite by email")).not.toBeInTheDocument();

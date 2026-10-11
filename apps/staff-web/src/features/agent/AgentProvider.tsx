@@ -51,6 +51,7 @@ import { queryKeys } from "@/api/queries/keys";
 import type { AgentSessionOut } from "@/api/types";
 import { agentReducer, initialState, isLocked, type AgentState } from "./agentState";
 import { MicrophoneDenied, openAudio, type AgentAudio, type OpenAudio } from "./audio";
+import { createLevels, type Levels } from "./levels";
 import {
   closeReason,
   type ClientFrame,
@@ -84,14 +85,19 @@ export interface AgentContextValue {
   available: boolean;
   /** Seconds of today's allowance left, as last heard. Null until known. */
   remainingToday: number | null;
+  /** Seconds each person gets in a day. Null until known. */
+  dailyLimit: number | null;
   /** When the allowance starts again, as an ISO instant. */
   resetsAt: string | null;
   state: AgentState;
   /** Whether the app beside the panel is locked while the assistant works. */
   locked: boolean;
   panelOpen: boolean;
-  /** 0 to 1, for the microphone meter. */
-  micLevel: number;
+  /**
+   * How loud the microphone and the voice are, and whether the assistant is speaking.
+   * Not state: the levels go straight to the stylesheet, so nothing redraws for them.
+   */
+  levels: Levels;
   openPanel: () => void;
   /** Closing the panel ends the conversation. */
   closePanel: () => void;
@@ -122,6 +128,20 @@ export interface AgentContextValue {
 }
 
 const AgentContext = createContext<AgentContextValue | null>(null);
+
+/**
+ * The assistant drawn from fixed values, with no socket, no audio and no server. For the
+ * gallery of states and for tests of how a state looks.
+ */
+export function AgentPreview({
+  value,
+  children,
+}: {
+  value: AgentContextValue;
+  children: ReactNode;
+}) {
+  return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
+}
 
 /** Null when there is no provider, which is every screen outside the signed-in shell. */
 export function useAgent(): AgentContextValue | null {
@@ -161,7 +181,7 @@ export function AgentProvider({
     speakerOn: rememberedSpeaker(),
   }));
   const [panelOpen, setPanelOpen] = useState(false);
-  const [micLevel, setMicLevel] = useState(0);
+  const [levels] = useState(createLevels);
 
   const transport = useRef<AgentTransport | null>(null);
   const device = useRef<AgentAudio | null>(null);
@@ -174,7 +194,6 @@ export function AgentProvider({
   const staging = useRef<{ directiveId: string; proposalId: string; timer: number } | null>(null);
   const view = useRef<View>({ route: "/", dialogOpen: false, entity: null, saveState: null });
   const editor = useRef<EditorHandle | null>(null);
-  const levelAt = useRef(0);
   /** The conversation this browser is in, from `ready` until it is known to be over. */
   const conversation = useRef<string | null>(null);
   /** Bumped whenever the current connection stops mattering, to quiet its late events. */
@@ -218,10 +237,10 @@ export function AgentProvider({
     transport.current = null;
     device.current?.close();
     device.current = null;
-    setMicLevel(0);
+    levels.reset();
     // What is left of today, and the history list, both changed while this ran.
     void queryClient.invalidateQueries({ queryKey: queryKeys.agent.all });
-  }, [queryClient]);
+  }, [levels, queryClient]);
 
   // A conversation does not outlive the shell: signing out or leaving unmounts this.
   useEffect(() => release, [release]);
@@ -265,7 +284,10 @@ export function AgentProvider({
         // With the speaker off nothing plays, so the summary counts as delivered once
         // it is on screen, which it already is.
         if (speakerOn.current) device.current?.mark(frame.readback_for);
-        else send({ type: "readback_played", proposal_id: frame.readback_for });
+        else {
+          send({ type: "readback_played", proposal_id: frame.readback_for });
+          dispatch({ type: "readback_played", id: frame.readback_for });
+        }
       }
 
       if (frame.type === "ui") {
@@ -420,15 +442,16 @@ export function AgentProvider({
           onMicrophone: (pcm) => {
             if (!paused.current) transport.current?.sendAudio(pcm);
           },
-          // The meter arrives 25 times a second. Redrawing everything that reads this
-          // context that often would be felt, and a meter does not need it.
-          onLevel: (level) => {
-            const now = performance.now();
-            if (now - levelAt.current < 120) return;
-            levelAt.current = now;
-            setMicLevel(paused.current ? 0 : level);
+          // The level arrives 25 times a second. It goes to the stylesheet, not to
+          // state: redrawing everything that reads this context that often would be
+          // felt, and an orb does not need it.
+          onLevel: (level) => levels.mic(paused.current ? 0 : level),
+          onVoice: (level, playing) => levels.voice(level, playing),
+          onPlayed: (id) => {
+            send({ type: "readback_played", proposal_id: id });
+            // For the card: from here a spoken yes can count, and it says so.
+            dispatch({ type: "readback_played", id });
           },
-          onPlayed: (id) => send({ type: "readback_played", proposal_id: id }),
         });
         opened.setSpeaker(speakerOn.current);
         device.current = opened;
@@ -448,7 +471,7 @@ export function AgentProvider({
         });
       }
     },
-    [attach, openAudioDevice, release, send],
+    [attach, levels, openAudioDevice, release, send],
   );
 
   const end = useCallback(() => {
@@ -537,11 +560,12 @@ export function AgentProvider({
         state.phase === "live" || state.phase === "reconnecting"
           ? state.remainingSeconds
           : (status.data?.remaining_seconds ?? null),
+      dailyLimit: status.data?.daily_limit_seconds ?? null,
       resetsAt: status.data?.resets_at ?? null,
       state,
       locked,
       panelOpen,
-      micLevel,
+      levels,
       openPanel: () => setPanelOpen(true),
       closePanel: () => {
         if (transport.current || conversation.current) end();
@@ -600,8 +624,8 @@ export function AgentProvider({
       begin,
       confirmStaged,
       end,
+      levels,
       locked,
-      micLevel,
       panelOpen,
       queryClient,
       registerEditor,

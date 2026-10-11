@@ -190,6 +190,8 @@ function stage(proposal: Proposal = PROPOSAL) {
 
 const appColumn = () => document.querySelector("[data-app-column]") as HTMLElement;
 const panel = () => screen.getByRole("complementary", { name: "Side panel" });
+/** The two words under the panel's title that say what the assistant is doing. */
+const status = () => within(panel()).getByRole("status", { name: "Assistant status" });
 
 beforeEach(() => {
   fakes.sockets.length = 0;
@@ -217,7 +219,10 @@ describe("BuildCo Assistant in the shell", () => {
       renderShell();
 
       const launcher = await screen.findByRole("button", { name: "Ask BuildCo Assistant" });
-      expect(launcher).toHaveAttribute("title", "Ask BuildCo Assistant");
+      // Its label is part of the button, not the browser's tooltip: that one is slow to
+      // appear, unstyled and absent on touch.
+      expect(within(launcher).getByText("Ask BuildCo Assistant")).toBeInTheDocument();
+      expect(launcher).not.toHaveAttribute("title");
     });
 
     it("is not offered in a window under 1024px", async () => {
@@ -274,7 +279,7 @@ describe("BuildCo Assistant in the shell", () => {
       await startTalking();
 
       expect(within(panel()).getByRole("button", { name: "Mute" })).toBeVisible();
-      expect(within(panel()).getByRole("button", { name: "Speaker on" })).toBeVisible();
+      expect(within(panel()).getByRole("button", { name: "Turn speaker off" })).toBeVisible();
       expect(within(panel()).getByRole("button", { name: "End" })).toBeVisible();
     });
 
@@ -313,7 +318,7 @@ describe("BuildCo Assistant in the shell", () => {
       stage();
 
       const form = await screen.findByRole("dialog", { name: "New meeting" });
-      expect(within(form).getByText("Filled in by BuildCo Assistant. Not saved yet.")).toBeVisible();
+      expect(within(form).getByText("Filled in by BuildCo Assistant · Not saved yet")).toBeVisible();
       expect(within(form).getByLabelText(/^Title/)).toHaveValue("Hendricks walkthrough");
       expect(within(form).getByLabelText("Date")).toHaveValue("2026-10-14");
       expect(within(form).getByLabelText("Start")).toHaveValue("14:30");
@@ -384,6 +389,8 @@ describe("BuildCo Assistant in the shell", () => {
       expect(panel().closest("[inert]")).toBeNull();
       const banner = document.querySelector("[data-app-lock]") as HTMLElement;
       expect(within(banner).getByText("BuildCo Assistant is working")).toBeVisible();
+      // The step is named over the app too, so nobody has to look back at the panel.
+      expect(within(banner).getByText("Fill in the meeting")).toBeVisible();
       expect(banner.closest("[inert]")).toBeNull();
       expect(within(panel()).getByText("Fill in the meeting")).toBeVisible();
     });
@@ -397,8 +404,8 @@ describe("BuildCo Assistant in the shell", () => {
 
       const card = within(panel()).getByRole("region", { name: "Waiting for your approval" });
       expect(within(card).getByText(PROPOSAL.summary)).toBeVisible();
-      expect(within(card).getByText(/needs a click/)).toBeVisible();
-      expect(within(card).getByText("Sam Member")).toBeVisible();
+      expect(within(card).getByText(/Needs a click/)).toBeVisible();
+      expect(within(card).getByText(/Sam Member/)).toBeVisible();
     });
 
     it("sends the user's decision, not a result", async () => {
@@ -407,15 +414,19 @@ describe("BuildCo Assistant in the shell", () => {
       stage();
       receive({ type: "proposal", ...PROPOSAL });
 
-      await user.click(within(panel()).getByRole("button", { name: "Approve" }));
       await user.click(within(panel()).getByRole("button", { name: "Reject" }));
+      await user.click(within(panel()).getByRole("button", { name: "Approve" }));
 
       expect(sentOf("approval")).toEqual([
-        { type: "approval", proposal_id: "p-1", decision: "approve" },
         { type: "approval", proposal_id: "p-1", decision: "reject" },
+        { type: "approval", proposal_id: "p-1", decision: "approve" },
       ]);
-      // Nothing changed on screen because of the clicks: the server decides the outcome.
-      expect(within(panel()).getByRole("region", { name: "Waiting for your approval" })).toBeVisible();
+      // The card is still there because of the clicks: the server decides the outcome.
+      // While the approval is on its way the buttons wait for it, and nothing says saved.
+      const card = within(panel()).getByRole("region", { name: "Waiting for your approval" });
+      expect(card).toBeVisible();
+      expect(within(card).getByRole("button", { name: "Approve" })).toBeDisabled();
+      expect(within(card).getByText("Not saved yet")).toBeVisible();
     });
 
     it("unlocks, refreshes the calendar and says so when it is saved", async () => {
@@ -435,7 +446,9 @@ describe("BuildCo Assistant in the shell", () => {
 
       expect(screen.queryByRole("dialog", { name: "New meeting" })).not.toBeInTheDocument();
       expect(appColumn()).not.toHaveAttribute("inert");
-      expect(within(panel()).getByText("Saved.")).toBeVisible();
+      const receipt = within(panel()).getByRole("article");
+      expect(within(receipt).getByText("Saved")).toBeVisible();
+      expect(within(receipt).getByText(/Hendricks walkthrough/)).toBeVisible();
       await waitFor(() => expect(served.meetingRequests()).toBeGreaterThan(before));
     });
   });
@@ -511,7 +524,7 @@ describe("BuildCo Assistant in the shell", () => {
     it("counts as delivered at once with the speaker off, since nothing will play", async () => {
       serveAssistant();
       const { user } = await startTalking();
-      await user.click(within(panel()).getByRole("button", { name: "Speaker on" }));
+      await user.click(within(panel()).getByRole("button", { name: "Turn speaker off" }));
 
       receive({ type: "turn_complete", spoke: true, readback_for: "p-1" });
 
@@ -567,7 +580,7 @@ describe("BuildCo Assistant in the shell", () => {
 
       // Never a lock behind a dead connection, whatever happens next.
       expect(appColumn()).not.toHaveAttribute("inert");
-      expect(within(panel()).getByText("The connection dropped. Reconnecting…")).toBeVisible();
+      expect(status()).toHaveTextContent(/Reconnecting/);
     });
 
     it("keeps a live panel on screen when the window becomes too narrow to offer one", async () => {
@@ -647,7 +660,7 @@ describe("the day's allowance", () => {
 
     await user.click(await screen.findByRole("button", { name: "Ask BuildCo Assistant" }));
 
-    expect(await within(panel()).findByText("10 min left today.")).toBeVisible();
+    expect(await within(panel()).findByText("10 of 10 minutes left today")).toBeVisible();
   });
 
   it("will not start once today's time is used, and says when there will be more", async () => {
@@ -656,11 +669,11 @@ describe("the day's allowance", () => {
 
     await user.click(await screen.findByRole("button", { name: "Ask BuildCo Assistant" }));
 
-    expect(
-      await within(panel()).findByText(/Today.s time with the assistant has been used/),
-    ).toBeVisible();
-    expect(within(panel()).getByText(/More is available from/)).toBeVisible();
-    expect(within(panel()).getByRole("button", { name: "Start talking" })).toBeDisabled();
+    expect(await within(panel()).findByText("You have used today's 10 minutes.")).toBeVisible();
+    expect(within(panel()).getByText(/More is available at/)).toBeVisible();
+    expect(status()).toHaveTextContent(/^Back at /);
+    // There is nothing to start one with, by voice or by typing.
+    expect(within(panel()).queryByRole("button", { name: "Start talking" })).not.toBeInTheDocument();
     expect(within(panel()).getByRole("textbox", { name: "Message the assistant" })).toBeDisabled();
   });
 
@@ -672,7 +685,7 @@ describe("the day's allowance", () => {
     receive({ ...READY, limits: { max_session_seconds: 1800, remaining_seconds: 90 } });
 
     expect(within(panel()).getByRole("timer", { name: "Time left today" })).toHaveTextContent(
-      "1 min 30 s left",
+      "1:30",
     );
   });
 
@@ -714,7 +727,7 @@ describe("waiting for an approval", () => {
     microphone(new ArrayBuffer(4));
 
     expect(socket().audio).toBe(1);
-    expect(within(panel()).getByText(/Microphone paused while you read/)).toBeVisible();
+    expect(status()).toHaveTextContent("Microphone paused");
 
     await userEvent.click(within(panel()).getByRole("button", { name: "Tap to talk" }));
     expect(sentOf("resume")).toHaveLength(1);
@@ -738,7 +751,8 @@ describe("waiting for an approval", () => {
 
     receive({ type: "proposal", ...open, approval: "click" });
 
-    expect(within(panel()).getByText(/This one needs a click/)).toBeVisible();
+    expect(within(panel()).getByText(/Needs a click\. Saying yes will not approve it/)).toBeVisible();
+    expect(within(panel()).queryByText(/Say yes/)).not.toBeInTheDocument();
     expect(within(panel()).getAllByRole("region", { name: "Waiting for your approval" })).toHaveLength(1);
   });
 });
@@ -822,7 +836,7 @@ describe("a dropped connection", () => {
 
     act(() => socket().handlers.onClose(1006));
 
-    expect(within(panel()).getByText("The connection dropped. Reconnecting…")).toBeVisible();
+    expect(status()).toHaveTextContent(/Reconnecting/);
     await waitFor(() => expect(fakes.sockets).toHaveLength(2));
     expect(socket().url).toContain("ticket=second-ticket");
     // The microphone and speaker were never let go of.
@@ -878,7 +892,7 @@ describe("a dropped connection", () => {
     act(() => socket().handlers.onClose(1006));
 
     expect(await within(panel()).findByText("The connection was lost.")).toBeVisible();
-    expect(within(panel()).getByText(/Saved\./)).toBeVisible();
+    expect(within(within(panel()).getByRole("article")).getByText("Saved")).toBeVisible();
     expect(
       within(panel()).queryByRole("region", { name: "Waiting for your approval" }),
     ).not.toBeInTheDocument();
@@ -985,12 +999,20 @@ describe("past conversations", () => {
 
     await user.click(await screen.findByRole("button", { name: "Ask BuildCo Assistant" }));
 
-    const list = await within(panel()).findByRole("region", { name: "Past conversations" });
+    const list = await within(panel()).findByRole("region", { name: "Recent conversations" });
     expect(within(list).getByText("Book the Hendricks walkthrough")).toBeVisible();
-    expect(within(list).getByText(/2 min · 1 change saved/)).toBeVisible();
+    expect(within(list).getByText("1 saved")).toBeVisible();
+    expect(within(list).getByText(/2 min of voice/)).toBeVisible();
     // After 90 days the words are gone and the record of what was done is not.
     expect(within(list).getByText("Transcript expired")).toBeVisible();
-    expect(within(list).getByText(/40 s · 2 changes saved/)).toBeVisible();
+    expect(within(list).getByText("2 saved")).toBeVisible();
+    expect(within(list).getByText(/40 s of voice/)).toBeVisible();
+
+    // The same rows, all of them and by day, behind one button.
+    await user.click(within(list).getByRole("button", { name: "All conversations" }));
+    const all = await within(panel()).findByRole("region", { name: "Past conversations" });
+    expect(within(all).getByText("Book the Hendricks walkthrough")).toBeVisible();
+    expect(within(all).getAllByRole("heading").length).toBeGreaterThan(1);
   });
 
   it("open read-only, with what was done shown where it happened and a link to it", async () => {
@@ -1003,10 +1025,12 @@ describe("past conversations", () => {
 
     const record = await within(panel()).findByRole("region", { name: "Past conversation" });
     expect(await within(record).findByText("It is saved.")).toBeVisible();
+    // What was done is a receipt, the same one a live conversation leaves.
     const action = within(record).getByRole("article");
     expect(within(action).getByText("New supplement")).toBeVisible();
-    expect(within(action).getByText(/Saved, approved by voice/)).toBeVisible();
-    expect(within(action).getByRole("link", { name: "Open it" })).toHaveAttribute(
+    expect(within(action).getByText("Saved")).toBeVisible();
+    expect(within(action).getByText("Approved by voice")).toBeVisible();
+    expect(within(action).getByRole("link", { name: "Open" })).toHaveAttribute(
       "href",
       "/estimates/est-1",
     );
@@ -1015,6 +1039,8 @@ describe("past conversations", () => {
 
     await user.click(within(record).getByRole("button", { name: "Back to past conversations" }));
     expect(await within(panel()).findByRole("region", { name: "Past conversations" })).toBeVisible();
+    await user.click(within(panel()).getByRole("button", { name: "Back to the assistant" }));
+    expect(await within(panel()).findByRole("button", { name: "Start talking" })).toBeVisible();
   });
 });
 
@@ -1248,4 +1274,142 @@ describe("a change to an open supplement", () => {
     await waitFor(() => expect(supplement.patches.length).toBeGreaterThan(0), { timeout: 6000 });
     expect(supplement.patches.at(-1)).toMatchObject({ client_name: "Beacon Mutual" });
   }, 12_000);
+});
+
+// ── The Experience release: how it looks, where that needs the real shell ───────────
+
+describe("the look, in the real shell", () => {
+  it("puts the launcher in the corner as one button, and brings it back with focus", async () => {
+    serveAssistant();
+    const { user } = renderShell();
+
+    const launcher = await screen.findByRole("button", { name: "Ask BuildCo Assistant" });
+    expect(launcher).toHaveClass("ast-launcher");
+    await user.click(launcher);
+    // Opening moves focus to the panel's title, never to something that acts.
+    expect(within(panel()).getByRole("heading", { name: "BuildCo Assistant" })).toHaveFocus();
+
+    await user.click(within(panel()).getByRole("button", { name: "Close assistant" }));
+    expect(await screen.findByRole("button", { name: "Ask BuildCo Assistant" })).toHaveFocus();
+  });
+
+  it("has Stop once in the panel and once over the app, and nowhere else", async () => {
+    serveAssistant();
+    await startTalking();
+    stage();
+    await screen.findByRole("dialog", { name: "New meeting" });
+    receive({ type: "proposal", ...PROPOSAL });
+
+    const banner = document.querySelector("[data-app-lock]") as HTMLElement;
+    expect(within(banner).getAllByRole("button", { name: "Stop" })).toHaveLength(1);
+    expect(within(panel()).getAllByRole("button", { name: "Stop" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Stop" })).toHaveLength(2);
+  });
+
+  it("answers a click on the locked app, where it used to do nothing", async () => {
+    serveAssistant();
+    const { user } = await startTalking();
+    stage();
+    await screen.findByRole("dialog", { name: "New meeting" });
+    const lock = document.querySelector("[data-app-lock]") as HTMLElement;
+    expect(within(lock).queryByText("Press Stop to take over")).not.toBeInTheDocument();
+
+    await user.click(lock);
+
+    expect(within(lock).getByText("Press Stop to take over")).toBeVisible();
+    // It says how to take over. It does not take over.
+    expect(sentOf("stop")).toEqual([]);
+    expect(appColumn()).toHaveAttribute("inert");
+  });
+
+  it("shows no example text on a staged meeting, and shows it again once the form is the user's", async () => {
+    serveAssistant();
+    await startTalking();
+
+    stage({ ...PROPOSAL, payload: { ...PROPOSAL.payload, location: "" } });
+
+    const staged = await screen.findByRole("dialog", { name: "New meeting" });
+    // An empty Location is empty. "12 Oak Street" there would read as a value.
+    expect(within(staged).getByLabelText("Location")).toHaveValue("");
+    expect(within(staged).getByLabelText("Location")).not.toHaveAttribute("placeholder");
+    expect(within(staged).getByLabelText(/^Title/)).not.toHaveAttribute("placeholder");
+    // What it filled in is marked; what it left empty is not.
+    expect(within(staged).getByLabelText(/^Title/).closest("[data-staged-fill]")).not.toBeNull();
+    expect(within(staged).getByLabelText("Location").closest("[data-staged-fill]")).toBeNull();
+
+    receive(
+      { type: "proposal_result", id: "p-1", status: "handed_over" },
+      { type: "mode", mode: "conversing" },
+    );
+
+    const own = await screen.findByRole("dialog", { name: "New meeting" });
+    expect(within(own).getByLabelText("Location")).toHaveAttribute("placeholder", "12 Oak Street");
+    expect(own.querySelector("[data-staged-fill]")).toBeNull();
+  });
+
+  it("shows no example text on a staged supplement either", async () => {
+    serveAssistant();
+    await startTalkingOn("/calendar");
+    const create = proposal("supplement.create", {
+      payload: {
+        project_name: "Hendricks roof",
+        client_name: "",
+        identifier: null,
+        pm_name: "",
+        insurance_carrier: "",
+        notes: "",
+        rooms: [],
+      },
+      labels: { route: "/estimates" },
+    });
+
+    stage(create);
+
+    const staged = await screen.findByRole("dialog", { name: "New estimate" });
+    for (const label of [/Project name/, /Client name/, /Claim ID/]) {
+      expect(within(staged).getByLabelText(label)).not.toHaveAttribute("placeholder");
+    }
+    expect(within(staged).getByLabelText(/Client name/)).toHaveValue("");
+
+    receive(
+      { type: "proposal_result", id: create.id, status: "handed_over" },
+      { type: "mode", mode: "conversing" },
+    );
+
+    const own = await screen.findByRole("dialog", { name: "New estimate" });
+    expect(within(own).getByLabelText(/Client name/)).toHaveAttribute("placeholder", "Acme Insurance");
+  });
+
+  it("reports the read-back as played exactly as before, however the turn is drawn", async () => {
+    serveAssistant();
+    await startTalking();
+    stage();
+    receive({ type: "proposal", ...PROPOSAL });
+    receive(
+      { type: "transcript", role: "assistant", text: PROPOSAL.summary, final: true },
+      { type: "turn_complete", spoke: true, readback_for: "p-1" },
+    );
+
+    // Drawn clamped, under its label, with the card holding the full statement.
+    const log = within(within(panel()).getByRole("log", { name: "Conversation" }));
+    expect(log.getByText("Read-back")).toBeVisible();
+    expect(sentOf("readback_played")).toEqual([]);
+
+    act(() => device().options.onPlayed("p-1"));
+    expect(sentOf("readback_played")).toEqual([{ type: "readback_played", proposal_id: "p-1" }]);
+  });
+
+  it("keeps a receipt for each change a conversation saves", async () => {
+    serveAssistant();
+    await startTalking();
+
+    for (const id of ["p-1", "p-2", "p-3"]) {
+      receive(
+        { type: "proposal", ...PROPOSAL, id },
+        { type: "proposal_result", id, status: "committed", target: { type: "meeting", id } },
+      );
+    }
+
+    expect(within(panel()).getAllByRole("article")).toHaveLength(3);
+  });
 });

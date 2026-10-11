@@ -20,7 +20,7 @@
  * (`app-sm:`, `app-md:` and so on). The shell sits in `AppFrame`, which can dock a panel
  * beside it, and the app has to lay itself out for the width it is actually given.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, useIsElevated } from "@/auth/useAuth";
 import { AppFrame } from "./AppFrame";
@@ -31,9 +31,12 @@ import {
   AgentContextReporter,
   AgentLauncher,
   AgentLockBanner,
+  AgentSavedTint,
 } from "@/features/agent/AgentLauncher";
 import { AgentPanel } from "@/features/agent/AgentPanel";
 import { AgentProvider, useAgent } from "@/features/agent/AgentProvider";
+import { useLauncherShown } from "@/features/agent/useLauncherShown";
+import { usePresence } from "@/features/agent/usePresence";
 import { BrandMark } from "@/features/auth/AuthLayout";
 import { cn } from "@/lib/cn";
 import { setPreference } from "@/lib/theme";
@@ -73,6 +76,13 @@ function Shell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const { pathname } = useLocation();
 
+  // The card shrinks back into the launcher's corner when it is closed. It is kept on
+  // screen for that long, and the launcher returns, with focus, once it has gone.
+  const panel = usePresence(agent?.panelOpen === true);
+  const wasOpen = useRef(false);
+  if (agent?.panelOpen) wasOpen.current = true;
+  const launcherShown = useLauncherShown(panel.mounted);
+
   // Navigating is the one thing that should always close the drawer. Without this it
   // stays open over the page you just asked for, which reads as a broken tap.
   useEffect(() => setMenuOpen(false), [pathname]);
@@ -87,12 +97,22 @@ function Shell() {
 
   return (
     <AppFrame
-      panel={agent?.panelOpen ? <AgentPanel /> : undefined}
-      launcher={<AgentLauncher />}
+      panel={panel.mounted ? <AgentPanel closing={panel.closing} /> : undefined}
+      panelClosing={panel.closing}
+      launcher={
+        <AgentLauncher
+          hidden={panel.mounted}
+          takeFocus={wasOpen.current}
+          onFocused={() => {
+            wasOpen.current = false;
+          }}
+        />
+      }
       locked={agent?.locked === true}
       lockBanner={<AgentLockBanner />}
     >
       <AgentContextReporter />
+      <AgentSavedTint />
       <header className="sticky top-0 z-30 border-b border-gray-200 bg-surface">
         <div className="mx-auto flex h-13 max-w-[1600px] items-center gap-3 px-4 app-sm:gap-6 app-sm:px-6">
           <button
@@ -139,7 +159,14 @@ function Shell() {
         )}
       </header>
 
-      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 app-sm:px-6">
+      <main
+        className={cn(
+          "mx-auto w-full max-w-[1600px] flex-1 px-4 pt-6 app-sm:px-6",
+          // Room for the launcher, so it does not sit on whatever a page puts in that
+          // corner.
+          launcherShown ? "pb-[88px]" : "pb-6",
+        )}
+      >
         <Outlet />
       </main>
     </AppFrame>

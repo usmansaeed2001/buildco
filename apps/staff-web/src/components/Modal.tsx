@@ -22,12 +22,16 @@
  *
  * **`staged`** is for a form the assistant has filled in to show what it proposes. It is
  * read-only and says so, has nothing to close it with, and never takes focus: the
- * person is approving or rejecting it from the panel, not operating it.
+ * person is approving or rejecting it from the panel, not operating it. Its scrim is
+ * light, because the user is being asked to look at the page, not away from it; an
+ * ordinary dialog's is unchanged. How its fields are marked is in `staged.tsx`.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import { useAppFrame } from "./AppFrame";
+import { StagedBanner } from "./staged";
+import { StagedProvider } from "./stagedContext";
 
 type Size = "sm" | "md" | "lg" | "xl";
 
@@ -77,6 +81,17 @@ export function Modal({
     return registerDialog();
   }, [open, staged, registerDialog]);
 
+  // The marks on a staged form's filled fields appear top to bottom, a beat apart. Every
+  // value is on screen from the first frame; this only numbers the marks for the
+  // stylesheet, which staggers them.
+  const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!open || !staged) return;
+    body.current
+      ?.querySelectorAll<HTMLElement>("[data-staged-fill]")
+      .forEach((mark, index) => mark.style.setProperty("--staged-i", String(index)));
+  }, [open, staged]);
+
   // Mounted only while open. A closed dialog that still rendered its children would keep
   // a form nobody can see alive, with its state and its effects, and a test asserting
   // "this confirmation is not showing" would pass whether or not it was.
@@ -101,19 +116,18 @@ export function Modal({
         )}
       </header>
 
-      {staged && (
-        <p
-          role="status"
-          className="border-b border-brand-100 bg-brand-50 px-5 py-2 text-sm font-medium text-brand-700 dark:text-brand-300"
-        >
-          Filled in by BuildCo Assistant. Not saved yet.
-        </p>
-      )}
+      {staged && <StagedBanner />}
 
       {/* `inert`, not merely disabled fields: a staged form must not be operable at all,
-          and that includes links and buttons a form may render inside its body. */}
-      <div className="max-h-[70vh] overflow-y-auto px-5 py-4" inert={staged}>
-        {children}
+          and that includes links and buttons a form may render inside its body. It can
+          still be scrolled, by the lock's layer over it (`AppFrame`). */}
+      <div
+        ref={body}
+        className="max-h-[70vh] overflow-y-auto px-5 py-4"
+        inert={staged}
+        {...(staged ? { "data-staged-body": "" } : {})}
+      >
+        <StagedProvider value={staged}>{children}</StagedProvider>
       </div>
 
       {/* The footer is the form's own Save and Cancel. A staged form is saved by
@@ -186,7 +200,10 @@ function NativeDialog({
         if (event.target === dialog.current && !staged) onClose();
       }}
       className={cn(
-        "m-auto w-[calc(100%-2rem)] rounded-card bg-surface p-0 text-gray-900 shadow-xl backdrop:bg-black/45 dark:backdrop:bg-black/65",
+        "m-auto w-[calc(100%-2rem)] rounded-card bg-surface p-0 text-gray-900 shadow-xl",
+        staged
+          ? "backdrop:bg-black/20 dark:backdrop:bg-black/35"
+          : "backdrop:bg-black/45 dark:backdrop:bg-black/65",
         WIDTHS[size],
       )}
       aria-label={title}
@@ -278,7 +295,12 @@ function ScopedDialog({
     <div
       ref={root}
       data-scoped-dialog
-      className="absolute inset-0 z-40 bg-black/45 dark:bg-black/65"
+      className={cn(
+        "absolute inset-0 z-40",
+        // Light behind a staged form: the page stays readable while it is being asked
+        // about.
+        staged ? "bg-black/20 dark:bg-black/35" : "bg-black/45 dark:bg-black/65",
+      )}
     >
       <div
         className="sticky top-0 flex h-dvh items-center justify-center p-4"
@@ -295,6 +317,7 @@ function ScopedDialog({
           onKeyDown={trapTab}
           className={cn(
             "w-full rounded-card bg-surface text-gray-900 shadow-xl outline-none",
+            staged && "ast-staged-dialog",
             WIDTHS[size],
           )}
         >

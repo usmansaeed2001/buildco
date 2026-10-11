@@ -215,9 +215,11 @@ describe("what the assistant remembers", () => {
     renderProfile();
 
     expect(await screen.findByText("Prefers to be called Sam")).toBeVisible();
-    expect(screen.getByText(/About you · saved/)).toBeVisible();
+    expect(screen.getByText("Identity")).toBeVisible();
     expect(screen.getByText("please call me Sam")).toBeVisible();
-    expect(screen.getByText(/Preference · saved .* noticed, not asked for/)).toBeVisible();
+    expect(screen.getByText("Preference")).toBeVisible();
+    expect(screen.getByText(/noticed, not asked for/)).toBeVisible();
+    expect(screen.getAllByText(/^Saved /)).toHaveLength(2);
   });
 
   it("says so when there is nothing yet", async () => {
@@ -226,7 +228,8 @@ describe("what the assistant remembers", () => {
     renderProfile();
 
     expect(await screen.findByText("What the assistant remembers")).toBeVisible();
-    expect(screen.getByText("Nothing yet.")).toBeVisible();
+    // And what would appear here, so an empty card is not a dead end.
+    expect(screen.getByText(/Nothing yet\. When you tell the assistant/)).toBeVisible();
   });
 
   it("deletes one after asking, and it goes from the list", async () => {

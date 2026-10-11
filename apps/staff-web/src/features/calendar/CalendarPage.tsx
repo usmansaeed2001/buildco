@@ -415,6 +415,8 @@ function MeetingChip({
   return (
     <button
       type="button"
+      // Named for the assistant, which tints a meeting for a moment after saving it.
+      data-agent-record={`meeting:${meeting.id}`}
       onClick={() => onClick(meeting)}
       title={`${formatTime(meeting.start_time)} ${meeting.title}`}
       className="flex items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] hover:bg-gray-100"

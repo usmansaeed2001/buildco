@@ -16,6 +16,8 @@ import { Button } from "@/components/Button";
 import { Modal } from "@/components/Modal";
 import { Alert } from "@/components/feedback";
 import { TextField } from "@/components/form";
+import { StagedMark } from "@/components/staged";
+import { cn } from "@/lib/cn";
 
 export interface NewEstimateValues {
   project_name: string;
@@ -118,17 +120,25 @@ export function NewEstimateModal({
         {failure && <Alert tone="danger">{failure}</Alert>}
 
         {also.length > 0 && (
-          <dl
-            aria-label="Also set"
-            className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-card bg-gray-50 p-3 text-sm"
-          >
-            {also.map((row) => (
-              <div key={row.label} className="contents">
-                <dt className="font-medium text-gray-700">{row.label}</dt>
-                <dd className="whitespace-pre-wrap text-gray-600">{row.value}</dd>
-              </div>
-            ))}
-          </dl>
+          // Marked like the fields on a staged form: these are saved with the rest.
+          <StagedMark>
+            <dl
+              aria-label="Also set"
+              className={cn(
+                "grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm",
+                !staged && "rounded-card bg-gray-50 p-3",
+              )}
+            >
+              {also.map((row) => (
+                <div key={row.label} className="contents">
+                  <dt className="font-medium text-gray-700">{row.label}</dt>
+                  <dd className={cn("whitespace-pre-wrap", staged ? "text-gray-900" : "text-gray-600")}>
+                    {row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </StagedMark>
         )}
 
         <TextField

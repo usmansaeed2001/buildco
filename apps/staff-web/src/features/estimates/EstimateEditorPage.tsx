@@ -29,6 +29,7 @@ import { Button } from "@/components/Button";
 import { EstimateStatusBadge } from "@/components/Badge";
 import { Alert, ErrorState, LoadingState } from "@/components/feedback";
 import { Modal } from "@/components/Modal";
+import { StagedMark } from "@/components/staged";
 import { TabList, TabPanel, useTabParam } from "@/components/Tabs";
 import { useToast } from "@/components/Toast";
 import { ITEM_CATEGORIES, ITEM_UNITS, type EstimateStatus } from "@/domain/enums";
@@ -283,7 +284,12 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-3">
+      {/* Named for the assistant, which tints it for a moment after saving a change to
+          this supplement. */}
+      <header
+        data-agent-record={`supplement:${estimate.id}`}
+        className="flex flex-col gap-3 rounded-card"
+      >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <Link to="/estimates" className="text-sm text-gray-500 hover:text-gray-800">
@@ -533,25 +539,31 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
       )}
       {staged?.kind === "supplement.update_details" && (
         <Modal key={staged.id} open staged title="Change details" onClose={() => {}}>
+          {/* Each detail as it would become, with what it is now struck through above. */}
           <table className="w-full text-left text-sm">
-            <thead className="text-gray-500">
+            <thead className="sr-only">
               <tr>
-                <th className="pr-3 pb-1 font-medium">Detail</th>
-                <th className="pr-3 pb-1 font-medium">Now</th>
-                <th className="pb-1 font-medium">Would become</th>
+                <th>Detail</th>
+                <th>Now, and what it would become</th>
               </tr>
             </thead>
             <tbody>
               {(staged.labels.changes ?? []).map((change) => (
-                <tr key={change.field} className="border-t border-gray-100 align-top">
-                  <th scope="row" className="py-1.5 pr-3 font-medium text-gray-700">
+                <tr key={change.field} className="align-top">
+                  <th scope="row" className="w-1/3 py-2 pr-3 font-medium text-gray-700">
                     {change.label}
                   </th>
-                  <td className="py-1.5 pr-3 whitespace-pre-wrap text-gray-500">
-                    {change.old || "blank"}
-                  </td>
-                  <td className="py-1.5 whitespace-pre-wrap text-gray-900">
-                    {change.new || "blank"}
+                  <td className="py-1 whitespace-pre-wrap">
+                    <StagedMark>
+                      <span className="block text-gray-500 line-through">
+                        <span className="sr-only">Now: </span>
+                        {change.old || "blank"}
+                      </span>
+                      <span className="block text-gray-900">
+                        <span className="sr-only">Would become: </span>
+                        {change.new || "blank"}
+                      </span>
+                    </StagedMark>
                   </td>
                 </tr>
               ))}
