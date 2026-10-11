@@ -20,21 +20,46 @@ from typing import Any
 
 # Configure the environment before anything imports app.config, whose settings object
 # is cached for the process lifetime.
-os.environ.setdefault("ENVIRONMENT", "test")
-os.environ.setdefault("SITE_URL", "http://testserver")
-os.environ.setdefault("CORS_ORIGINS", "http://testserver")
-os.environ.setdefault(
-    "DATABASE_URL", os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-)
-# Keep every integration unconfigured so nothing reaches the network.
-for leaky in (
-    "RESEND_API_KEY",
-    "SLACK_WEBHOOK_URL",
-    "GROQ_API_KEY",
-    "GCS_ATTACHMENTS_BUCKET",
-    "GCS_AVATARS_BUCKET",
-):
-    os.environ.pop(leaky, None)
+#
+# **Assigned, never ``setdefault`` and never ``pop``.** pydantic-settings reads a
+# developer's ``.env`` as well as the environment, and the environment wins. So:
+#
+# * ``pop`` protects nothing. Removing ``SLACK_WEBHOOK_URL`` from the environment leaves
+#   the value in ``.env`` in force. That is how this suite came to post every test
+#   submission to a real Slack channel: a production webhook was in a local ``.env``,
+#   this file popped the variable and believed the integration was off.
+# * ``setdefault`` protects only when the shell has not exported the variable. A
+#   developer with ``DATABASE_URL`` exported at their dev database would have had these
+#   tests create and drop every table in it.
+#
+# An empty string is "unset" to every integration here (each checks ``if not …``), and it
+# outranks whatever the file says.
+os.environ["ENVIRONMENT"] = "test"
+os.environ["SITE_URL"] = "http://testserver"
+os.environ["CORS_ORIGINS"] = "http://testserver"
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+os.environ["AUTH_DISABLED"] = "false"
+
+#: Every setting that would let a test reach a real third party. Checked again below,
+#: after the settings are loaded, because being wrong about this is not survivable.
+OUTBOUND_SETTINGS = {
+    "RESEND_API_KEY": "resend_api_key",
+    "SLACK_WEBHOOK_URL": "slack_webhook_url",
+    "OPEN_AI_API_KEY": "open_ai_api_key",
+    "GROQ_API_KEY": "groq_api_key",
+    "GCS_ATTACHMENTS_BUCKET": "gcs_attachments_bucket",
+    "GCS_AVATARS_BUCKET": "gcs_avatars_bucket",
+    "FIREBASE_CREDENTIALS_FILE": "firebase_credentials_file",
+}
+for variable in OUTBOUND_SETTINGS:
+    os.environ[variable] = ""
+
+# The assistant is off under test unless a test switches it on, for the same reason.
+os.environ["AGENT_ENABLED"] = "false"
+os.environ["AGENT_AUDIENCE"] = "pilot"
+os.environ["AGENT_PILOT_EMAILS"] = ""
+os.environ["AGENT_SERVE_LIVE"] = "false"
+os.environ["GOOGLE_CLOUD_PROJECT"] = ""
 
 import logging  # noqa: E402
 
@@ -63,6 +88,23 @@ from app.models.enums import Role, UserStatus  # noqa: E402
 from app.models.profile import Profile  # noqa: E402
 from app.models.settings import SETTINGS_ROW_ID, TeamSettings  # noqa: E402
 
+# Refuse to run at all if any integration is still configured. The assignments above
+# should make this impossible; this is here because "should" was the whole problem.
+_configured = [
+    variable
+    for variable, attribute in OUTBOUND_SETTINGS.items()
+    if getattr(get_settings(), attribute)
+]
+if _configured:
+    raise RuntimeError(
+        "Refusing to run the tests: these integrations are configured and a test could "
+        f"reach a real service: {', '.join(_configured)}. Check tests/conftest.py."
+    )
+if not get_settings().database_url.startswith(("sqlite", "postgresql+asyncpg://")) or (
+    "TEST_DATABASE_URL" not in os.environ and not get_settings().database_url.startswith("sqlite")
+):
+    raise RuntimeError("Refusing to run the tests against a database that is not a test one.")
+
 
 def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def]
     """Skip the ``postgres``-marked tests on SQLite, where they would prove nothing.
@@ -81,6 +123,35 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
 @pytest.fixture(scope="session")
 def settings():  # type: ignore[no-untyped-def]
     return get_settings()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def no_real_network():  # type: ignore[no-untyped-def]
+    """Make any real HTTP request from a test fail, loudly, before it leaves the machine.
+
+    The second line of defence behind the settings above. Every outbound call in this
+    codebase goes through httpx, and a real request ends at one of these two transports.
+    A test that talks to the app itself uses ``ASGITransport``, and one that fakes a
+    third party uses ``MockTransport``; neither is touched. So the only thing this can
+    break is a test that was about to contact a real service, which is the point.
+
+    Session-scoped with a patcher of its own, not the ``monkeypatch`` fixture: asking for
+    that here would set it up ahead of every test's own fixtures and so undo a test's
+    patches after them instead of before, which breaks any fixture that cleans up
+    something a test has patched.
+    """
+    import httpx
+
+    def refuse(self, request, *args, **kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError(
+            f"A test tried to make a real network request to {request.url.host}. Tests "
+            "must never reach a real service: fake the integration instead."
+        )
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse)
+        patch.setattr(httpx.HTTPTransport, "handle_request", refuse)
+        yield
 
 
 @pytest.fixture
