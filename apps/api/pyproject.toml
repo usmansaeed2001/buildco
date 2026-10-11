@@ -105,6 +105,9 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-q --strict-markers"
+markers = [
+    "postgres: depends on real row locks, which SQLite does not have; skipped unless TEST_DATABASE_URL points at Postgres",
+]
 filterwarnings = ["error::DeprecationWarning:app.*"]
 # aiosqlite and the SQLAlchemy engine log every statement at DEBUG, which buries the
 # actual assertion output on a failure.

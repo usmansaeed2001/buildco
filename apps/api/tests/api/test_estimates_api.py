@@ -190,6 +190,97 @@ async def test_an_unknown_transition_is_rejected_at_validation(owner_client):
     assert response.status_code == 422
 
 
+# ── Transitions are refused from the wrong status ─────────────────────────────
+#
+# Deliberately new. The API used to check the caller's role and nothing else, so any
+# action could be applied to an estimate in any status. The full matrix is pinned in
+# ``test_estimate_rules.py``; these prove the endpoint enforces it, and name the two
+# holes it closed.
+
+
+async def transition(client, estimate_id, action):
+    return await client.post(
+        f"/api/v1/estimates/{estimate_id}/transitions", json={"action": action}
+    )
+
+
+async def test_an_admin_cannot_get_round_the_owners_lock_by_unarchiving(client_as, owner, admin):
+    async with client_as(owner) as owner_client:
+        estimate = await create_estimate(owner_client)
+        await transition(owner_client, estimate["id"], "lock")
+
+    async with client_as(admin) as admin_client:
+        unarchive = await transition(admin_client, estimate["id"], "unarchive")
+        archive = await transition(admin_client, estimate["id"], "archive")
+        after = (await admin_client.get(f"/api/v1/estimates/{estimate['id']}")).json()
+
+    assert (unarchive.status_code, archive.status_code) == (409, 409)
+    assert after["status"] == "locked"
+
+
+async def test_an_approved_estimate_cannot_be_recalled_to_active(member_client, client_as, owner):
+    estimate = await create_estimate(member_client)
+    async with client_as(owner) as owner_client:
+        await transition(owner_client, estimate["id"], "admin_approve")
+
+    response = await transition(member_client, estimate["id"], "recall")
+    after = (await member_client.get(f"/api/v1/estimates/{estimate['id']}")).json()
+
+    assert response.status_code == 409
+    assert "approved" in response.json()["error"]["message"]
+    assert after["status"] == "approved"
+
+
+async def test_an_active_estimate_cannot_be_unlocked_or_unarchived(owner_client):
+    estimate = await create_estimate(owner_client)
+
+    unlock = await transition(owner_client, estimate["id"], "unlock")
+    unarchive = await transition(owner_client, estimate["id"], "unarchive")
+
+    assert (unlock.status_code, unarchive.status_code) == (409, 409)
+
+
+async def test_an_archived_estimate_cannot_be_locked_or_approved(owner_client):
+    estimate = await create_estimate(owner_client)
+    await transition(owner_client, estimate["id"], "archive")
+
+    lock = await transition(owner_client, estimate["id"], "lock")
+    approve = await transition(owner_client, estimate["id"], "admin_approve")
+
+    assert (lock.status_code, approve.status_code) == (409, 409)
+
+
+async def test_a_refused_transition_notifies_nobody(owner_client, notifications):
+    estimate = await create_estimate(owner_client)
+    await transition(owner_client, estimate["id"], "archive")
+    notifications.sent.clear()
+
+    await transition(owner_client, estimate["id"], "lock")
+
+    assert notifications.sent == []
+
+
+async def test_a_member_is_told_about_the_role_before_the_status(member_client):
+    """403, not 409: a member can never lock, whatever the status."""
+    estimate = await create_estimate(member_client)
+
+    response = await transition(member_client, estimate["id"], "unlock")
+
+    assert response.status_code == 403
+
+
+async def test_the_whole_lifecycle_still_works_in_order(owner_client):
+    """Every action, each taken from a status it is offered from."""
+    estimate = await create_estimate(owner_client)
+    seen = []
+    for action in ("lock", "unlock", "archive", "unarchive", "admin_approve", "archive"):
+        response = await transition(owner_client, estimate["id"], action)
+        assert response.status_code == 200, (action, response.text)
+        seen.append(response.json()["status"])
+
+    assert seen == ["locked", "active", "archived", "active", "approved", "archived"]
+
+
 # ── Trash ─────────────────────────────────────────────────────────────────────
 
 

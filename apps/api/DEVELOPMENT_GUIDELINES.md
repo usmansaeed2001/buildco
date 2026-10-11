@@ -163,6 +163,19 @@ Available guards, in `deps.py`:
 Row-level rules that a route cannot express (may *this* user edit *that* estimate) live
 in `services/rules/` and are applied by the service.
 
+**A route-level check protects that route and nothing else.** A service function that
+relies on its router having checked first will be wrong the day it gets a second
+caller. So a service function that reads or changes something row-scoped takes the
+actor and applies the rule itself, even when every caller today arrives through a
+guarded route. `deps.require_project_access` shows the shape: the dependency is a thin
+wrapper over `project_service.get_project`, which holds the rule.
+
+**Writes with more than one caller go through `services/actions.py`.** One function per
+action: it takes the actor and the request model, takes the row lock, calls the service,
+and returns the result with the follow-up work (section 5). A route calls it and
+schedules that work; it does not shape the request or build the email itself. Add to
+that module when a write gains a second caller, not before.
+
 **404 versus 403.** When the resource's *existence* is itself privileged — another
 member's estimate, an unassigned project — return 404. Use 403 when the caller may know
 the thing exists but not perform the action, such as editing a locked estimate.
@@ -203,6 +216,13 @@ open their own session — `notifications.notify_admins` does. Nothing in that m
 raises; a provider outage must not surface as a request error for work that already
 committed.
 
+An action in `services/actions.py` cannot use `BackgroundTasks`: services do not import
+FastAPI. It returns its outbound work as a list of `FollowUp` objects instead, each one
+a function and its arguments, built while the session is still open. A route hands them
+to `routers.followups.schedule`; any other caller awaits `follow_up.run()` after its own
+commit. **Never before the commit**: a reviewer emailed about a submission that then
+rolled back holds a link to nothing.
+
 ---
 
 ## 6. Integrations
@@ -233,9 +253,15 @@ uv run pytest -k project_rules      # one area
 TEST_DATABASE_URL=postgresql+asyncpg://buildco:buildco@localhost:5432/buildco_test uv run pytest
 ```
 
-Tests default to SQLite so the suite needs no Docker and no network. Run them against
-Postgres in CI: SQLite does not enforce CHECK constraints the same way and treats JSON
-as text, so a type or constraint bug can hide there.
+Tests default to SQLite so the suite needs no Docker and no network. The release build
+runs them a second time against Postgres (`make test-pg` locally): SQLite does not
+enforce CHECK constraints the same way and treats JSON as text, so a type or constraint
+bug can hide there.
+
+SQLite also has no row locks. A test that depends on one is marked
+`@pytest.mark.postgres` and is skipped on SQLite, where it would pass whether or not the
+lock existed. See `tests/api/test_row_locks.py`. When you add such a test, break the
+lock once and watch the test fail before you trust it.
 
 **Expectations:**
 

@@ -167,7 +167,29 @@ async def list_projects(
     return ProjectPage(items=list(rows), total=total or 0)
 
 
-async def list_milestones(session: AsyncSession, project_id: uuid.UUID) -> list[PaymentMilestone]:
+async def get_project(session: AsyncSession, actor: Profile, project_id: uuid.UUID) -> Project:
+    """Load a project the actor is allowed to see.
+
+    A project they may not see is a **404, not a 403**: a member who is not on a project
+    has no business learning that it exists.
+
+    Every read below goes through this, so the rule holds for any caller and not only
+    for a request that arrived through ``deps.require_project_access``. When that
+    dependency has already loaded the project, the lookup here is answered from the
+    session's identity map and costs no query.
+    """
+    project = await session.get(Project, project_id)
+    if project is None or not project_rules.can_view(
+        role=Role(actor.role), actor_id=actor.id, assigned_to=project.assigned_to
+    ):
+        raise NotFound("Project not found.")
+    return project
+
+
+async def list_milestones(
+    session: AsyncSession, actor: Profile, project_id: uuid.UUID
+) -> list[PaymentMilestone]:
+    await get_project(session, actor, project_id)
     return list(
         await session.scalars(
             select(PaymentMilestone)
@@ -177,7 +199,10 @@ async def list_milestones(session: AsyncSession, project_id: uuid.UUID) -> list[
     )
 
 
-async def list_supplements(session: AsyncSession, project_id: uuid.UUID) -> list[ProjectSupplement]:
+async def list_supplements(
+    session: AsyncSession, actor: Profile, project_id: uuid.UUID
+) -> list[ProjectSupplement]:
+    await get_project(session, actor, project_id)
     return list(
         await session.scalars(
             select(ProjectSupplement)
@@ -188,8 +213,14 @@ async def list_supplements(session: AsyncSession, project_id: uuid.UUID) -> list
 
 
 async def list_activity(
-    session: AsyncSession, project_id: uuid.UUID, *, limit: int = 50, offset: int = 0
+    session: AsyncSession,
+    actor: Profile,
+    project_id: uuid.UUID,
+    *,
+    limit: int = 50,
+    offset: int = 0,
 ) -> list[ProjectActivity]:
+    await get_project(session, actor, project_id)
     return list(
         await session.scalars(
             select(ProjectActivity)

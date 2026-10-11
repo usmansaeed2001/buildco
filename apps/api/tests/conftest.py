@@ -64,6 +64,20 @@ from app.models.profile import Profile  # noqa: E402
 from app.models.settings import SETTINGS_ROW_ID, TeamSettings  # noqa: E402
 
 
+def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def]
+    """Skip the ``postgres``-marked tests on SQLite, where they would prove nothing.
+
+    They assert on row locks. SQLite ignores ``FOR UPDATE``, so there they would either
+    fail for no reason or, worse, pass without the lock existing.
+    """
+    if get_settings().database_url.startswith("postgresql"):
+        return
+    skip = pytest.mark.skip(reason="needs Postgres row locks: run `make test-pg`")
+    for item in items:
+        if "postgres" in item.keywords:
+            item.add_marker(skip)
+
+
 @pytest.fixture(scope="session")
 def settings():  # type: ignore[no-untyped-def]
     return get_settings()

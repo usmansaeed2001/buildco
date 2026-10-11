@@ -97,8 +97,12 @@ async def record_attachment(
     The path is validated to sit under this estimate's prefix. Without that check a
     caller could claim any object in the bucket — including one belonging to an
     estimate they cannot read — simply by posting its key.
+
+    Takes the estimate's row lock, as every write to the estimate does. A photo changes
+    what a line holds without touching the ``estimates`` row, so without the lock it
+    could land between another writer's check of the estimate and its write.
     """
-    estimate = await estimate_service.get_estimate(session, user, estimate_id)
+    estimate = await estimate_service.get_estimate(session, user, estimate_id, for_update=True)
     if not estimate_rules.can_edit(
         estimate_service.actor_of(user), estimate_service.snapshot_of(estimate)
     ):

@@ -18,6 +18,7 @@ from app.services.rules.meeting_rules import (
     MeetingSnapshot,
     can_manage,
     can_view,
+    screen_attendees,
 )
 
 ALICE = uuid.uuid4()
@@ -94,3 +95,60 @@ def test_being_invited_is_not_enough_to_change_a_meeting() -> None:
 
 def test_a_member_cannot_change_an_orphaned_meeting() -> None:
     assert not can_manage(actor(Role.MEMBER), meeting(None))
+
+
+# ── screen_attendees ──────────────────────────────────────────────────────────
+
+
+def test_nobody_removed_keeps_everyone() -> None:
+    screening = screen_attendees(
+        frozenset({ALICE, BOB}), removed=frozenset(), already_on=frozenset()
+    )
+
+    assert screening.kept == {ALICE, BOB}
+    assert not screening.dropped
+    assert not screening.refused
+
+
+def test_adding_a_removed_person_is_refused() -> None:
+    screening = screen_attendees(
+        frozenset({ALICE, BOB}), removed=frozenset({BOB}), already_on=frozenset({ALICE})
+    )
+
+    assert screening.refused == {BOB}
+    assert screening.kept == {ALICE}
+    assert not screening.dropped
+
+
+def test_a_removed_person_already_on_the_meeting_is_dropped_not_refused() -> None:
+    """The form sends them back without showing them, so refusing would block every edit."""
+    screening = screen_attendees(
+        frozenset({ALICE, BOB}), removed=frozenset({BOB}), already_on=frozenset({ALICE, BOB})
+    )
+
+    assert screening.dropped == {BOB}
+    assert screening.kept == {ALICE}
+    assert not screening.refused
+
+
+def test_one_dropped_and_one_refused_in_the_same_request() -> None:
+    screening = screen_attendees(
+        frozenset({ALICE, BOB, CAROL}),
+        removed=frozenset({BOB, CAROL}),
+        already_on=frozenset({BOB}),
+    )
+
+    assert screening.kept == {ALICE}
+    assert screening.dropped == {BOB}
+    assert screening.refused == {CAROL}
+
+
+def test_a_removed_person_who_was_not_requested_is_not_reported() -> None:
+    """Leaving them off the list is an ordinary removal, not a drop to call out."""
+    screening = screen_attendees(
+        frozenset({ALICE}), removed=frozenset({BOB}), already_on=frozenset({ALICE, BOB})
+    )
+
+    assert screening.kept == {ALICE}
+    assert not screening.dropped
+    assert not screening.refused

@@ -16,7 +16,7 @@ import {
   useTrashEstimate,
 } from "@/api/queries/estimates";
 import type { EstimateOut, EstimateSort } from "@/api/types";
-import { useActor, useIsElevated } from "@/auth/useAuth";
+import { useActor } from "@/auth/useAuth";
 import { Button } from "@/components/Button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { KebabIcon, Menu, MenuItem, MenuSeparator } from "@/components/Menu";
@@ -26,6 +26,7 @@ import { Input, Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { useToast } from "@/components/Toast";
 import { ESTIMATE_FILTER_ORDER, ESTIMATE_STATUS_LABELS, type EstimateStatus } from "@/domain/enums";
+import { availableTransitions } from "@/domain/estimateRules";
 import { computeTotals } from "@/domain/estimateTotals";
 import type { StoredRoom } from "@/domain/estimateTotals";
 import { formatMoney } from "@/domain/money";
@@ -379,7 +380,7 @@ function Chip({
 
 export function EstimateCard({ estimate }: { estimate: EstimateOut }) {
   const toast = useToast();
-  const elevated = useIsElevated();
+  const actor = useActor();
   const transition = useEstimateTransition(estimate.id);
   const trash = useTrashEstimate();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -391,7 +392,17 @@ export function EstimateCard({ estimate }: { estimate: EstimateOut }) {
 
   const daysLeft = daysLeftInTrash(estimate.deleted_at);
   const named = estimateName(estimate);
-  const archived = estimate.status === "archived";
+  // Decided by the same rule as the editor's toolbar, and for the same reason: the API
+  // refuses a transition from a status it is not offered from. This menu used to offer
+  // Archive on anything not already archived, which let an admin archive and then
+  // unarchive a locked estimate, undoing a lock only the owner may lift.
+  const archiving = actor
+    ? availableTransitions(actor, {
+        status: estimate.status as EstimateStatus,
+        createdBy: estimate.created_by ?? null,
+        isTrashed: Boolean(estimate.deleted_at),
+      }).find(({ action }) => action === "archive" || action === "unarchive")?.action
+    : undefined;
   const unpriced = isUnpriced(total, roomCount);
 
   async function run(label: string, action: () => Promise<unknown>) {
@@ -422,16 +433,16 @@ export function EstimateCard({ estimate }: { estimate: EstimateOut }) {
             <Menu label={`Actions for ${named || estimate.identifier}`} trigger={<KebabIcon />}>
               {(close) => (
                 <>
-                  {elevated && (
+                  {archiving && (
                     <MenuItem
                       onSelect={() => {
                         close();
-                        void run(archived ? "Unarchived." : "Archived.", () =>
-                          transition.mutateAsync(archived ? "unarchive" : "archive"),
+                        void run(archiving === "unarchive" ? "Unarchived." : "Archived.", () =>
+                          transition.mutateAsync(archiving),
                         );
                       }}
                     >
-                      {archived ? "Unarchive" : "Archive"}
+                      {archiving === "unarchive" ? "Unarchive" : "Archive"}
                     </MenuItem>
                   )}
                   <MenuSeparator />

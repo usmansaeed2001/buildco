@@ -23,6 +23,7 @@ from app.services.rules.estimate_rules import (
     ActorSnapshot,
     EstimateSnapshot,
     Transition,
+    TransitionNotAvailable,
     TransitionNotPermitted,
     UnknownTransition,
 )
@@ -194,13 +195,29 @@ async def list_estimate_ids(session: AsyncSession, user: Profile) -> list[tuple[
     return [(row[0], row[1]) for row in rows.all()]
 
 
-async def get_estimate(session: AsyncSession, user: Profile, estimate_id: uuid.UUID) -> Estimate:
+async def get_estimate(
+    session: AsyncSession, user: Profile, estimate_id: uuid.UUID, *, for_update: bool = False
+) -> Estimate:
     """Fetch one estimate the user is allowed to see.
 
     A member requesting someone else's estimate gets 404, not 403 — the existence of
     another team member's work is itself not theirs to learn.
+
+    ``for_update`` takes a row lock on the estimate for the rest of the transaction.
+    Every write to an estimate loads it this way, **and so does recording an attachment**,
+    which changes what the estimate holds without touching its row. Two writers then run
+    one after the other and the second sees the first's result, which is what lets a
+    caller check an estimate's content and act on that check in one transaction.
+    ``populate_existing`` matters for the same reason: an estimate already in this
+    session's identity map would otherwise come back as it was first read. SQLite
+    ignores the lock; the tests that depend on it run on Postgres.
     """
-    estimate = await session.get(Estimate, estimate_id)
+    if for_update:
+        estimate = await session.get(
+            Estimate, estimate_id, with_for_update={"of": Estimate}, populate_existing=True
+        )
+    else:
+        estimate = await session.get(Estimate, estimate_id)
     if estimate is None:
         raise NotFound("Estimate not found.")
     if not estimate_rules.can_view(actor_of(user), snapshot_of(estimate)):
@@ -261,7 +278,7 @@ async def update_estimate(
     Status is not reachable from here — see ``EstimateUpdate``, which has no such
     field, and ``apply_transition`` below.
     """
-    estimate = await get_estimate(session, user, estimate_id)
+    estimate = await get_estimate(session, user, estimate_id, for_update=True)
 
     if estimate.is_trashed:
         raise Conflict("This estimate is in the trash. Restore it before editing.")
@@ -362,20 +379,30 @@ async def apply_transition(
 ) -> tuple[Estimate, Transition]:
     """Move an estimate through its status state machine.
 
-    The permitted actions and the roles that may perform them are declared once, as
-    data, in ``estimate_rules.TRANSITIONS``. Returning the ``Transition`` lets the
-    router decide on side effects — only ``lock`` currently notifies anyone.
+    The permitted actions, the roles that may perform them and the statuses they may be
+    taken from are declared once, as data, in ``estimate_rules.TRANSITIONS``. Returning
+    the ``Transition`` lets the caller decide on side effects — only ``lock`` currently
+    notifies anyone.
+
+    **An action taken from a status it is not offered from is a 409.** This endpoint
+    used to check the caller's role and nothing else, so any action could be applied to
+    an estimate in any status; the only thing preventing it was that the app does not
+    draw the button. Do not relax this to make a client call succeed — fix the client.
     """
-    estimate = await get_estimate(session, user, estimate_id)
+    estimate = await get_estimate(session, user, estimate_id, for_update=True)
     if estimate.is_trashed:
         raise Conflict("This estimate is in the trash. Restore it first.")
 
     try:
-        transition = estimate_rules.resolve_transition(action, actor_of(user))
+        transition = estimate_rules.resolve_transition(
+            action, actor_of(user), EstimateStatus(estimate.status)
+        )
     except UnknownTransition as exc:
         raise NotFound(str(exc)) from exc
     except TransitionNotPermitted as exc:
         raise Forbidden(str(exc)) from exc
+    except TransitionNotAvailable as exc:
+        raise Conflict(str(exc)) from exc
 
     estimate.status = transition.target.value
     if transition.clears_approval_token:
@@ -435,7 +462,7 @@ async def submit_for_review(
     provider does not hold the request open.
     """
     reviewer = await settings_service.reviewer_or_error(session)
-    estimate = await get_estimate(session, user, estimate_id)
+    estimate = await get_estimate(session, user, estimate_id, for_update=True)
 
     if estimate.is_trashed:
         raise Conflict("This estimate is in the trash.")

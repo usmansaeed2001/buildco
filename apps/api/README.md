@@ -80,6 +80,7 @@ app/
   routers/           health, users, estimates, attachments, projects, meetings,
                      reviews, ai, settings
   services/
+    actions.py       the writes with more than one caller: checks, lock, follow-up work
     rules/           project_rules, estimate_rules, user_rules, estimate_totals
     integrations/    email, slack, storage, calendar, groq, firebase
     templates/email/ Jinja2 templates, one base + per-notification
@@ -198,6 +199,11 @@ Attendees come in two kinds. `attendee_ids` invites team members; `attendee_emai
 address that belongs to a team member is recorded as that member, not as a guest. On
 `PATCH` the two lists are independent: sending one leaves the other untouched.
 
+Someone who has been removed from the team cannot be added to a meeting: that is a
+**422**, by id or by address. If they are already on a meeting when they are removed,
+they stay on it until its attendee list is next written, and that write takes them off
+without being asked to.
+
 ### Public review
 
 Authenticated by the approval token in the URL. No session required.
@@ -265,6 +271,24 @@ profiles ──┬─< estimates ──< attachments
 `lock`/`unlock` are owner-only. `archive`/`unarchive`/`admin_approve` are owner or
 admin. `recall`/`resubmit_ready` are open to any role, and both invalidate the
 reviewer's outstanding link.
+
+Each action is available only from certain statuses. Taking one from any other status
+is a **409**; a role that may never take it is a 403, checked first.
+
+| Action | Available from |
+|---|---|
+| `archive` | active, rejected, approved |
+| `unarchive` | archived |
+| `lock` | active |
+| `unlock` | locked |
+| `recall` | submitted |
+| `resubmit_ready` | changes_requested |
+| `admin_approve` | active, submitted, changes_requested, rejected |
+
+The table lives in `estimate_rules.TRANSITIONS` and is mirrored by
+`availableTransitions` in `staff-web/src/domain/estimateRules.ts`, which decides which
+buttons are drawn. Change one and you must change the other; each side has a test that
+pins the matrix.
 
 ### Project auto-transitions
 
@@ -399,6 +423,37 @@ clean REST instead of frozen. Beyond the shape, these behaviours changed on purp
     destroying a classification someone had chosen. Nothing computes on either field:
     totals use `quantity * unitCost`, and the category only picks a swatch colour. The
     enums remain what the UI *offers*.
+
+## Deliberate changes to this API since the port
+
+Changes to behaviour this API itself used to have. Each has a test named for it, so
+nobody "fixes" it back.
+
+1. **A transition is refused from a status it is not offered from (409).**
+   `POST /estimates/{id}/transitions` used to check the caller's role and nothing else,
+   so any action could be applied in any status; only the browser, by not drawing the
+   button, stood in the way. That left real holes: an admin could `archive` and then
+   `unarchive` a locked estimate and so undo the owner-only lock, and a member could
+   `recall` an approved estimate back to active. See the table under "Estimate state
+   machine".
+
+2. **Removed people cannot be invited to meetings (422), and are dropped from meetings
+   they were already on.** The API used to accept any profile id as an attendee and
+   email them. Adding one is now refused. One who is already on a meeting comes off it
+   the next time its attendee list is written — dropped, not refused, because the
+   meeting form sends back everyone on the meeting, including a removed person it does
+   not display, and a refusal would make that meeting uneditable.
+
+3. **The services enforce what only the routes used to.** `meeting_service.update_meeting`
+   now checks that the actor may change the meeting, and the project read functions
+   (`list_milestones`, `list_supplements`, `list_activity`) take the actor and apply the
+   project access rule. Nothing changes for HTTP callers, who were already checked at
+   the route. What changes is that a caller which is not a route gets the same answer.
+
+4. **Writes to a meeting or an estimate take a row lock.** Including the ones that do
+   not write the row itself: a change to a meeting's attendees, and a photo recorded
+   against an estimate. Two writers to the same record now run one after the other.
+   Nothing is visible to a single user; it removes a class of lost update.
 
 ---
 

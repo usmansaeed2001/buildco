@@ -113,6 +113,7 @@ async def create_project(
 @router.get("/{project_id}", response_model=ProjectDetailOut)
 async def get_project(
     db: DbSession,
+    user: CurrentUser,
     project: AccessibleProject,
     include: Annotated[
         str | None,
@@ -134,15 +135,15 @@ async def get_project(
     out = ProjectDetailOut(project=ProjectOut.model_validate(project))
 
     if "milestones" in wanted:
-        milestones = await project_service.list_milestones(db, project.id)
+        milestones = await project_service.list_milestones(db, user, project.id)
         out.milestones = [MilestoneOut.model_validate(m) for m in milestones]
 
     if "supplements" in wanted:
-        links = await project_service.list_supplements(db, project.id)
+        links = await project_service.list_supplements(db, user, project.id)
         out.supplements = [_link_out(link) for link in links]
 
     if "activity" in wanted:
-        entries = await project_service.list_activity(db, project.id)
+        entries = await project_service.list_activity(db, user, project.id)
         out.activity = [ActivityOut.model_validate(a) for a in entries]
 
     return out
@@ -216,12 +217,13 @@ async def delete_project(
 @router.get("/{project_id}/activity", response_model=list[ActivityOut])
 async def list_activity(
     db: DbSession,
+    user: CurrentUser,
     project: AccessibleProject,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[ActivityOut]:
     """The project's audit trail, newest first."""
-    rows = await project_service.list_activity(db, project.id, limit=limit, offset=offset)
+    rows = await project_service.list_activity(db, user, project.id, limit=limit, offset=offset)
     return [ActivityOut.model_validate(a) for a in rows]
 
 
@@ -229,8 +231,10 @@ async def list_activity(
 
 
 @router.get("/{project_id}/milestones", response_model=list[MilestoneOut])
-async def list_milestones(db: DbSession, project: AccessibleProject) -> list[MilestoneOut]:
-    rows = await project_service.list_milestones(db, project.id)
+async def list_milestones(
+    db: DbSession, user: CurrentUser, project: AccessibleProject
+) -> list[MilestoneOut]:
+    rows = await project_service.list_milestones(db, user, project.id)
     return [MilestoneOut.model_validate(m) for m in rows]
 
 
@@ -324,9 +328,11 @@ def _link_out(link: ProjectSupplement) -> SupplementLinkOut:
 
 
 @router.get("/{project_id}/supplements", response_model=list[SupplementLinkOut])
-async def list_supplements(db: DbSession, project: AccessibleProject) -> list[SupplementLinkOut]:
+async def list_supplements(
+    db: DbSession, user: CurrentUser, project: AccessibleProject
+) -> list[SupplementLinkOut]:
     """Estimates raised against this project."""
-    links = await project_service.list_supplements(db, project.id)
+    links = await project_service.list_supplements(db, user, project.id)
     return [_link_out(link) for link in links]
 
 

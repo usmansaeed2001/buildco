@@ -28,9 +28,10 @@ section.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 
-from app.models.enums import ProjectStatus, WorkStatus
+from app.models.enums import ELEVATED_ROLES, ProjectStatus, Role, WorkStatus
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
 
@@ -232,3 +233,21 @@ def _notification_for(
         )
 
     return None
+
+
+# ── Access ────────────────────────────────────────────────────────────────────
+
+
+def can_view(*, role: Role, actor_id: uuid.UUID, assigned_to: uuid.UUID | None) -> bool:
+    """Whether this person may see this project, and everything that hangs off it.
+
+    Owners and admins see every project. A member sees only the ones assigned to them;
+    an unassigned project is nobody's but the elevated roles'.
+
+    This is the rule ``deps.require_project_access`` used to hold on its own, which
+    meant it protected the HTTP routes and nothing else: the service's read functions
+    took no actor and would hand a project's milestones to anyone who called them.
+    """
+    if role in ELEVATED_ROLES:
+        return True
+    return assigned_to is not None and assigned_to == actor_id
