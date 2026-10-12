@@ -7,14 +7,14 @@
  * convenience rather than the mechanism. Anyone may create a meeting; only its creator,
  * or an elevated user, may change or cancel it.
  *
- * `google_access_token` is a short-lived OAuth token from the Firebase Google provider
- * with the `calendar.events` scope. It is used once, server-side, to create the Meet
- * conference, and never stored. Omitting it produces a perfectly valid meeting with no
- * Meet link — so it is passed when available and its absence is never an error.
+ * `google_access_token` is a short-lived Google OAuth token with the `calendar.events`
+ * scope. It is used once, server-side, to create the Meet conference, and never stored.
+ * Omitting it produces a perfectly valid meeting with no Meet link — so it is sent only
+ * when the creator ticked "Add a Google Meet link", and its absence is never an error.
  *
- * The token lives only in React state (`AuthProvider`), deliberately never persisted,
- * and in Testing mode Google refresh tokens expire after 7 days — see `BACKLOG.md` §5.
- * A meeting created without one is the normal case, not a degraded one.
+ * The token is asked for at that tick (`auth/googleCalendarAccess.ts`), lives only in
+ * memory (`AuthProvider`) and lasts about an hour. There is no refresh token. A meeting
+ * created without one is the normal case, not a degraded one.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";

@@ -42,7 +42,10 @@ export function makeAuthState(profile: UserOut | null, overrides: Partial<AuthSt
     signOut: async () => {},
     refreshProfile: async () => {},
     googleAccessToken: null,
-    setGoogleAccessToken: () => {},
+    googleCalendarAvailable: false,
+    requestGoogleCalendarAccess: async () => {
+      throw new Error("No Google Calendar access in this test.");
+    },
     ...overrides,
   };
 }

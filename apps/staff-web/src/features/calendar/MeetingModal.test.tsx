@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders } from "@/test/utils";
@@ -6,6 +6,8 @@ import { makeMeeting, makeUser } from "@/test/factories";
 import { server } from "@/test/msw/server";
 import { apiError, url } from "@/test/msw/handlers";
 import type { MeetingOut } from "@/api/types";
+import type { AuthState } from "@/auth/AuthProvider";
+import { CalendarAccessError } from "@/auth/googleCalendarAccess";
 import { localDayKey, toDateInput, toTimeInput } from "@/domain/calendar";
 import { MeetingModal } from "./MeetingModal";
 
@@ -14,7 +16,8 @@ const MEMBER_USER = makeUser({ id: "member-1", role: "member", full_name: "Sam M
 
 const MARCH_15 = new Date(2026, 2, 15);
 
-function serveMutations() {
+/** `createdMeeting` is what the API answers a create with, e.g. one with a Meet link. */
+function serveMutations(createdMeeting: Partial<MeetingOut> = {}) {
   const created: Record<string, unknown>[] = [];
   const patched: Record<string, unknown>[] = [];
   const deleted: URLSearchParams[] = [];
@@ -23,7 +26,7 @@ function serveMutations() {
     http.get(url("/users"), () => HttpResponse.json([OWNER, MEMBER_USER])),
     http.post(url("/meetings"), async ({ request }) => {
       created.push((await request.json()) as Record<string, unknown>);
-      return HttpResponse.json(makeMeeting());
+      return HttpResponse.json(makeMeeting(createdMeeting));
     }),
     http.patch(url("/meetings/:id"), async ({ request }) => {
       patched.push((await request.json()) as Record<string, unknown>);
@@ -42,10 +45,12 @@ function renderModal({
   meeting = null,
   canManage = true,
   googleAccessToken = null,
+  auth = {},
 }: {
   meeting?: MeetingOut | null;
   canManage?: boolean;
   googleAccessToken?: string | null;
+  auth?: Partial<AuthState>;
 } = {}) {
   return renderWithProviders(
     <MeetingModal
@@ -55,7 +60,7 @@ function renderModal({
       canManage={canManage}
       onClose={() => {}}
     />,
-    { user: OWNER, auth: { googleAccessToken } },
+    { user: OWNER, auth: { googleAccessToken, ...auth } },
   );
 }
 
@@ -235,30 +240,158 @@ describe("MeetingModal", () => {
       });
     });
 
-    it("creates without a Google token, and says a Meet link is not included", async () => {
-      // Absent is the normal case, not a degraded one.
-      const { created } = serveMutations();
-      const { user } = renderModal({ googleAccessToken: null });
+    describe("a Google Meet link", () => {
+      const MEET = "Add a Google Meet link";
+      const LINK = "https://meet.google.com/abc-defg-hij";
 
-      expect(screen.getByText(/No Google Meet link will be added/)).toBeVisible();
+      /** A build with a Google client ID, and by default a person who says yes to Google. */
+      function withCalendar(
+        request: AuthState["requestGoogleCalendarAccess"] = async () => "ya29.token",
+      ) {
+        const requestGoogleCalendarAccess = vi.fn(request);
+        return {
+          requestGoogleCalendarAccess,
+          auth: { googleCalendarAvailable: true, requestGoogleCalendarAccess },
+        };
+      }
 
-      await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
-      await user.click(screen.getByRole("button", { name: "Create meeting" }));
+      it("is not offered by a build with no Google client ID", async () => {
+        const { created } = serveMutations();
+        const { user } = renderModal();
 
-      await waitFor(() => expect(created).toHaveLength(1));
-      expect(created[0]!.google_access_token).toBeNull();
-    });
+        expect(screen.queryByLabelText(MEET)).not.toBeInTheDocument();
 
-    it("passes the Google token when one is held", async () => {
-      const { created } = serveMutations();
-      const { user } = renderModal({ googleAccessToken: "ya29.token" });
+        await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
+        await user.click(screen.getByRole("button", { name: "Create meeting" }));
 
-      await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
-      await user.click(screen.getByRole("button", { name: "Create meeting" }));
+        await waitFor(() => expect(created).toHaveLength(1));
+        expect(created[0]!.google_access_token).toBeNull();
+      });
 
-      await waitFor(() => expect(created).toHaveLength(1));
-      expect(created[0]!.google_access_token).toBe("ya29.token");
-      expect(screen.queryByText(/No Google Meet link will be added/)).not.toBeInTheDocument();
+      it("is off until ticked, and ticking it is what asks Google", async () => {
+        serveMutations();
+        const { auth, requestGoogleCalendarAccess } = withCalendar();
+        const { user } = renderModal({ auth });
+
+        expect(screen.getByLabelText(MEET)).not.toBeChecked();
+        expect(requestGoogleCalendarAccess).not.toHaveBeenCalled();
+
+        await user.click(screen.getByLabelText(MEET));
+
+        await waitFor(() => expect(screen.getByLabelText(MEET)).toBeChecked());
+        expect(requestGoogleCalendarAccess).toHaveBeenCalledTimes(1);
+      });
+
+      it("sends the token with the meeting when ticked", async () => {
+        const { created } = serveMutations({ meet_link: LINK });
+        const { user } = renderModal({ auth: withCalendar().auth });
+
+        await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
+        await user.click(screen.getByLabelText(MEET));
+        await waitFor(() => expect(screen.getByLabelText(MEET)).toBeChecked());
+        await user.click(screen.getByRole("button", { name: "Create meeting" }));
+
+        await waitFor(() => expect(created).toHaveLength(1));
+        expect(created[0]!.google_access_token).toBe("ya29.token");
+        expect(await screen.findByText("Meeting created with a Google Meet link.")).toBeVisible();
+      });
+
+      it("sends no token when the box is left alone, even with one in memory", async () => {
+        // A token granted for an earlier meeting must not put a link on this one.
+        const { created } = serveMutations();
+        const { auth, requestGoogleCalendarAccess } = withCalendar();
+        const { user } = renderModal({ googleAccessToken: "ya29.token", auth });
+
+        await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
+        await user.click(screen.getByRole("button", { name: "Create meeting" }));
+
+        await waitFor(() => expect(created).toHaveLength(1));
+        expect(created[0]!.google_access_token).toBeNull();
+        expect(requestGoogleCalendarAccess).not.toHaveBeenCalled();
+      });
+
+      it("stays unticked and says why when Google access is not given", async () => {
+        const { created } = serveMutations();
+        const { auth } = withCalendar(async () => {
+          throw new CalendarAccessError("The Google window was closed before access was granted.");
+        });
+        const { user } = renderModal({ auth });
+
+        await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
+        await user.click(screen.getByLabelText(MEET));
+
+        expect(
+          await screen.findByText("The Google window was closed before access was granted."),
+        ).toBeVisible();
+        expect(screen.getByLabelText(MEET)).not.toBeChecked();
+
+        // The meeting itself is unaffected: it can still be created, without a link.
+        await user.click(screen.getByRole("button", { name: "Create meeting" }));
+        await waitFor(() => expect(created).toHaveLength(1));
+        expect(created[0]!.google_access_token).toBeNull();
+      });
+
+      it("does not create the meeting when access has lapsed and is refused again", async () => {
+        // Ticked, then left open past the token's hour. Creating it anyway would send
+        // invites without the link the box promised.
+        const { created } = serveMutations();
+        let asked = 0;
+        const { auth } = withCalendar(async () => {
+          asked += 1;
+          if (asked === 1) return "ya29.token";
+          throw new CalendarAccessError("Google Calendar access was not granted.");
+        });
+        const { user } = renderModal({ auth });
+
+        await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
+        await user.click(screen.getByLabelText(MEET));
+        await waitFor(() => expect(screen.getByLabelText(MEET)).toBeChecked());
+        await user.click(screen.getByRole("button", { name: "Create meeting" }));
+
+        expect(await screen.findByText("Google Calendar access was not granted.")).toBeVisible();
+        expect(screen.getByLabelText(MEET)).not.toBeChecked();
+        expect(created).toEqual([]);
+      });
+
+      it("says so when the meeting is created but Google returned no link", async () => {
+        // The API never fails a meeting over the link, so the form is where this shows.
+        serveMutations({ meet_link: null });
+        const { user } = renderModal({ auth: withCalendar().auth });
+
+        await user.type(screen.getByLabelText(/^Title/), "Walkthrough");
+        await user.click(screen.getByLabelText(MEET));
+        await waitFor(() => expect(screen.getByLabelText(MEET)).toBeChecked());
+        await user.click(screen.getByRole("button", { name: "Create meeting" }));
+
+        expect(
+          await screen.findByText("Meeting created, but Google did not return a Meet link."),
+        ).toBeVisible();
+      });
+
+      it("is not offered when editing", () => {
+        serveMutations();
+        renderModal({ meeting: existing(), auth: withCalendar().auth });
+
+        expect(screen.queryByLabelText(MEET)).not.toBeInTheDocument();
+      });
+
+      it("is not offered on a form the assistant is showing", () => {
+        serveMutations();
+        renderWithProviders(
+          <MeetingModal
+            open
+            meeting={null}
+            defaultDate={MARCH_15}
+            canManage
+            draft={{ title: "Hendricks walkthrough" }}
+            staged={{ attendees: [] }}
+            onClose={() => {}}
+          />,
+          { user: OWNER, auth: withCalendar().auth },
+        );
+
+        expect(screen.queryByLabelText(MEET)).not.toBeInTheDocument();
+      });
     });
   });
 

@@ -95,10 +95,11 @@ async def create_meeting(
     own work on the calendar at all. Editing and cancelling stay narrower — see
     ``PATCH``.
 
-    Supply ``google_access_token`` — a short-lived OAuth token from the Firebase Google
-    provider carrying the ``calendar.events`` scope — to attach a Google Meet
-    conference. Without it the meeting is still created and invited, just without a
-    video link.
+    Supply ``google_access_token`` — a short-lived Google OAuth token carrying the
+    ``calendar.events`` scope, which the creator grants when they opt in to a Meet link
+    — to attach a Google Meet conference. The link then goes out in the invite email and
+    the .ics. Without it the meeting is still created and invited, just without a video
+    link.
 
     ``attendee_ids`` invites team members; ``attendee_emails`` invites anyone else by
     address. Both receive the same email and .ics.

@@ -208,7 +208,7 @@ Waits on preparatory change C, which is also not started (`BACKLOG.md` §14).
 | Team administration: invite, role change, remove, approval requests | Not selected |
 | Settings and rate catalogue edits | Not selected |
 | Attachments and photos, the PDF report, CSV export | Need file handling the voice flow does not have |
-| Google Meet links on agent-created meetings | Meet links are off app-wide today: sign-in no longer requests the Calendar scope (`features/auth/googleSignIn.ts`) |
+| Google Meet links on agent-created meetings | A link needs Calendar access that the creator grants in a Google popup when they tick the box on the form (`auth/googleCalendarAccess.ts`). A proposal carries no such token |
 | A team-wide audit view | D30 |
 | Resuming a conversation, audio recording, voice selection | D20, D28 |
 | Per-person allowances that differ from the team figure | One number for everyone is enough to stop abuse; overrides can follow real usage data |
@@ -1917,7 +1917,7 @@ No fallback in the table above had to be taken except V15's.
 | A8 | The agent appends rooms and lines; it does not insert or reorder (Release 2) |
 | A9 | The agent never speaks first and has no wake word |
 | A10 | Hover text is "Ask BuildCo Assistant". *Experience release:* superseded; the label is part of the button (`AGENT_DESIGN.md` 7) |
-| A11 | Agent-created meetings have no Google Meet link, the same as meetings created by hand today |
+| A11 | Agent-created meetings have no Google Meet link. A meeting created by hand can have one, if its creator ticks the option; one handed over from a proposal on Stop is an ordinary form and offers it too |
 | A12 | The pilot list is a server setting holding email addresses, on the API service only. There is no screen for it and no per-user toggle |
 | A13 | The agent may remove a line or room that has its own photos, with the photo count called out in the read-back. The photos are hidden with the line, not deleted |
 | A14 | Stable ids live inside the `rooms` document, with the attachment's reference checked by the service. Lines are not moved into their own table |
