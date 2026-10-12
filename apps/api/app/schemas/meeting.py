@@ -41,10 +41,10 @@ class MeetingBase(Schema):
 class MeetingCreate(MeetingBase):
     """Creating a meeting.
 
-    ``google_access_token`` is a short-lived OAuth token the client obtained from the
-    Firebase Google provider with the ``calendar.events`` scope. It is used once, to
-    create the Meet conference, and never stored. Omitting it produces a perfectly
-    valid meeting with no Meet link.
+    ``google_access_token`` is a short-lived OAuth token with the ``calendar.events``
+    scope, which the client asks Google for when the creator opts in to a Meet link. It
+    is used once, to create the Meet conference, and never stored. Omitting it produces
+    a perfectly valid meeting with no Meet link.
     """
 
     google_access_token: str | None = Field(default=None, max_length=4000)

@@ -3,9 +3,10 @@
 Two separate concerns live here:
 
 * **Meet link creation** needs an OAuth access token carrying the ``calendar.events``
-  scope. That token comes from the client, obtained through the Firebase Google
-  provider. It is optional — a meeting without a Meet link is perfectly valid, which is
-  why every failure path returns ``None`` rather than raising.
+  scope. That token comes from the client, which asks Google for it when the meeting's
+  creator opts in to a Meet link — not at sign-in. It is optional — a meeting without a
+  Meet link is perfectly valid, which is why every failure path returns ``None`` rather
+  than raising.
 * **ICS generation** is pure string building with no network involved, which is why it
   is directly testable and lives alongside rather than inside the HTTP call.
 """

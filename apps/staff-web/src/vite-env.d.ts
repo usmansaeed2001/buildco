@@ -14,6 +14,10 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_STORAGE_BUCKET?: string;
   readonly VITE_FIREBASE_MESSAGING_SENDER_ID?: string;
   readonly VITE_FIREBASE_APP_ID?: string;
+
+  /** OAuth web client used to ask for Google Calendar access when a Meet link is
+   *  wanted. Unset hides the option; see `auth/googleCalendarAccess.ts`. */
+  readonly VITE_GOOGLE_CLIENT_ID?: string;
 }
 
 interface ImportMeta {

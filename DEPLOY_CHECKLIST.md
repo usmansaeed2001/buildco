@@ -74,22 +74,29 @@ hands the process, which only exists on Cloud Run.
       service account resource itself**, not just project-wide. The role is necessary
       but is not sufficient on its own, and the runbook used to imply otherwise
 
-### 1.3 Google sign-in shows an unverified-app warning
+### 1.3 Adding a Google Meet link shows an unverified-app warning
 
 **Status: open, and it will not resolve itself.** [`BACKLOG.md`](BACKLOG.md) §5.
 
-The OAuth app is in Testing mode, so **every tester's Google account must be added under
-Test users** (100 max) or their sign-in fails. They will also see "Google hasn't
-verified this app" and must click **Advanced → Go to BuildCo**, because sign-in requests
-the sensitive `calendar.events` scope.
+Sign-in no longer requests the sensitive `calendar.events` scope, so it is not affected.
+The scope is asked for only when someone ticks **Add a Google Meet link** on a new
+meeting. While the OAuth app is in Testing mode, **only Google accounts listed under Test
+users** (100 max) can grant it — anyone else is told access is blocked and their meeting
+is created without a link. Those who are listed see "Google hasn't verified this app" and
+must click **Advanced → Go to BuildCo**.
 
-Two consequences that surprise people later:
+Worth knowing:
 
-- In Testing mode, Google **refresh tokens expire after 7 days**. Calendar and Meet-link
-  creation will need periodic re-consent.
-- None of this affects email/password sign-in, which is the smoother path for a beta.
+- The permission is held in memory for about an hour and there is no refresh token, so
+  Google's popup reappears after that. Once granted, it is a click, not a consent screen.
+- The link is created in the Google account of whoever ticked the box, which need not be
+  the account they sign in to BuildCo with — email/password users can use it too.
 
-- [ ] Every tester's Google account allowlisted, or testers told to use email/password
+- [ ] Google Calendar API enabled, `calendar.events` on the consent screen, and every
+      serving origin under the web client's Authorised JavaScript origins
+      (`apps/api/docs/FIREBASE_SETUP.md` §4)
+- [ ] `VITE_GOOGLE_CLIENT_ID` set in `apps/staff-web/.env.production`
+- [ ] Everyone who should be able to add Meet links is on the Test users list
 - [ ] Consent screen branded (app name, support email, logo, home page, privacy policy)
 
 ---
@@ -277,10 +284,17 @@ app and must not be paraphrased — someone has agreed to those exact sentences.
       it to create a meeting at those times, and check a plain click also works
 - [ ] Tab into the day grid and press Enter — a meeting can be created without a mouse
 
-> **Google Meet links need §1.3.** Without a Google sign-in carrying the
-> `calendar.events` scope, meetings are created with no Meet link — which is normal, not
-> a failure, and the form says so. In Testing mode the refresh token expires after
-> **7 days**, so this will stop working periodically until the OAuth app is verified.
+- [ ] Create a meeting with **Add a Google Meet link** ticked and yourself invited.
+      Google asks for Calendar access at the tick; the saved meeting shows **Join the
+      Google Meet**, and the invite email has the link, a join button, and the link
+      inside the .ics
+- [ ] Close Google's window instead of allowing. The box un-ticks and says why, and the
+      meeting can still be created without a link
+- [ ] Create one with the box left alone. No popup, no link
+
+> **Google Meet links need §1.3.** A meeting created without ticking the box, or by
+> someone Google will not grant the scope to, has no Meet link — which is normal, not a
+> failure. The option is offered on new meetings only; editing cannot add a link.
 
 ### 3.6b Reviewer, pagination and the report
 
@@ -434,7 +448,7 @@ Things I have deliberately not chosen unilaterally.
 | Decision | Why it is yours | Where it bites |
 |---|---|---|
 | Rotate the Resend key | It was shared in a transcript | §1.1 |
-| Google sign-in for the beta, or email/password only | Testing-mode allowlisting is real friction and the 7-day refresh expiry affects Calendar | §1.3 |
+| Who may add Google Meet links during the beta | In Testing mode only allowlisted Google accounts can grant Calendar access; verifying the OAuth app lifts that | §1.3 |
 | Whether the settings screen keeps per-browser storage or moves server-side | Plan currently adds tables and endpoints for it; that is schema you may not want yet | Phase 8 of the plan |
 | When to reconnect CI | Everything but the repo connection is done and exercised | `BACKLOG.md` §1 |
 | BuildCo Assistant: a warm voice instance, or an 8-second first connect | `--min-instances=1` on `buildco-agent` costs money every month | `AGENT_SPEC.md` Q1; §3.10 |

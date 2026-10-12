@@ -117,19 +117,102 @@ gcloud builds submit \
 ```
 
 No substitutions needed. Takes roughly 2–3 minutes. Then hard-refresh
-<https://buildco-production-505918.web.app> and confirm the change is live.
+<https://supplements.buildcogrp.com> — the address staff actually use — and confirm the
+change is live. <https://buildco-production-505918.web.app> serves the same release.
 
 **Release only what changed.** The two are independent — an API-only change does not need
 a frontend release, and vice versa.
 
 ---
 
+## The voice service, `buildco-agent`
+
+BuildCo Assistant's voice connection is served by a second Cloud Run service running the
+API's image. **The API release rolls it too** — the `deploy-agent` step in
+`apps/api/cloudbuild.yaml` deploys the same image to `buildco-agent`, so there is no
+separate command. Creating the service is one-time work, in
+[`apps/api/docs/DEPLOY_CLOUD_RUN.md`](apps/api/docs/DEPLOY_CLOUD_RUN.md) §8b.
+
+After an API release:
+
+- [ ] The build log's `deploy-agent` step shows a deploy to `buildco-agent`. The step
+      skips itself when it cannot find the service, and it cannot tell "does not exist"
+      from "not allowed to look" — so a skip here is a fault, not a pass
+- [ ] `/readyz` answers on the voice service's own URL
+- [ ] Someone on the pilot list presses Start and hears it answer
+
+```bash
+AGENT=$(gcloud run services describe buildco-agent --region=us-central1 \
+  --project=buildco-production-505918 --format='value(status.url)')
+
+curl -sf "$AGENT/readyz"
+```
+
+The third check is not optional. `/readyz` proves the process and the database; it says
+nothing about whether a browser is let in.
+
+### `CORS_ORIGINS` on `buildco-agent` must list every address staff use
+
+Today that is two: `https://supplements.buildcogrp.com` and
+`https://buildco-production-505918.web.app`.
+
+On `buildco-api` this variable is never tested, because the browser reaches the API
+through the site's own address. The voice connection goes straight to `buildco-agent`,
+which compares the page's address against its own list and refuses anything else. Copying
+the API's value — which names only the `web.app` address — is exactly how the first
+production deploy went wrong.
+
+The symptom is the panel saying **"Conversation ended. The connection was lost."** the
+moment Start is pressed, with nothing wrong anywhere else. The service logs a `403` on
+`/api/v1/agent/live` and no reason:
+
+```bash
+gcloud logging read \
+  'resource.labels.service_name="buildco-agent" AND httpRequest.status=403' \
+  --project=buildco-production-505918 --freshness=1h --limit=5
+```
+
+The fix is the variable, not a release. The value contains a comma and so does the flag,
+so `^##^` tells gcloud to split on `##` instead:
+
+```bash
+gcloud run services update buildco-agent --region=us-central1 \
+  --project=buildco-production-505918 \
+  "--update-env-vars=^##^CORS_ORIGINS=https://supplements.buildcogrp.com,https://buildco-production-505918.web.app"
+```
+
+A new address for the app — another custom domain, say — has to be added here as well as
+to Firebase Hosting.
+
+### Its settings are its own
+
+Changing a variable on `buildco-api` changes nothing on `buildco-agent`, and the reverse.
+Email settings and secrets must match between the two; the voice service refuses to start
+without them.
+
+Who gets the assistant is decided on `buildco-api` alone:
+
+```bash
+gcloud run services update buildco-api --region=us-central1 \
+  --project=buildco-production-505918 \
+  "--update-env-vars=^##^AGENT_PILOT_EMAILS=first@example.com,second@example.com"
+```
+
+**The off switch is not a deploy.** An owner sets the daily allowance to 0 in Settings,
+which ends live conversations within seconds.
+
+---
+
 ## Tag the release
 
 ```bash
-git tag -a v0.3.0 -m "Short description of what shipped"
-git push origin v0.3.0
+git tag -l --sort=-creatordate | head -3      # the last versions released
+git tag -a vX.Y.Z -m "What shipped, in a few words"
+git push origin vX.Y.Z
 ```
+
+Fill in both the version and the message. An earlier form of this example carried a real
+version number and was once pasted as it stood, which left a tag on the wrong commit.
 
 Tagging is what makes "roll back to what we had on Tuesday" one command instead of an
 archaeology exercise. It matters more without CI, not less: with no build history tied to
@@ -147,6 +230,10 @@ gcloud run revisions list --service=buildco-api --region=us-central1 \
 gcloud run services update-traffic buildco-api --region=us-central1 \
   --project=buildco-production-505918 --to-revisions=REVISION_NAME=100
 ```
+
+**Roll `buildco-agent` back with it**, to the revision running the same image. The API
+issues the tickets the voice service redeems, and the two must agree about what a
+proposal is. The same two commands, with `--service=buildco-agent` and `buildco-agent`.
 
 **It does not roll back the database.** That is the whole reason migrations must stay
 backward-compatible with the previously deployed revision. Rolling code back onto a
