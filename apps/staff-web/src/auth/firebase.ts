@@ -88,10 +88,10 @@ export function getFirebaseAuth(): Auth {
  * signs in with Google and has no password, so that setting could lock the owner out of
  * their own workspace.
  *
- * The cost is that Google Meet links are no longer created: the access token that needed
- * came from this scope. Meetings and their calendar invites are unaffected. Restoring
- * Meet links means asking for `calendar.events` incrementally — at the point a meeting is
- * created, not at the door — rather than putting the sensitive scope back here.
+ * Google Meet links still need that scope, so it is asked for incrementally — when
+ * someone ticks "Add a Google Meet link" on a new meeting, not at the door. That lives in
+ * `./googleCalendarAccess` and does not go through this provider at all. Do not put the
+ * sensitive scope back here.
  */
 export function googleProvider(): GoogleAuthProvider {
   return new GoogleAuthProvider();

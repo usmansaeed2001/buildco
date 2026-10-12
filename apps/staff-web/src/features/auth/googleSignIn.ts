@@ -12,8 +12,8 @@ import { getFirebaseAuth, googleProvider } from "@/auth/firebase";
  * and hand it to `AuthProvider`, which is what `POST /meetings` used to attach a Google
  * Meet link. That token came from the `calendar.events` scope, and requesting it here is
  * exactly what locked six people — including the workspace owner — out of signing in.
- * Meet links are off until Calendar access is asked for separately, at the point a
- * meeting is created. Meetings and their invites are unaffected.
+ * Calendar access is now asked for separately, at the point a meeting is created with a
+ * Meet link — see `auth/googleCalendarAccess.ts`.
  */
 export async function signInWithGoogle(): Promise<void> {
   await signInWithPopup(getFirebaseAuth(), googleProvider());

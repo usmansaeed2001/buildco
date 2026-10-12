@@ -29,6 +29,12 @@ import {
 import { apiFetch, ApiError, configureApi } from "@/api/client";
 import type { SessionOut, UserOut } from "@/api/types";
 import { getFirebaseAuth, isFirebaseConfigured } from "./firebase";
+import {
+  CalendarAccessError,
+  isGoogleCalendarConfigured,
+  requestCalendarToken,
+  type CalendarToken,
+} from "./googleCalendarAccess";
 import { clearInviteToken, pendingInviteToken } from "./invite";
 
 export interface AuthState {
@@ -46,7 +52,14 @@ export interface AuthState {
   refreshProfile: () => Promise<void>;
   /** Google OAuth access token carrying the Calendar scope. Memory only. */
   googleAccessToken: string | null;
-  setGoogleAccessToken: (token: string | null) => void;
+  /** False when this build has no Google client ID, so a Meet link cannot be offered. */
+  googleCalendarAvailable: boolean;
+  /**
+   * A calendar token that is good for at least another minute, asking Google for one
+   * when none is held. Asking opens a popup, so call it from a click. Rejects with a
+   * `CalendarAccessError` whose message can be shown as it is.
+   */
+  requestGoogleCalendarAccess: () => Promise<string>;
 }
 
 export const AuthContext = createContext<AuthState | null>(null);
@@ -61,12 +74,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /**
    * The Google OAuth access token, held in a ref and mirrored into state.
    *
-   * Deliberately never persisted. Firebase does not refresh it, so a stored copy goes
-   * stale within the hour and the only symptom is meetings silently losing their Meet
-   * link. Keeping it in memory means it is either fresh or absent, and absent is a
-   * case the backend already handles.
+   * Deliberately never persisted. Nothing refreshes it, so a stored copy goes stale
+   * within the hour and the only symptom is meetings silently losing their Meet link.
+   * Keeping it in memory, and dropping it when it expires, means it is either fresh or
+   * absent, and absent is a case the backend already handles.
    */
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+  const calendarToken = useRef<CalendarToken | null>(null);
+
+  const requestGoogleCalendarAccess = useCallback(async () => {
+    const held = calendarToken.current;
+    if (held && held.expiresAt - Date.now() > 60_000) return held.token;
+
+    const user = isFirebaseConfigured ? getFirebaseAuth().currentUser : null;
+    const hasGoogleAccount = user?.providerData.some(
+      (provider) => provider.providerId === "google.com",
+    );
+    const fresh = await requestCalendarToken(
+      hasGoogleAccount && user?.email ? { hint: user.email } : {},
+    );
+
+    // The popup can outlive the session. A token granted to whoever was signed in
+    // when it opened must not be left for whoever is signed in now.
+    const current = isFirebaseConfigured ? getFirebaseAuth().currentUser : null;
+    if (current?.uid !== user?.uid) {
+      throw new CalendarAccessError("You signed out before Google answered. Try again.");
+    }
+
+    calendarToken.current = fresh;
+    setGoogleAccessToken(fresh.token);
+    return fresh.token;
+  }, []);
+
+  useEffect(() => {
+    const held = calendarToken.current;
+    if (!googleAccessToken || !held) return;
+
+    const timer = window.setTimeout(
+      () => {
+        calendarToken.current = null;
+        setGoogleAccessToken(null);
+      },
+      Math.max(0, held.expiresAt - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [googleAccessToken]);
 
   /** Identities already provisioned this page-load, so a token refresh does not
    *  re-POST /auth/session. `onIdTokenChanged` fires on every refresh, not just
@@ -83,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * does not, because then there is nothing to explain.
    */
   const signOut = useCallback(async (options?: { keepError?: boolean }) => {
+    calendarToken.current = null;
     setGoogleAccessToken(null);
     provisioned.current.clear();
     if (isFirebaseConfigured) await firebaseSignOut(getFirebaseAuth());
@@ -193,7 +246,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       refreshProfile,
       googleAccessToken,
-      setGoogleAccessToken,
+      googleCalendarAvailable: isGoogleCalendarConfigured,
+      requestGoogleCalendarAccess,
     }),
     [
       loading,
@@ -204,6 +258,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       refreshProfile,
       googleAccessToken,
+      requestGoogleCalendarAccess,
     ],
   );
 

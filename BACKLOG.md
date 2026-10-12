@@ -104,27 +104,30 @@ nothing looks broken while every reviewer email silently fails to arrive.
 - [ ] Send a real estimate for review to an address outside the Resend account and
       confirm it arrives
 
-## 5. OAuth consent screen is unbranded, and testers must be allowlisted
+## 5. OAuth consent screen is unbranded, and Meet-link users must be allowlisted
 
-Deferred from the deployment plan's Phase 4. Neither blocks email/password sign-in.
+Deferred from the deployment plan's Phase 4. Neither blocks sign-in, by password or by
+Google.
 
 **Branding** — Google Cloud Console → OAuth consent screen → Branding: app name
 `BuildCo`, a monitored support email, the app logo, home page
 `https://buildco-production-505918.web.app`, privacy policy and terms URLs. Without this
 the consent screen shows the raw project ID.
 
-**Test users** — the app stays in Testing mode, so every beta tester's Google account
-must be added under Test users (100 max). They will still see "Google hasn't verified
-this app" and must click **Advanced → Go to BuildCo**, because
-`apps/staff-web/src/auth/firebase.ts` requests the sensitive `calendar.events` scope.
+**Test users** — the sensitive `calendar.events` scope is no longer requested at
+sign-in. It is asked for incrementally, when someone ticks **Add a Google Meet link** on
+a new meeting (`apps/staff-web/src/auth/googleCalendarAccess.ts`). While the app stays in
+Testing mode, only Google accounts added under Test users (100 max) can grant it; they
+still see "Google hasn't verified this app" and must click **Advanced → Go to BuildCo**.
+Anyone else is refused by Google and gets a meeting without a link.
 
-Two consequences worth remembering: in Testing mode Google OAuth refresh tokens expire
-after **7 days**, so Calendar access needs periodic re-consent; and none of this affects
-email/password sign-in, which is the smoother path for a beta.
+Remaining fix is submitting for OAuth verification (privacy policy, verified domain,
+demo video, multi-week review), which removes both the allowlist and the warning.
 
-Real fix is either dropping the Calendar scope from sign-in and requesting it
-incrementally when meetings are built, or submitting for OAuth verification (privacy
-policy, verified domain, demo video, multi-week review).
+Not done, and worth a line each if Meet links get used: assistant-created meetings get
+no link; a link cannot be added when editing; and the Google Calendar event behind a
+link is not moved when the meeting is, and is removed on cancel only while the
+creator's permission is still in memory.
 
 ## 6. ~~`/healthz` is unreachable on Cloud Run~~ — done
 

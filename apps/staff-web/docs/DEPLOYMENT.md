@@ -140,8 +140,11 @@ firebase deploy --only hosting:staff
 Then verify against the live URL:
 
 - [ ] Sign in with email/password
-- [ ] Sign in with Google, and confirm the Calendar consent screen appears — that scope
-      is what lets meetings get a Meet link
+- [ ] Sign in with Google. It asks for **no** Calendar access
+- [ ] Create a meeting with **Add a Google Meet link** ticked. Google's Calendar
+      permission popup appears at that tick, and the invite email carries the link. A
+      popup that fails with an origin error means this domain is missing from the OAuth
+      client's Authorised JavaScript origins
 - [ ] Hard-refresh on a deep link
 - [ ] Create an estimate, reload, confirm it persisted
 - [ ] Submit one for review and open the emailed link in a private window

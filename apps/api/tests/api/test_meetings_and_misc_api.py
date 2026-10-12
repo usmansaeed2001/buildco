@@ -188,6 +188,60 @@ async def test_a_meeting_is_created_without_a_meet_link_when_no_token_is_given(
     assert meeting["title"] == "Site walkthrough"
 
 
+MEET_LINK = "https://meet.google.com/abc-defg-hij"
+
+
+def answer_google_with(monkeypatch, event: calendar.CalendarEvent) -> list[str | None]:
+    """Stand in for Google Calendar, returning the tokens it was called with.
+
+    The suite blocks real HTTP, and what these tests are about is what the meeting and
+    its invite do with Google's answer, not the request that fetched it.
+    """
+    tokens: list[str | None] = []
+
+    async def fake_create_meet_event(*, access_token, **_event):  # type: ignore[no-untyped-def]
+        tokens.append(access_token)
+        return event
+
+    monkeypatch.setattr(calendar, "create_meet_event", fake_create_meet_event)
+    return tokens
+
+
+async def test_a_meet_link_is_saved_and_goes_out_in_the_invite(
+    owner_client, member, notifications, monkeypatch
+):
+    """Ticking "Add a Google Meet link" is only worth anything if attendees receive it."""
+    tokens = answer_google_with(
+        monkeypatch, calendar.CalendarEvent(meet_link=MEET_LINK, google_event_id="evt-1")
+    )
+
+    meeting = await make_meeting(
+        owner_client, attendee_ids=[str(member.id)], google_access_token="ya29.token"
+    )
+
+    assert tokens == ["ya29.token"]
+    assert meeting["meet_link"] == MEET_LINK
+    assert meeting["google_event_id"] == "evt-1"
+    invite = next(s for s in notifications.sent if s.template == "meeting_invite.html")
+    assert invite.context["meet_link"] == MEET_LINK
+
+
+async def test_google_refusing_the_link_still_creates_and_invites(
+    owner_client, member, notifications, monkeypatch
+):
+    """An expired token or a disabled Calendar API costs the link, never the meeting."""
+    answer_google_with(monkeypatch, calendar.CalendarEvent(meet_link=None, google_event_id=None))
+
+    meeting = await make_meeting(
+        owner_client, attendee_ids=[str(member.id)], google_access_token="ya29.expired"
+    )
+
+    assert meeting["meet_link"] is None
+    invite = next(s for s in notifications.sent if s.template == "meeting_invite.html")
+    assert invite.context["meet_link"] is None
+    assert member.email in (invite.recipient or "")
+
+
 async def test_attendees_are_recorded_and_invited(owner_client, member, notifications):
     meeting = await make_meeting(owner_client, attendee_ids=[str(member.id)])
 

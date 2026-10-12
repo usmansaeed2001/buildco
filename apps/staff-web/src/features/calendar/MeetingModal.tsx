@@ -16,12 +16,17 @@
  * `attendee_emails` — an adjuster, a homeowner, a subcontractor. Both get the same
  * email and .ics; a guest simply has no account, so they never see it in the app. The
  * two lists are independent on the wire, so changing one never resends the other.
+ *
+ * A **Google Meet link** is opt-in, and only when creating. Ticking the box is what asks
+ * Google for calendar access — it is never asked for at sign-in — and the box stays
+ * unticked unless that access is given, so what it shows is what the invite will carry.
  */
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ApiError } from "@/api/client";
 import { useCreateMeeting, useDeleteMeeting, useUpdateMeeting } from "@/api/queries/meetings";
 import { useProjects } from "@/api/queries/projects";
 import { useAssignableUsers } from "@/api/queries/users";
+import { CalendarAccessError, preloadGoogleIdentity } from "@/auth/googleCalendarAccess";
 import { useAuth } from "@/auth/useAuth";
 import type { MeetingOut, MeetingUpdate } from "@/api/types";
 import { Button } from "@/components/Button";
@@ -45,6 +50,12 @@ import { displayName } from "@/lib/format";
 
 /** Mirrors `MAX_GUESTS` in the API's meeting schema. */
 const MAX_GUESTS = 50;
+
+function describeMeetFailure(caught: unknown): string {
+  return caught instanceof CalendarAccessError
+    ? caught.message
+    : "Google Calendar access could not be requested. Try again.";
+}
 
 /** The addresses of everyone on a meeting who is not a team member. */
 function guestsOf(meeting: MeetingOut | null): string[] {
@@ -122,7 +133,8 @@ export function MeetingModal({
   onClose: () => void;
 }) {
   const toast = useToast();
-  const { googleAccessToken } = useAuth();
+  const { googleAccessToken, googleCalendarAvailable, requestGoogleCalendarAccess } = useAuth();
+  const meetHintId = useId();
   const create = useCreateMeeting();
   const update = useUpdateMeeting();
   const remove = useDeleteMeeting();
@@ -132,6 +144,7 @@ export function MeetingModal({
 
   const editing = meeting !== null;
   const readOnly = !canManage || staged !== undefined;
+  const offersMeet = !editing && !readOnly && googleCalendarAvailable;
 
   // A draft's times win over the meeting's, and either wins over the clicked day.
   const seedStart = draft?.start_time ?? meeting?.start_time;
@@ -173,8 +186,17 @@ export function MeetingModal({
   );
   const [guestDraft, setGuestDraft] = useState("");
   const [guestError, setGuestError] = useState<string | null>(null);
+  const [wantsMeet, setWantsMeet] = useState(false);
+  const [meetPending, setMeetPending] = useState(false);
+  const [meetError, setMeetError] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Fetched ahead of the tick, so the popup opens inside the click and is not blocked.
+  // A failure here is reported when the box is ticked, which tries again.
+  useEffect(() => {
+    if (open && offersMeet) preloadGoogleIdentity().catch(() => {});
+  }, [open, offersMeet]);
 
   const start = fromDateTimeInputs(date, startTime);
   const end = fromDateTimeInputs(date, endTime);
@@ -227,11 +249,45 @@ export function MeetingModal({
     setGuests((current) => current.filter((value) => value !== email));
   }
 
+  async function toggleMeet(checked: boolean) {
+    setMeetError(null);
+    if (!checked) {
+      setWantsMeet(false);
+      return;
+    }
+
+    setMeetPending(true);
+    try {
+      await requestGoogleCalendarAccess();
+      setWantsMeet(true);
+    } catch (caught) {
+      setMeetError(describeMeetFailure(caught));
+    } finally {
+      setMeetPending(false);
+    }
+  }
+
   async function save() {
     if (!start || !end) return;
     const guestList = commitGuestDraft();
     if (guestList === null) return;
     setFailure(null);
+
+    // Asked for again rather than read from state: the access given when the box was
+    // ticked lasts about an hour, and a form can sit open longer than that. Normally
+    // this returns what is already held and opens nothing.
+    let meetToken: string | null = null;
+    if (offersMeet && wantsMeet) {
+      try {
+        meetToken = await requestGoogleCalendarAccess();
+      } catch (caught) {
+        // Stop here. Creating it anyway would send invites without the link the box
+        // promised, and there is no adding one afterwards.
+        setWantsMeet(false);
+        setMeetError(describeMeetFailure(caught));
+        return;
+      }
+    }
 
     try {
       if (editing) {
@@ -270,7 +326,7 @@ export function MeetingModal({
         await update.mutateAsync({ id: meeting.id, body: changes });
         toast.success("Meeting updated.");
       } else {
-        await create.mutateAsync({
+        const created = await create.mutateAsync({
           title: title.trim(),
           description,
           location,
@@ -280,15 +336,19 @@ export function MeetingModal({
           project_id: projectId || null,
           attendee_ids: attendees,
           attendee_emails: guestList,
-          // Absent is the normal case, not a degraded one — the meeting is created
-          // without a Meet link and everything else works.
-          google_access_token: googleAccessToken,
+          // Sent only when the box is ticked. A token left in memory by an earlier
+          // meeting must not put a Meet link on one that did not ask for it.
+          google_access_token: meetToken,
         });
-        toast.success(
-          googleAccessToken
-            ? "Meeting created and invites sent."
-            : "Meeting created. Sign in with Google to add a Meet link.",
-        );
+        if (created.meet_link) {
+          toast.success("Meeting created with a Google Meet link.");
+        } else if (meetToken) {
+          // The API never fails a meeting over the link: if Google refuses, the
+          // meeting and its invites still go out, so this is the only place to say so.
+          toast.info("Meeting created, but Google did not return a Meet link.");
+        } else {
+          toast.success("Meeting created.");
+        }
       }
       onClose();
     } catch (caught) {
@@ -422,6 +482,35 @@ export function MeetingModal({
             placeholder="12 Oak Street"
             onChange={(event) => setLocation(event.target.value)}
           />
+
+          {offersMeet && (
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={wantsMeet}
+                  disabled={meetPending}
+                  aria-describedby={meetHintId}
+                  onChange={(event) => void toggleMeet(event.target.checked)}
+                  className="size-4 rounded border-gray-300 text-brand-600 dark:text-brand-300 focus:ring-brand-500"
+                />
+                Add a Google Meet link
+              </label>
+              {meetError ? (
+                <p id={meetHintId} className="text-xs text-danger-600 dark:text-danger-400">
+                  {meetError}
+                </p>
+              ) : (
+                <p id={meetHintId} className="text-xs text-gray-500">
+                  {meetPending
+                    ? "Waiting for Google…"
+                    : wantsMeet
+                      ? "The link will be in the invite email and the calendar file."
+                      : "Google will ask for access to your calendar. The link goes in the invite email and the calendar file."}
+                </p>
+              )}
+            </div>
+          )}
 
           <Field label="Description">
             {(props) => (
@@ -574,13 +663,6 @@ export function MeetingModal({
             )}
           </div>
             </>
-          )}
-
-          {!editing && !googleAccessToken && (
-            <p className="text-xs text-gray-500">
-              No Google Meet link will be added — that needs a Google sign-in with calendar
-              access. The meeting and its invites work regardless.
-            </p>
           )}
         </div>
       </Modal>

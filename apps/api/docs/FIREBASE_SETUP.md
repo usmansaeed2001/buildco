@@ -147,8 +147,8 @@ Enable, then set:
 - **Project support email**: a real address you monitor; it appears on the consent
   screen.
 
-Google matters beyond convenience: it is also where the Calendar OAuth token for
-meeting Meet links comes from.
+Sign-in asks for no Calendar access. Meet links ask for it separately, when a meeting is
+created — see §4.
 
 ### Authorized domains
 **Authentication → Settings → Authorized domains.** Add every origin that will host the
@@ -188,14 +188,25 @@ production.
 Only needed for the meetings feature; auth works without it.
 
 1. **Google Cloud Console → APIs & Services → Library → Google Calendar API → Enable.**
+   If it is off, Google's permission popup still succeeds and the meeting is created
+   with no link.
 2. **OAuth consent screen**: Internal if you have Google Workspace (no verification
-   needed); External otherwise, with your staff added as test users.
+   needed); External otherwise, with the staff who should be able to add Meet links
+   added as test users.
 3. Add the scope `https://www.googleapis.com/auth/calendar.events`.
+4. **Credentials → "Web client (auto created by Google Service)"**: add every origin
+   that serves the frontend (`http://localhost:5173` and the hosting domains) under
+   **Authorised JavaScript origins**, and put its **Client ID** in the frontend's
+   `VITE_GOOGLE_CLIENT_ID` (`apps/staff-web/.env.local` and `.env.production`). Without
+   that variable the option is not shown.
 
-The frontend requests that scope alongside Google sign-in and passes the resulting
-access token to `POST /api/v1/meetings` as `google_access_token`. The backend uses it
-once and never stores it. Without it, meetings are created without a Meet link — which
-is a supported outcome, not an error.
+Sign-in does **not** request this scope. The frontend asks for it only when someone
+ticks **Add a Google Meet link** on a new meeting, through Google Identity Services,
+and passes the resulting access token to `POST /api/v1/meetings` as
+`google_access_token`. The backend uses it once and never stores it. The link is created
+in that person's own Google account and goes out in the invite email and the .ics.
+Without a token, meetings are created without a Meet link — which is a supported
+outcome, not an error.
 
 ---
 
