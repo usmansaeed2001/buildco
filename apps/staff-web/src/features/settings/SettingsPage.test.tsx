@@ -85,6 +85,14 @@ describe("SettingsPage", () => {
     ).toBeVisible();
   });
 
+  it("shows which release is running", async () => {
+    serveSettings();
+    renderSettings();
+
+    expect(await screen.findByText(`Version ${import.meta.env.VITE_APP_VERSION}`)).toBeVisible();
+    expect(import.meta.env.VITE_APP_VERSION).toBeTruthy();
+  });
+
   describe("the rate list", () => {
     it("lists rates with their prices", async () => {
       serveSettings({ catalogue: [rate({ name: "Drywall", unit_cost: "2.50" })] });

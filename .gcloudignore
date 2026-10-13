@@ -19,6 +19,9 @@ resend.txt
 *-credentials.json
 service-account*.json
 apps/api/secrets/
+# Written into the checkout by the Release workflow when it signs in to Google Cloud.
+# Short-lived, but it has no business in a build context.
+gha-creds-*.json
 
 # Dependencies and build output - reinstalled and rebuilt inside the build
 node_modules/

@@ -4,10 +4,11 @@
 person — decisions, credentials, console clicks, and the hand-verification that stands
 in for an automated end-to-end suite.
 
-It exists because two things are true of this project at once: a merge to `production`
-deploys nothing on its own ([`RELEASE.md`](RELEASE.md)), and no test anywhere drives a
-real browser against a real backend ([`BACKLOG.md`](BACKLOG.md) §12). So a green
-`development` means the code is *believed* correct, not that anyone has watched it work.
+It exists because two things are true of this project at once: a merge to `main`
+deploys nothing until someone runs the release ([`RELEASE.md`](RELEASE.md)), and no test
+anywhere drives a real browser against a real backend ([`BACKLOG.md`](BACKLOG.md) §12).
+So a green `main` means the code is *believed* correct, not that anyone has watched it
+work.
 
 > Naming note: this is deliberately not called a backlog. [`BACKLOG.md`](BACKLOG.md)
 > records known gaps in the system. **This file records what a human must do**, and
@@ -106,15 +107,23 @@ Worth knowing:
 From [`RELEASE.md`](RELEASE.md), repeated here because it is the step most easily
 skipped:
 
-- [ ] `development` merged into `production` and pushed
+- [ ] Everything meant to ship is merged into `main`, and CI is green on its latest
+      commit — the Release workflow refuses to start otherwise
+- [ ] Any new migration is backward-compatible with the currently deployed revision
+- [ ] The bump is chosen: patch, or minor if staff will see something new or there is a
+      migration
+
+The workflow deploys only the app that changed since the last tag, and checks `/readyz`,
+`/livez` and the site itself before it tags anything. What it cannot check is §3.
+
+**Only if you are releasing by hand** (the break-glass path in `RELEASE.md`):
+
 - [ ] **Working tree is clean.** `gcloud builds submit` uploads your working directory,
       not the branch — uncommitted edits *will* ship, and that is the easiest way to
       deploy something that exists on no branch at all
-- [ ] `git status --porcelain` empty and `git rev-parse HEAD origin/production` matching
-- [ ] Any new migration is backward-compatible with the currently deployed revision
-- [ ] Release only what changed — the API and the frontend are independent
+- [ ] `git status --porcelain` empty and `git rev-parse HEAD origin/main` matching
 
-After the API release:
+After a hand-run API release, the checks the workflow would have made:
 
 ```bash
 API=$(gcloud run services describe buildco-api --region=us-central1 \

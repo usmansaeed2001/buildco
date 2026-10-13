@@ -1,8 +1,12 @@
-# Cloud Build: staff-web -> Firebase Hosting. Triggered on push to `production`,
-# filtered to apps/staff-web/**, firebase.json and .firebaserc.
+# Cloud Build: staff-web -> Firebase Hosting. Submitted by the Release workflow
+# (.github/workflows/release.yml) for a commit on `main` whenever apps/staff-web/**,
+# firebase.json or .firebaserc changed since the last release.
 #
 # Run it by hand against the current checkout with:
-#   gcloud builds submit --config=apps/staff-web/cloudbuild.yaml .
+#   gcloud builds submit --config=apps/staff-web/cloudbuild.yaml \
+#     --substitutions=_VERSION=X.Y.Z .
+#
+# _VERSION is the release number without the `v`. Left out, the bundle says `dev`.
 
 steps:
   - id: install
@@ -10,8 +14,8 @@ steps:
     dir: apps/staff-web
     args: ['npm', 'ci']
 
-  # Typecheck and unit tests before the build, for the same reason as the API: a merge
-  # to `production` deploys with nobody watching. `npm run build` runs `tsc -b` itself,
+  # Typecheck and unit tests before the build, for the same reason as the API: a release
+  # deploys with nobody watching the steps. `npm run build` runs `tsc -b` itself,
   # so a type error would stop the build anyway - the tests are the part that would not.
   - id: test
     name: node:24
@@ -22,10 +26,14 @@ steps:
   # Vite inlines VITE_* at BUILD time from .env.production, which is committed
   # precisely so this step has them. Without it the bundle ships with no Firebase
   # config and silently redirects every user to /setup.
+  #
+  # The version is the one value that cannot live in that file, because it is not known
+  # until a release is cut. It arrives through the environment, which Vite reads too.
   - id: build
     name: node:24
     dir: apps/staff-web
     args: ['npm', 'run', 'build']
+    env: ['VITE_APP_VERSION=${_VERSION}']
     waitFor: ['test']
 
   # Runs from the repo root, where firebase.json and .firebaserc live.
@@ -50,6 +58,9 @@ steps:
       - '${PROJECT_ID}'
       - '--non-interactive'
     waitFor: ['build']
+
+substitutions:
+  _VERSION: dev
 
 options:
   logging: CLOUD_LOGGING_ONLY

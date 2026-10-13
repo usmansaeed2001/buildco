@@ -99,6 +99,9 @@ export function SettingsPage() {
       />
       <Notifications settings={settings.data} canEdit={elevated} />
       <AssistantAllowance settings={settings.data} canEdit={elevated} />
+
+      {/* So "which version are you on?" has an answer someone can read out. */}
+      <p className="text-xs text-gray-500">Version {import.meta.env.VITE_APP_VERSION}</p>
     </div>
   );
 }

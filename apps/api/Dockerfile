@@ -36,6 +36,12 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=8080
 
+# The release version, read by app/__init__.py and reported by /livez. Declared this late
+# so that a new number invalidates no layer worth caching. A plain `docker build` leaves
+# the placeholder.
+ARG APP_VERSION=0.0.0.dev0
+ENV APP_VERSION=${APP_VERSION}
+
 USER app
 EXPOSE 8080
 

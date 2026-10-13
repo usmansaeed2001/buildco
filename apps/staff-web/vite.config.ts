@@ -3,6 +3,12 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+// The release version, shown in Settings and stamped into index.html. The release build
+// passes the number it is about to tag; every other build - `npm run dev`, the tests, a
+// local `npm run build` - says `dev`. Set here, before Vite collects its env, because an
+// undefined VITE_* would leave the literal `%VITE_APP_VERSION%` in the served page.
+process.env.VITE_APP_VERSION ||= "dev";
+
 // The dev server proxies /api to the local FastAPI process, which is what lets the
 // app call same-origin `/api/v1/...` in development exactly as it does in production
 // behind the Firebase Hosting rewrite. Without it the API base URL would have to

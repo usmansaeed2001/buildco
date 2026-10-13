@@ -7,7 +7,7 @@ Target of the migration described in `migration-docs/` — moving from static HT
 Netlify Functions + Supabase to **FastAPI on Cloud Run + Cloud SQL Postgres + Firebase
 Auth + React**.
 
-Repository: <https://github.com/buildco51/buildco>
+Repository: <https://github.com/usmansaeed2001/buildco>
 
 ---
 
@@ -58,7 +58,7 @@ Deploying? Read [`DEPLOY_CHECKLIST.md`](DEPLOY_CHECKLIST.md) first — it is the
 everything that needs a person: blockers that make a feature fail silently in
 production, the config that must be set by hand, and the walkthrough that stands in for
 an automated end-to-end suite. Then [`RELEASE.md`](RELEASE.md) for the procedure itself;
-releases are manual, and a merge to `production` ships nothing on its own. Known gaps in
+a merge to `main` ships nothing until someone runs the Release workflow. Known gaps in
 the system live in [`BACKLOG.md`](BACKLOG.md).
 
 Read [`apps/api/README.md`](apps/api/README.md) for the endpoint reference and
@@ -69,66 +69,77 @@ contributing.
 
 ## Branching and environments
 
-Two long-lived branches, one per environment.
+One long-lived branch, `main`, and one environment, production. A branch name no longer
+stands for an environment: there used to be a `development` and a `production`, but
+`development` deployed nowhere, so the second branch was a merge to remember and nothing
+else.
 
 ```
   feature/short-description ──┐
-  fix/short-description ──────┼──► development ──(release PR)──► production
-                              │     │                              │
-                              │     └─ local only, no deployment   └─ live, customer-facing
-                              │        (a staging deploy may be
-                              │         added later)
-                              └─ branch from development, merge back into it
+  fix/short-description ──────┼──(pull request, CI)──► main ──(Release workflow)──► production
+  hotfix/short-description ───┘                          │                              │
+                                                         └─ checked, not deployed       └─ live, tagged vX.Y.Z
 ```
 
-| Branch | Environment | Deploys to | Protection |
-|---|---|---|---|
-| `production` | Production | Cloud Run + Firebase Hosting | Protected. Only ever updated by a release PR from `development`. Never commit to it directly. |
-| `development` | Local | Nothing yet | Default branch. Integration target for all work. |
+**Merging and releasing are separate acts.** A merge to `main` runs the checks and ships
+nothing. Running the Release workflow is what deploys, and it can carry one merged pull
+request or several.
 
 ### Day-to-day
 
 ```bash
-git switch development
+git switch main
 git pull
 git switch -c feature/project-documents
 
 # work, commit
 
 git push -u origin feature/project-documents
-# open a PR into development
+# open a PR into main
 ```
 
-Feature branches always start from `development` and merge back into it. They never
-touch `production` directly.
+Every pull request runs [`ci.yml`](.github/workflows/ci.yml): for the API, `ruff`,
+`mypy` and the suite on SQLite and again on Postgres; for the web app, `eslint`, the
+tests and the build. A pull request is checked only for the app it touches. Its title
+ends up in the release notes, so write it for whoever reads those.
 
 ### Releasing
 
-A release is a pull request from `development` into `production`.
+GitHub → Actions → **Release** → Run workflow. Choose the bump, optionally say what
+shipped in a few words, and run it. It:
 
-1. Confirm `development` is green: `cd apps/api && make check`.
-2. Open a PR `development → production`. Its description is the changelog — the reader
-   is whoever is on call when something breaks at 2am.
-3. Review the **full diff since the last release**, not just the newest commits.
-4. Merge. Tag the result:
-   ```bash
-   git switch production && git pull
-   git tag -a v0.2.0 -m "Add project documents; fix milestone reversal"
-   git push origin v0.2.0
-   ```
-5. **Deploy. It does not happen on merge** — the repository lives under the client's
-   account and cannot be connected to Cloud Build, so there are no triggers. Run the
-   release by hand: [`RELEASE.md`](RELEASE.md). Until that changes, a green
-   `production` means the code is *ready* to ship, not that it *has* shipped.
+1. refuses unless it is on `main` and CI passed on that commit;
+2. works out the next version from the last tag;
+3. deploys the API if `apps/api` changed since that tag, then the web app if it did —
+   through the same `apps/*/cloudbuild.yaml` configs as ever;
+4. checks that both services and the site are serving the new version;
+5. tags the commit `vX.Y.Z` and publishes the release notes.
 
-Tag every release. A tag is what makes "roll back to what we had on Tuesday" a
-one-command operation rather than an archaeology exercise.
+The full procedure, what to do when a step fails, and how to release by hand if GitHub
+is unavailable are in [`RELEASE.md`](RELEASE.md).
 
-### Database migrations across branches
+### Versions
 
-Schema changes deserve particular care with this model, because a merge to
-`production` deploys code and applies migrations as two separate acts, not one atomic
-one.
+One version for the whole repository, `vX.Y.Z`. The API and the web app share it even
+when a release deploys only one of them; the notes say which.
+
+**The git tag is the only place the version is written.** Nothing in the repository is
+bumped by hand. The release passes the number into both builds, so `/livez` reports it
+and the Settings page shows it. The `version` fields in `pyproject.toml` and
+`package.json` are package metadata and are not the release version.
+
+Which bump, while the version starts with `0.`:
+
+| Bump | When |
+|---|---|
+| patch | Fixes, internal changes, anything staff would not notice |
+| minor | Something new staff can see, or any database migration |
+| major | Reserved for `1.0.0` |
+
+### Database migrations
+
+Schema changes deserve particular care, because a release applies the migration and
+rolls the code as two separate steps, not one atomic one.
 
 - Every migration must be **backward-compatible with the currently deployed code**
   (expand/contract). Add a nullable column and ship code that writes it; backfill;
@@ -144,14 +155,14 @@ Full rules in
 For something broken in production that cannot wait for the normal cycle:
 
 ```bash
-git switch production && git pull
+git switch main && git pull
 git switch -c hotfix/approval-token-check
-# fix, PR into production, merge, tag
-git switch development && git merge production   # keep development current
+# fix, PR into main, merge, then run the Release workflow with `patch`
 ```
 
-The last step is not optional. Skipping it means the next release silently reverts the
-hotfix.
+There is no second branch to carry the fix back to. The release takes everything on
+`main`, so if something unfinished has merged since the last release, revert it first or
+the hotfix ships it too.
 
 ### Conventions
 
@@ -176,7 +187,7 @@ hotfix.
 | User migration | Planned and documented — see [`apps/api/docs/USER_MIGRATION.md`](apps/api/docs/USER_MIGRATION.md). |
 | Cloud Storage, Resend, Slack, Groq, Calendar | Adapters implemented; degrade to logged no-ops without credentials. Resend and Groq are configured in production; Slack is deliberately not. **Cloud Storage signing is broken on Cloud Run** — [`BACKLOG.md`](BACKLOG.md) §2. |
 | Cloud Run deploy | **Live.** `buildco-api` in `us-central1`, backed by Cloud SQL `buildco-db` (Postgres 16), secrets in Secret Manager, migrations run as a Cloud Run Job. Provisioning runbook: `apps/api/docs/DEPLOY_CLOUD_RUN.md`. |
-| CI/CD | Pipelines written and exercised (`apps/*/cloudbuild.yaml`), but **no triggers** — the repo is on the client's account and cannot be connected to Cloud Build. Releases are manual: [`RELEASE.md`](RELEASE.md). |
+| CI/CD | Checks on every pull request (`.github/workflows/ci.yml`). Releases are one button: the Release workflow runs the Cloud Build pipelines (`apps/*/cloudbuild.yaml`) in order and tags the result — [`RELEASE.md`](RELEASE.md). |
 | `staff-web` foundation | Vite + React + TS + Tailwind. Typed API client generated from OpenAPI, Firebase Auth wired to `POST /auth/session`, routing and guards, design system. Money and permission rules ported from the backend with their tests. |
 | `staff-web` screens | **Complete.** Auth, launcher, estimates list and editor, attachments, AI note parsing with dictation, the PDF report, the public review page, projects, closing forms, the calendar, team, profile and settings. 535 frontend tests. |
 | Firebase Hosting | **Live** at <https://buildco-production-505918.web.app> — SPA fallback plus an `/api/**` rewrite to Cloud Run, so the frontend calls same-origin `/api/v1` in every environment and there is no CORS in production. |

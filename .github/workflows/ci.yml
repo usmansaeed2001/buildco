@@ -1,0 +1,155 @@
+# Checks every pull request into `main`, and `main` itself after each merge.
+#
+# The gates are the ones the release builds run (apps/*/cloudbuild.yaml), moved earlier:
+# a failure here costs a red PR, the same failure there costs a release. The Release
+# workflow refuses to start unless `ci-ok` passed on the commit it is asked to ship.
+#
+# Actions are pinned to a commit, with the version it corresponds to beside it. A tag can
+# be moved to different code after the fact; a commit cannot.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to a pull request supersedes the run before it. Runs on `main` are never
+# cancelled: each one is the record the Release workflow looks for on that commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ── What changed ────────────────────────────────────────────────────────────
+  # A pull request checks only the app it touches. A push to `main` checks both, so that
+  # a pass on a `main` commit always means everything passed.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request is checked out as a merge commit whose first parent is the
+          # target branch. Two commits is enough to compare them.
+          fetch-depth: 2
+
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          api=true
+          web=true
+
+          if [ "$EVENT" = "pull_request" ]; then
+            changed=$(git diff --name-only HEAD^1 HEAD)
+            echo "$changed"
+
+            # A change to a workflow could break either job, so it runs both.
+            if ! grep -qE '^\.github/' <<<"$changed"; then
+              grep -qE '^apps/api/' <<<"$changed" || api=false
+              grep -qE '^(apps/staff-web/|firebase\.json$|\.firebaserc$)' <<<"$changed" || web=false
+            fi
+          fi
+
+          echo "api=$api" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+
+  # ── API ─────────────────────────────────────────────────────────────────────
+  # `make check`, then the suite a second time on Postgres as `make test-pg` does. The
+  # second run is not a repeat: SQLite has no row locks and is loose about CHECK
+  # constraints and JSON, so the tests marked `postgres` are skipped on it.
+  api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      # Matches docker-compose.yml and the Cloud SQL target. The credentials guard
+      # nothing: the database is empty and gone when the job ends.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: buildco
+          POSTGRES_PASSWORD: buildco
+          POSTGRES_DB: buildco_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U buildco -d buildco_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Python itself comes from uv, at the version apps/api/.python-version names.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+
+      - run: uv sync --frozen --group dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy app
+      - run: uv run pytest -q
+      - name: uv run pytest -q (Postgres)
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://buildco:buildco@localhost:5432/buildco_test
+        run: uv run pytest -q
+
+  # ── Web ─────────────────────────────────────────────────────────────────────
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/staff-web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/staff-web/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
+      # `tsc -b` runs first, so this is the typecheck as well as the bundle.
+      - run: npm run build
+
+  # ── The one check to require ────────────────────────────────────────────────
+  # A job that is skipped never reports, and a required check that never reports leaves
+  # a pull request waiting for ever. This one always runs and stands for the others, so
+  # it is the only name branch protection and the Release workflow need to know.
+  ci-ok:
+    name: ci-ok
+    needs: [changes, api, web]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            case "$result" in
+              success | skipped) ;;
+              *)
+                echo "A job ended as: $result"
+                exit 1
+                ;;
+            esac
+          done
