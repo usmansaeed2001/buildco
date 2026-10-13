@@ -20,6 +20,7 @@ htmlcov/
 *-credentials.json
 service-account*.json
 apps/api/secrets/
+gha-creds-*.json
 
 # Node (Phase 2)
 node_modules/

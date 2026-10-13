@@ -1,0 +1,386 @@
+# The Release button. Actions -> Release -> Run workflow, on `main`.
+#
+# A merge to `main` ships nothing. This does: it works out the next version, deploys
+# whichever app changed since the last one, checks that what is now serving is what it
+# just built, and only then tags the commit and writes the release notes.
+#
+#   prepare ──► deploy-api ──► deploy-web ──► publish
+#
+# The deploys are not rewritten here. Each one submits the same Cloud Build config
+# (apps/*/cloudbuild.yaml) that RELEASE.md runs by hand, so there is one definition of
+# "deploy" and this file only decides when, in what order, and with which version.
+#
+# The tag is created last, so a tag always means "this ran in production". If a deploy
+# fails, use "Re-run failed jobs": it keeps the version this run already worked out.
+#
+# No Google credential is stored in GitHub. The deploy jobs exchange GitHub's own
+# short-lived identity token for one that Google Cloud accepts only from this repository,
+# and only from `main`.
+
+name: Release
+run-name: Release (${{ inputs.bump }}${{ inputs.dry_run && ', dry run' || '' }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: >-
+          patch = fixes and internal changes. minor = something new staff can see, or any
+          database migration. major = reserved for 1.0.0.
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      summary:
+        description: What shipped, in a few words. Becomes the tag message and opens the notes.
+        type: string
+        required: false
+      force_all:
+        description: Deploy both apps even if one has not changed since the last release
+        type: boolean
+        default: false
+      dry_run:
+        description: Work out the version and prove the Google Cloud sign-in, then stop
+        type: boolean
+        default: false
+
+# One release at a time, and never cut one short: a cancelled build can leave the
+# migration applied and the service not yet rolled.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PROJECT_ID: buildco-production-505918
+  REGION: us-central1
+  # Identifiers, not secrets. Neither is any use without a token GitHub issues to a
+  # workflow running on this repository's `main`.
+  WORKLOAD_IDENTITY_PROVIDER: projects/685076437457/locations/global/workloadIdentityPools/github/providers/github-oidc
+  SERVICE_ACCOUNT: github-release@buildco-production-505918.iam.gserviceaccount.com
+  # The address staff use.
+  SITE_URL: https://supplements.buildcogrp.com
+
+jobs:
+  # ── Decide what this release is ─────────────────────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      previous: ${{ steps.plan.outputs.previous }}
+      short_sha: ${{ steps.plan.outputs.short_sha }}
+      api: ${{ steps.plan.outputs.api }}
+      web: ${{ steps.plan.outputs.web }}
+    steps:
+      - name: Only from main
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Releases are cut from main. This run was started on $GITHUB_REF_NAME."
+            exit 1
+          fi
+
+      # The pull request was checked before it merged, but what ships is the commit on
+      # `main`, and that is the one CI has to have passed on.
+      - name: CI passed on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          conclusion=$(gh api \
+            "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=ci-ok&filter=latest" \
+            --jq '.check_runs[0].conclusion // "not finished"')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::ci-ok is \"$conclusion\" on $GITHUB_SHA. Wait for CI on main to pass, then run this again."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Every tag and the history between them: the version comes from the tags, and
+          # what to deploy comes from the diff since the last one.
+          fetch-depth: 0
+
+      - id: plan
+        name: Work out the version and what changed
+        env:
+          BUMP: ${{ inputs.bump }}
+          FORCE_ALL: ${{ inputs.force_all }}
+        run: |
+          set -euo pipefail
+
+          previous=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --merged HEAD --sort=-v:refname | sed -n 1p)
+          if [[ ! "$previous" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::No vX.Y.Z tag is reachable from main, so there is nothing to count up from."
+            exit 1
+          fi
+          major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
+
+          case "$BUMP" in
+            major) version="$((major + 1)).0.0" ;;
+            minor) version="$major.$((minor + 1)).0" ;;
+            patch) version="$major.$minor.$((patch + 1))" ;;
+          esac
+          tag="v$version"
+
+          if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::$tag already exists."
+            exit 1
+          fi
+
+          # Everything the app's own Cloud Build config reads.
+          api=false
+          web=false
+          git diff --quiet "$previous" HEAD -- apps/api || api=true
+          git diff --quiet "$previous" HEAD -- apps/staff-web firebase.json .firebaserc || web=true
+          if [ "$FORCE_ALL" = "true" ]; then
+            api=true
+            web=true
+          fi
+
+          if [ "$api" = "false" ] && [ "$web" = "false" ]; then
+            echo "::error::Neither app has changed since $previous, so there is nothing to release. Tick force_all to redeploy anyway."
+            exit 1
+          fi
+
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "previous=$previous"
+            echo "short_sha=${GITHUB_SHA::7}"
+            echo "api=$api"
+            echo "web=$web"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## $previous → $tag"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | \`${GITHUB_SHA::7}\` |"
+            echo "| API | $([ "$api" = "true" ] && echo "deploy" || echo "unchanged, skipped") |"
+            echo "| Web | $([ "$web" = "true" ] && echo "deploy" || echo "unchanged, skipped") |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Dry run ─────────────────────────────────────────────────────────────────
+  # Signs in exactly as a deploy does and reads from each thing a deploy touches. It
+  # changes nothing, so it is the way to find a missing permission without a release
+  # half-done behind it.
+  check-access:
+    needs: prepare
+    if: ${{ inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Read from Cloud Build, the staging bucket and Cloud Run
+        run: |
+          set -euo pipefail
+          gcloud builds list --project="$PROJECT_ID" --limit=1 --format='value(id,status)'
+          gcloud storage ls "gs://${PROJECT_ID}_cloudbuild/source/" | sed -n 1p
+          for service in buildco-api buildco-agent; do
+            gcloud run services describe "$service" --project="$PROJECT_ID" --region="$REGION" \
+              --format='value(status.url)'
+          done
+          echo "Signed in to Google Cloud. Nothing was deployed and nothing was tagged." >> "$GITHUB_STEP_SUMMARY"
+
+  # ── API ─────────────────────────────────────────────────────────────────────
+  deploy-api:
+    needs: prepare
+    if: ${{ !inputs.dry_run && needs.prepare.outputs.api == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+    steps:
+      # The commit `prepare` looked at, not whatever `main` has become since.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      # check -> build -> push -> migrate -> deploy -> deploy-agent, as apps/api/cloudbuild.yaml
+      # lays them out. This step waits for the build and fails if it does.
+      #
+      # The staging bucket is named rather than left to the default. It is the same
+      # bucket, but when gcloud picks it for itself it first lists the project's buckets,
+      # which this account is deliberately not allowed to do.
+      - name: Build, migrate and deploy
+        run: |
+          gcloud builds submit . \
+            --project="$PROJECT_ID" \
+            --config=apps/api/cloudbuild.yaml \
+            --gcs-source-staging-dir="gs://${PROJECT_ID}_cloudbuild/source" \
+            --substitutions="SHORT_SHA=${SHORT_SHA},_VERSION=${VERSION}"
+
+      # Against the Cloud Run addresses, never the site: /readyz and /livez sit outside
+      # /api/**, so through Hosting they return index.html with a 200 whatever state the
+      # API is in.
+      #
+      # The version is checked on the voice service too. Its deploy step skips itself
+      # when it cannot find the service, and cannot tell "does not exist" from "not
+      # allowed to look" - so a skip is a fault, and this is what turns it into one.
+      - name: Check both services are ready and on the new version
+        run: |
+          set -euo pipefail
+          for service in buildco-api buildco-agent; do
+            url=$(gcloud run services describe "$service" --project="$PROJECT_ID" \
+              --region="$REGION" --format='value(status.url)')
+
+            curl --silent --show-error --fail --retry 6 --retry-delay 5 --retry-all-errors \
+              "$url/readyz"
+            echo
+
+            reported=$(curl --silent --show-error --fail --retry 6 --retry-delay 5 \
+              --retry-all-errors "$url/livez" | jq -r .version)
+            if [ "$reported" != "$VERSION" ]; then
+              echo "::error::$service reports version \"$reported\", expected \"$VERSION\"."
+              exit 1
+            fi
+            echo "$service is ready on $reported"
+          done
+
+  # ── Web ─────────────────────────────────────────────────────────────────────
+  # After the API, so a page that needs a new endpoint never goes live before it. Runs
+  # when the API deploy passed or was not needed; a failed one stops the release here.
+  deploy-web:
+    needs: [prepare, deploy-api]
+    if: >-
+      ${{ !cancelled() && !inputs.dry_run
+          && needs.prepare.result == 'success'
+          && needs.prepare.outputs.web == 'true'
+          && (needs.deploy-api.result == 'success' || needs.deploy-api.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Test, build and deploy to Hosting
+        run: |
+          gcloud builds submit . \
+            --project="$PROJECT_ID" \
+            --config=apps/staff-web/cloudbuild.yaml \
+            --gcs-source-staging-dir="gs://${PROJECT_ID}_cloudbuild/source" \
+            --substitutions="_VERSION=${VERSION}"
+
+      # Two hops. The page carries the version it was built for, which proves the new
+      # bundle is the one being served. The API call goes through Hosting *because* it
+      # is under /api/**, so JSON back proves the rewrite still reaches Cloud Run. The
+      # address is one nobody has, so the lookup finds no account and files nothing.
+      - name: Check the site is serving the new version
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if curl --silent --show-error --fail "$SITE_URL/" \
+              | grep --quiet "name=\"app-version\" content=\"$VERSION\""; then
+              served=true
+              break
+            fi
+            sleep 10
+          done
+          if [ "${served:-false}" != "true" ]; then
+            echo "::error::$SITE_URL is not serving version $VERSION."
+            exit 1
+          fi
+
+          kind=$(curl --silent --show-error --fail --output /dev/null \
+            --write-out '%{content_type}' \
+            "$SITE_URL/api/v1/auth/status?email=release-check@example.com")
+          if [[ "$kind" != application/json* ]]; then
+            echo "::error::/api/v1/auth/status answered with \"$kind\" through Hosting, not JSON. The /api/** rewrite is not reaching Cloud Run."
+            exit 1
+          fi
+          echo "$SITE_URL is serving $VERSION"
+
+  # ── Tag and notes ───────────────────────────────────────────────────────────
+  # Only once everything that was meant to deploy has, so the tag never names a version
+  # that is not running.
+  publish:
+    needs: [prepare, deploy-api, deploy-web]
+    if: >-
+      ${{ !cancelled() && !inputs.dry_run
+          && needs.prepare.result == 'success'
+          && (needs.deploy-api.result == 'success' || needs.deploy-api.result == 'skipped')
+          && (needs.deploy-web.result == 'success' || needs.deploy-web.result == 'skipped')
+          && (needs.deploy-api.result == 'success' || needs.deploy-web.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      PREVIOUS: ${{ needs.prepare.outputs.previous }}
+      SUMMARY: ${{ inputs.summary }}
+      API: ${{ needs.deploy-api.result }}
+      WEB: ${{ needs.deploy-web.result }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      # Annotated, like every tag before it: the message and the date travel with it.
+      - name: Tag the released commit
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$TAG" --message "${SUMMARY:-Release $TAG}" "$GITHUB_SHA"
+          git push origin "$TAG"
+
+      - name: Write the release notes
+        run: |
+          set -euo pipefail
+          deployed=()
+          [ "$API" = "success" ] && deployed+=("API")
+          [ "$WEB" = "success" ] && deployed+=("web")
+          notes="Deployed: $(IFS=,; echo "${deployed[*]}" | sed 's/,/, /g')."
+          if [ -n "$SUMMARY" ]; then
+            notes="$SUMMARY"$'\n\n'"$notes"
+          fi
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$TAG" \
+            --notes "$notes" \
+            --generate-notes \
+            --notes-start-tag "$PREVIOUS"
+
+          echo "Released [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG)." >> "$GITHUB_STEP_SUMMARY"

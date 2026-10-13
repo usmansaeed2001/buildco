@@ -1,14 +1,18 @@
-# Cloud Build: API -> Cloud Run. Triggered on push to `production`, filtered to
-# apps/api/**.
+# Cloud Build: API -> Cloud Run. Submitted by the Release workflow
+# (.github/workflows/release.yml) for a commit on `main` whenever apps/api/** changed
+# since the last release.
 #
 # Order is the point: check, then build, then migrate, then deploy. Each step's failure
 # stops the ones after it, so a red test suite or a failed migration can never reach a
-# serving revision. That matters more here than with a manual deploy, because a merge to
-# `production` now deploys with nobody watching.
+# serving revision. That matters more here than with a manual deploy, because a release
+# now deploys with nobody watching the steps.
 #
 # Run it by hand against the current checkout with:
 #   gcloud builds submit --config=apps/api/cloudbuild.yaml \
-#     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
+#     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD),_VERSION=X.Y.Z .
+#
+# _VERSION is the release number without the `v`. It is baked into the image and reported
+# by /livez; left out, the image reports the placeholder.
 #
 # The image reference is written out in full at each use rather than held in a
 # substitution. Cloud Build does NOT expand substitutions recursively: a
@@ -88,6 +92,8 @@ steps:
     dir: apps/api
     args:
       - build
+      - --build-arg
+      - APP_VERSION=${_VERSION}
       - -t
       - us-central1-docker.pkg.dev/${PROJECT_ID}/buildco/buildco-api:${SHORT_SHA}
       - .
@@ -176,6 +182,7 @@ images:
 
 substitutions:
   _REGION: us-central1
+  _VERSION: 0.0.0.dev0
 
 options:
   # Required when the build runs as a service account without a user-owned logs bucket.

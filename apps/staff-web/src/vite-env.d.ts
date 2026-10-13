@@ -18,6 +18,10 @@ interface ImportMetaEnv {
   /** OAuth web client used to ask for Google Calendar access when a Meet link is
    *  wanted. Unset hides the option; see `auth/googleCalendarAccess.ts`. */
   readonly VITE_GOOGLE_CLIENT_ID?: string;
+
+  /** The release this bundle was built for, or `dev`. Always set: `vite.config.ts`
+   *  supplies the default. */
+  readonly VITE_APP_VERSION: string;
 }
 
 interface ImportMeta {

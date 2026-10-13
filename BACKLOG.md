@@ -13,41 +13,32 @@ project `buildco-production-505918` — see `apps/api/docs/FIREBASE_SETUP.md` §
 
 ---
 
-## 1. No automatic deployment — releases are manual
+## 1. ~~No automatic deployment — releases are manual~~ — done, pending a first release
 
-**Blocked, not deferred.** The GitHub repository lives under the client's account, so it
-cannot be connected to Cloud Build in the interim project `buildco-production-505918`.
-Cloud Build triggers require that connection; there is no way around it from this side.
-
-**Consequence: a merge to `production` deploys nothing.** Someone has to run the release
-by hand. `production` being green is no longer the same as production *running* that
-code — the branch is the intent, a release is the act. The procedure is
+The repository was under the client's account and could not be connected to the interim
+project, so every release was run from a laptop. It has since been transferred to
+<https://github.com/usmansaeed2001/buildco>, and releases are now a button: the Release
+workflow (`.github/workflows/release.yml`) submits the same `apps/*/cloudbuild.yaml`
+configs that were being run by hand, in order, and tags the result. The procedure is
 [`RELEASE.md`](RELEASE.md).
 
-Everything except the connection is done and exercised:
+It does not use Cloud Build triggers, which is what this entry used to ask for. Triggers
+would have run the two pipelines side by side with nothing ordering them, and would have
+needed a connection between GitHub and the project. The workflow signs in with GitHub's
+own short-lived identity instead, so no credential is stored on either side.
 
-- `apps/api/cloudbuild.yaml` and `apps/staff-web/cloudbuild.yaml` are written and were
-  each run end to end through Cloud Build
-- The build service account holds every role both pipelines need
-- `firebase deploy` authenticating via ADC (no `FIREBASE_TOKEN`) is proven working
+Branch protection on `main` is not switched on: GitHub offers it for a private
+repository only on a paid plan. Nothing depends on it — the workflow itself refuses to
+release from anywhere but `main`, or a commit CI has not passed on — but until it is on,
+a direct push to `main` is possible.
 
-So the manual procedure is not a parallel, drift-prone script — it runs those same
-configs with `gcloud builds submit --config=…`. Connecting the repository later changes
-who pushes the button and nothing else.
-
-Two unblocking paths:
-
-- **Move to the client's GCP org** (§10) and connect the repo there. The real fix, and it
-  resolves several other items at once.
-- **Fork or mirror the repo** under an account that can be connected. Faster, but leaves
-  two remotes to keep in sync, which is its own failure mode.
-
-- [ ] Repository connected to Cloud Build
-- [ ] Two triggers created on `^production$` with the included-files filters in
-      `RELEASE.md`
-- [ ] A no-op commit to `production` confirms the right trigger fires and the other
-      does not
-- [ ] `RELEASE.md` updated to describe the automatic path
+- [x] Repository under an account that can reach the project
+- [x] Checks on every pull request (`.github/workflows/ci.yml`)
+- [x] `RELEASE.md` updated to describe the automatic path
+- [ ] A dry run of the Release workflow signs in to Google Cloud
+- [ ] A first release through it: both services report the new version, the site serves
+      it, and the tag and notes appear
+- [ ] Branch protection on `main` requiring `ci-ok`, if the account moves to a paid plan
 
 ## 2. ~~Signed GCS URLs fail on Cloud Run~~ — fixed in code, needs a release
 
