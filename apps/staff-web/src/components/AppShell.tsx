@@ -26,6 +26,7 @@ import { useAuth, useIsElevated } from "@/auth/useAuth";
 import { AppFrame } from "./AppFrame";
 import { RoleBadge } from "./Badge";
 import { Menu } from "./Menu";
+import { Modal } from "./Modal";
 import { ThemeToggle } from "./ThemeToggle";
 import {
   AgentContextReporter,
@@ -281,21 +282,46 @@ export function Avatar({
   url,
   name,
   size = "size-7",
+  viewable = false,
 }: {
   url?: string | null | undefined;
   name: string;
   size?: string;
+  /** Click to see the photo full size. Not for an avatar inside another control. */
+  viewable?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  const [viewing, setViewing] = useState(false);
 
   if (url && !failed) {
-    return (
+    const image = (
       <img
         src={url}
         alt=""
         onError={() => setFailed(true)}
         className={cn(size, "shrink-0 rounded-full object-cover ring-1 ring-gray-200")}
       />
+    );
+    if (!viewable) return image;
+
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setViewing(true)}
+          aria-label={`View photo of ${name}`}
+          className="shrink-0 cursor-zoom-in rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+        >
+          {image}
+        </button>
+        <Modal open={viewing} onClose={() => setViewing(false)} title={name}>
+          <img
+            src={url}
+            alt={`Photo of ${name}`}
+            className="mx-auto block max-h-[70vh] w-full max-w-md rounded-card object-contain"
+          />
+        </Modal>
+      </>
     );
   }
 
