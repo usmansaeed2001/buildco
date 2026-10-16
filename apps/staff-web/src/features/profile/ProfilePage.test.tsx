@@ -17,6 +17,7 @@ const ME = makeUser({
 });
 
 const SIGNED_PUT = "https://storage.googleapis.com/avatars/u-me/avatar.png";
+const PUBLIC_URL = "https://storage.test/avatars/u-me/avatar.png";
 
 function serveProfile(me: UserOut = ME) {
   const calls = { patched: [] as Record<string, unknown>[], saved: [] as Record<string, unknown>[] };
@@ -34,12 +35,13 @@ function serveProfile(me: UserOut = ME) {
         storage_path: "u-me/avatar.png",
         required_headers: { "Content-Type": "image/png" },
         expires_in: 900,
+        public_url: PUBLIC_URL,
       }),
     ),
     http.put(SIGNED_PUT, () => new HttpResponse(null, { status: 200 })),
     http.put(url("/users/me/avatar"), async ({ request }) => {
       calls.saved.push((await request.json()) as Record<string, unknown>);
-      return HttpResponse.json({ ...me, avatar_url: "https://storage.test/avatar.png" });
+      return HttpResponse.json({ ...me, avatar_url: PUBLIC_URL });
     }),
   );
 
@@ -117,7 +119,7 @@ describe("ProfilePage", () => {
   });
 
   describe("the avatar", () => {
-    it("uploads through the signed URL, then records the path", async () => {
+    it("uploads through the signed URL, then records the public URL", async () => {
       const calls = serveProfile();
       const { user } = renderProfile();
       await screen.findByLabelText("Profile photo");
@@ -128,7 +130,7 @@ describe("ProfilePage", () => {
       );
 
       await waitFor(() => expect(calls.saved).toHaveLength(1));
-      expect(calls.saved[0]).toEqual({ storage_path: "u-me/avatar.png" });
+      expect(calls.saved[0]).toEqual({ avatar_url: PUBLIC_URL });
     });
 
     it("says the rest of the page still works when storage is unconfigured", async () => {

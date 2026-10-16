@@ -80,10 +80,13 @@ function Profile({ me }: { me: UserOut }) {
         body: file,
       });
       if (!response.ok) throw new UploadFailedError(response.status);
+      // Only null when the avatars bucket is unconfigured, which the upload-url call
+      // above already refuses with a 503 — but don't record an empty avatar if it isn't.
+      if (!ticket.public_url) throw new Error("No public URL for the uploaded photo.");
 
       await apiFetch<UserOut>("/users/me/avatar", {
         method: "PUT",
-        body: { storage_path: ticket.storage_path },
+        body: { avatar_url: ticket.public_url },
       });
       await refreshProfile();
       toast.success("Photo updated.");
