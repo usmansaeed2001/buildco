@@ -185,7 +185,7 @@ function TeamRow({
 
   return (
     <li className="flex flex-wrap items-center gap-3 py-3">
-      <Avatar url={user.avatar_url} name={displayName(user)} size="size-9" />
+      <Avatar url={user.avatar_url} name={displayName(user)} size="size-9" viewable />
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-gray-900">

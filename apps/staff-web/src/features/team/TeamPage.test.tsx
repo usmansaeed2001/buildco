@@ -84,6 +84,25 @@ describe("TeamPage", () => {
     expect(within(rowFor("Casey Owner")).getByText("(you)")).toBeVisible();
   });
 
+  it("opens a member's photo full size when it is clicked", async () => {
+    const photo = "https://storage.test/avatars/u-member/avatar.jpg";
+    serveTeam([OWNER, makeUser({ ...MEMBER, avatar_url: photo })]);
+    const { user } = renderTeam();
+
+    await user.click(await screen.findByRole("button", { name: "View photo of Sam Member" }));
+
+    const viewer = await screen.findByRole("dialog", { name: "Sam Member" });
+    expect(within(viewer).getByAltText("Photo of Sam Member")).toHaveAttribute("src", photo);
+  });
+
+  it("offers nothing to enlarge for a member without a photo", async () => {
+    serveTeam([OWNER, makeUser({ ...MEMBER, avatar_url: null })]);
+    renderTeam();
+    await screen.findByText("Sam Member");
+
+    expect(screen.queryByRole("button", { name: "View photo of Sam Member" })).not.toBeInTheDocument();
+  });
+
   it("separates removed members", async () => {
     serveTeam([OWNER, makeUser({ id: "u-gone", full_name: "Gone Person", status: "banned" })]);
     renderTeam();
