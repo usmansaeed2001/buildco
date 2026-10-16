@@ -10,6 +10,9 @@
  * straight to storage, then record it. It is the one place a *public* URL is used —
  * avatars live in their own bucket and are served directly, unlike attachments which
  * always go through a signed link.
+ *
+ * A chosen photo is cropped to a square in the browser first (`AvatarCropper`), and the
+ * crop is what gets uploaded — never the original, which may be a 10 MB phone photo.
  */
 import { useState } from "react";
 import { ApiError } from "@/api/client";
@@ -19,6 +22,7 @@ import { apiFetch } from "@/api/client";
 import type { AvatarUploadOut, UserOut } from "@/api/types";
 import { useAuth } from "@/auth/useAuth";
 import { Avatar } from "@/components/AppShell";
+import { AvatarCropper } from "@/components/AvatarCropper";
 import { Button } from "@/components/Button";
 import { RoleBadge } from "@/components/Badge";
 import { Alert, Card, ErrorState, LoadingState, PageHeader } from "@/components/feedback";
@@ -45,6 +49,7 @@ function Profile({ me }: { me: UserOut }) {
   const [fullName, setFullName] = useState(me.full_name);
   const [phone, setPhone] = useState(me.phone ?? "");
   const [uploading, setUploading] = useState(false);
+  const [picked, setPicked] = useState<File | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
   const dirty = fullName !== me.full_name || phone !== (me.phone ?? "");
@@ -63,7 +68,8 @@ function Profile({ me }: { me: UserOut }) {
     }
   }
 
-  async function uploadAvatar(file: File) {
+  async function uploadAvatar(cropped: Blob) {
+    const file = new File([cropped], "avatar.jpg", { type: cropped.type || "image/jpeg" });
     setFailure(null);
     setUploading(true);
 
@@ -86,7 +92,10 @@ function Profile({ me }: { me: UserOut }) {
 
       await apiFetch<UserOut>("/users/me/avatar", {
         method: "PUT",
-        body: { avatar_url: ticket.public_url },
+        // The object key is the same on every upload, so the URL would be too, and every
+        // browser (and the bucket's public cache) would keep showing the old photo. The
+        // query string is ignored by storage and makes each upload a new URL.
+        body: { avatar_url: `${ticket.public_url}?v=${Date.now()}` },
       });
       await refreshProfile();
       toast.success("Photo updated.");
@@ -113,7 +122,7 @@ function Profile({ me }: { me: UserOut }) {
         {failure && <Alert tone="danger">{failure}</Alert>}
 
         <div className="flex items-center gap-4">
-          <Avatar url={me.avatar_url} name={displayName(me)} size="size-16" />
+          <Avatar url={me.avatar_url} name={displayName(me)} size="size-16" viewable />
           <div>
             <label className="cursor-pointer text-sm text-brand-700 dark:text-brand-300 underline">
               <input
@@ -124,15 +133,24 @@ function Profile({ me }: { me: UserOut }) {
                 disabled={uploading}
                 onChange={(event) => {
                   const file = event.target.files?.[0];
-                  if (file) void uploadAvatar(file);
+                  if (file) setPicked(file);
                   event.target.value = "";
                 }}
               />
               {uploading ? "Uploading…" : me.avatar_url ? "Change photo" : "Add a photo"}
             </label>
-            <p className="mt-0.5 text-xs text-gray-500">Square images look best.</p>
+            <p className="mt-0.5 text-xs text-gray-500">You can crop it before it is saved.</p>
           </div>
         </div>
+
+        <AvatarCropper
+          file={picked}
+          onCancel={() => setPicked(null)}
+          onCrop={(cropped) => {
+            setPicked(null);
+            void uploadAvatar(cropped);
+          }}
+        />
 
         <div className="grid gap-4 app-sm:grid-cols-2">
           <TextField
