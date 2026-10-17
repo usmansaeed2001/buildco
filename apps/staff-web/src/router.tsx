@@ -84,12 +84,6 @@ export const router = createBrowserRouter([
             Component: (await import("@/features/agent/AgentGallery")).AgentGallery,
           }),
         },
-        {
-          path: "/dev/calendar",
-          lazy: async () => ({
-            Component: (await import("@/features/calendar/CalendarGallery")).CalendarGallery,
-          }),
-        },
       ]
     : []),
 
