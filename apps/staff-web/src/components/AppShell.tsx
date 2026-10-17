@@ -98,8 +98,17 @@ function Shell() {
 
   return (
     <AppFrame
-      panel={panel.mounted ? <AgentPanel closing={panel.closing} /> : undefined}
+      panel={
+        panel.mounted ? (
+          <AgentPanel
+            closing={panel.closing}
+            compact={agent?.phone === true && agent.phoneView === "mini"}
+          />
+        ) : undefined
+      }
       panelClosing={panel.closing}
+      phone={agent?.phone === true}
+      phoneView={agent?.phoneView ?? "full"}
       launcher={
         <AgentLauncher
           hidden={panel.mounted}

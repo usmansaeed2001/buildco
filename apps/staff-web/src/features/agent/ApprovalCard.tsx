@@ -156,6 +156,11 @@ export interface ApprovalCardProps {
   /** This proposal's read-back has finished playing, so a spoken yes can count. */
   readbackPlayed?: boolean;
   /**
+   * Laid out for a phone. There a yes does not approve: the user says the proposal's
+   * confirmation line back, and the card shows that line.
+   */
+  phone?: boolean;
+  /**
    * What became of it, from the commit result. Shown on the card for a moment before it
    * leaves: violet becomes green, or red.
    */
@@ -172,6 +177,7 @@ export function ApprovalCard({
   paused = null,
   speaking = false,
   readbackPlayed = false,
+  phone = false,
   settled = null,
   onApprove,
   onReject,
@@ -308,6 +314,7 @@ export function ApprovalCard({
             paused={paused}
             speaking={speaking}
             readbackPlayed={readbackPlayed}
+            phone={phone}
             flash={flashed === proposal.id}
             onResume={onResume}
           />
@@ -377,6 +384,7 @@ function HowToApprove({
   paused,
   speaking,
   readbackPlayed,
+  phone,
   flash,
   onResume,
 }: {
@@ -385,6 +393,7 @@ function HowToApprove({
   paused: "approval" | "allowance" | null;
   speaking: boolean;
   readbackPlayed: boolean;
+  phone: boolean;
   flash: boolean;
   onResume: () => void;
 }) {
@@ -446,6 +455,31 @@ function HowToApprove({
 
   if (paused === "approval") {
     return withTapToTalk(<Line icon={<PauseIcon className={small} />}>Microphone paused.</Line>);
+  }
+
+  const confirm = proposal.labels.confirm?.line;
+  if (phone && !speaking) {
+    // The words to say are the point of this line, so they are the largest thing in it.
+    return (
+      <div className="flex min-w-0 flex-col gap-1">
+        <Line icon={<MicIcon className={small} />}>
+          {!confirm
+            ? "Press Approve when you are ready"
+            : readbackPlayed
+              ? "To approve, say back:"
+              : "Once you have heard it, say back:"}
+        </Line>
+        {confirm && (
+          <p
+            data-confirm-line
+            className="rounded-md bg-assistant-50 px-2 py-1.5 text-sm leading-5 font-medium text-gray-900"
+          >
+            &ldquo;{confirm}&rdquo;
+          </p>
+        )}
+        {confirm && <span className="text-gray-500">or press Approve. A yes alone will not do.</span>}
+      </div>
+    );
   }
 
   if (readbackPlayed) {

@@ -11,7 +11,7 @@
  */
 import { useEffect, useState, type Ref } from "react";
 import { cn } from "@/lib/cn";
-import { ClockIcon, CloseIcon } from "./icons";
+import { ClockIcon, CloseIcon, ExpandIcon, FoldIcon } from "./icons";
 import { MOTION, reducedMotion } from "./motion";
 import { Orb } from "./Orb";
 import { clock, describeTimeLeft, resetTime, type Presence } from "./presence";
@@ -153,6 +153,8 @@ export function PanelHeader({
   dailyLimit,
   resetsAt,
   onHistory,
+  onFold,
+  onExpand,
   onClose,
 }: {
   presence: Presence;
@@ -167,6 +169,10 @@ export function PanelHeader({
   resetsAt: string | null;
   /** Open the history view. Left out while a conversation is live. */
   onHistory?: (() => void) | undefined;
+  /** On a phone: fold the panel down to a bar, to see the app. */
+  onFold?: (() => void) | undefined;
+  /** On a phone: unfold the bar to fill the screen again. */
+  onExpand?: (() => void) | undefined;
   onClose: () => void;
 }) {
   const [timeOpen, setTimeOpen] = useState(false);
@@ -202,6 +208,16 @@ export function PanelHeader({
         {onHistory && (
           <HeaderButton label="Past conversations" onClick={onHistory}>
             <ClockIcon />
+          </HeaderButton>
+        )}
+        {onFold && (
+          <HeaderButton label="Show the app" onClick={onFold}>
+            <FoldIcon />
+          </HeaderButton>
+        )}
+        {onExpand && (
+          <HeaderButton label="Show the conversation" onClick={onExpand}>
+            <ExpandIcon />
           </HeaderButton>
         )}
         <HeaderButton

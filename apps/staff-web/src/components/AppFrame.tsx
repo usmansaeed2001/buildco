@@ -23,6 +23,11 @@
  * **Open dialogs are counted.** Whatever is in the panel may need to know that the
  * user has a dialog open, and nothing else in the app tracks that.
  *
+ * **On a phone there is no beside.** Below 1024px the panel fills the screen, and the
+ * column under it is inert. To show the app, with a change staged on it, the panel folds
+ * down to a bar at the foot of the window, and the column is given room above the bar so
+ * nothing on it is hidden under the bar. Dialogs size themselves to that room too.
+ *
  * **The column can be locked.** While the assistant is working, the whole column is made
  * inert, its dialog layer included, and framed so that it is plain why nothing responds.
  * The panel is outside the column and stays live, and so does the banner drawn over the
@@ -39,6 +44,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { cn } from "@/lib/cn";
 import { usePresence } from "@/features/agent/usePresence";
 
 export interface AppFrameState {
@@ -52,6 +58,8 @@ export interface AppFrameState {
   registerDialog: () => () => void;
   /** How many times the locked app has been clicked. The lock's banner answers each. */
   lockedClicks: number;
+  /** Laid out for a phone: dialogs over the column open as sheets. */
+  phone: boolean;
 }
 
 const AppFrameContext = createContext<AppFrameState | null>(null);
@@ -113,12 +121,38 @@ function useStagedScrolling(layer: HTMLElement | null) {
   }, [layer]);
 }
 
+/** The panel's place on a phone: covering the window, or a bar along its foot. */
+const PHONE_PANEL = {
+  full: "fixed inset-0 z-50 h-dvh w-full border-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
+  mini: "fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] w-full rounded-t-2xl border-x-0 border-b-0 pb-[env(safe-area-inset-bottom)] shadow-panel",
+} as const;
+
+/** How tall the folded panel is, for the column and its dialogs to keep clear of it. */
+function useBarHeight(bar: HTMLElement | null, folded: boolean): number {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    if (!bar || !folded) {
+      setHeight(0);
+      return;
+    }
+    const measure = () => setHeight(bar.getBoundingClientRect().height);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [bar, folded]);
+  return height;
+}
+
 export function AppFrame({
   panel,
   panelClosing = false,
   launcher,
   locked = false,
   lockBanner,
+  phone = false,
+  phoneView = "full",
   children,
 }: {
   /** What is docked beside the app. Leave it out and the app has the whole window. */
@@ -135,6 +169,10 @@ export function AppFrame({
   locked?: boolean;
   /** Shown over the locked column. It is not inert: it is where Stop lives. */
   lockBanner?: ReactNode;
+  /** Laid out for a phone: the panel covers the app rather than sitting beside it. */
+  phone?: boolean;
+  /** On a phone, whether the panel fills the window or is folded down to a bar. */
+  phoneView?: "full" | "mini";
   children: ReactNode;
 }) {
   const [dialogLayer, setDialogLayer] = useState<HTMLElement | null>(null);
@@ -156,13 +194,20 @@ export function AppFrame({
 
   const panelOpen = panel !== undefined && panel !== null;
   const state = useMemo(
-    () => ({ panelOpen, dialogLayer, openDialogs, registerDialog, lockedClicks }),
-    [panelOpen, dialogLayer, openDialogs, registerDialog, lockedClicks],
+    () => ({ panelOpen, dialogLayer, openDialogs, registerDialog, lockedClicks, phone }),
+    [panelOpen, dialogLayer, openDialogs, registerDialog, lockedClicks, phone],
   );
+  const covered = phone && panelOpen && phoneView === "full";
+  const [aside, setAside] = useState<HTMLElement | null>(null);
+  const bar = useBarHeight(aside, phone && panelOpen && phoneView === "mini");
 
   return (
     <AppFrameContext.Provider value={state}>
-      <div className="flex min-h-dvh">
+      <div
+        className="flex min-h-dvh"
+        {...(phone ? { "data-phone": phoneView } : {})}
+        style={{ "--ast-bar": `${bar}px` } as React.CSSProperties}
+      >
         {/* The wrapper is what the lock's frame and banner are positioned against. It is
             never inert itself; the column inside it is. */}
         <div className="relative flex min-w-0 flex-1">
@@ -171,7 +216,10 @@ export function AppFrame({
           <div
             data-app-column
             className="@container/app relative flex min-w-0 flex-1 flex-col"
-            inert={locked}
+            // Under a panel that fills the window the column cannot be seen, so it must
+            // not be reachable by the keyboard or a screen reader either.
+            inert={locked || covered}
+            style={bar ? { paddingBottom: bar } : undefined}
           >
             <div
               className="flex flex-1 flex-col"
@@ -199,15 +247,20 @@ export function AppFrame({
               className="ast-lock absolute inset-0 z-50"
             >
               <span aria-hidden="true" className="ast-lock-sweep" />
-              <div className="sticky top-[65px] mx-auto w-fit max-w-[calc(100%-1.5rem)]">
-                {banner.current}
-              </div>
+              {/* On a phone Stop is on the bar at the foot, under the user's thumb, and
+                  a banner here would sit on the staged form's title. */}
+              {!phone && (
+                <div className="sticky top-[65px] mx-auto w-fit max-w-[calc(100%-1.5rem)]">
+                  {banner.current}
+                </div>
+              )}
             </div>
           )}
         </div>
 
         {panelOpen && (
           <aside
+            ref={setAside}
             aria-label="Side panel"
             {...(panelClosing ? { "data-closing": "" } : {})}
             // Sticky and nearly viewport-tall: the page scrolls on the document, and
@@ -217,7 +270,14 @@ export function AppFrame({
             // right side instead, with the same inset. A panel is never hidden for want
             // of room: it may be holding a live conversation, and Stop, Approve and End
             // have to stay reachable.
-            className="ast-card sticky top-3 m-3 h-[calc(100dvh-1.5rem)] w-[400px] shrink-0 self-start overflow-hidden rounded-2xl border border-gray-200 bg-surface shadow-panel max-lg:fixed max-lg:top-3 max-lg:right-3 max-lg:z-50 max-lg:m-0 max-lg:max-w-[calc(100vw-1.5rem)]"
+            //
+            // On a phone it is not beside anything: see `PHONE_PANEL`.
+            className={cn(
+              "ast-card overflow-hidden border border-gray-200 bg-surface",
+              phone
+                ? PHONE_PANEL[phoneView]
+                : "sticky top-3 m-3 h-[calc(100dvh-1.5rem)] w-[400px] shrink-0 self-start rounded-2xl shadow-panel max-lg:fixed max-lg:top-3 max-lg:right-3 max-lg:z-50 max-lg:m-0 max-lg:max-w-[calc(100vw-1.5rem)]",
+            )}
           >
             {panel}
           </aside>

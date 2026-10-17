@@ -193,6 +193,15 @@ const panel = () => screen.getByRole("complementary", { name: "Side panel" });
 /** The two words under the panel's title that say what the assistant is doing. */
 const status = () => within(panel()).getByRole("status", { name: "Assistant status" });
 
+/** A window narrow enough for the phone layout. */
+function onAPhone() {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width"),
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+}
+
 beforeEach(() => {
   fakes.sockets.length = 0;
   fakes.audio.length = 0;
@@ -225,18 +234,17 @@ describe("BuildCo Assistant in the shell", () => {
       expect(launcher).not.toHaveAttribute("title");
     });
 
-    it("is not offered in a window under 1024px", async () => {
-      vi.stubGlobal("matchMedia", () => ({
-        matches: false,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-      }));
+    it("is offered on a phone too, and opens filling the screen", async () => {
+      onAPhone();
       serveAssistant();
-      renderShell();
+      const { user } = renderShell();
 
-      await screen.findByText("Supplements page");
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(screen.queryByRole("button", { name: "Ask BuildCo Assistant" })).not.toBeInTheDocument();
+      await user.click(await screen.findByRole("button", { name: "Ask BuildCo Assistant" }));
+
+      expect(panel().className).toContain("inset-0");
+      // The app under it cannot be seen, so it cannot be reached either.
+      expect(appColumn()).toHaveAttribute("inert");
+      expect(within(panel()).getByRole("button", { name: "Show the app" })).toBeVisible();
     });
 
     it("opens a panel beside the app, idle, and gets out of the way", async () => {
@@ -406,6 +414,63 @@ describe("BuildCo Assistant in the shell", () => {
       expect(within(card).getByText(PROPOSAL.summary)).toBeVisible();
       expect(within(card).getByText(/Needs a click/)).toBeVisible();
       expect(within(card).getByText(/Sam Member/)).toBeVisible();
+    });
+
+    describe("on a phone", () => {
+      const VOICE: Proposal = {
+        ...PROPOSAL,
+        approval: "voice_or_click",
+        labels: {
+          ...PROPOSAL.labels,
+          confirm: { line: "Hendricks walkthrough, Wednesday 14 October at 2:30 PM" },
+        },
+      };
+
+      it("tells the server the app is laid out for a phone", async () => {
+        onAPhone();
+        serveAssistant();
+        await startTalking();
+
+        expect(sentOf("context").at(-1)).toMatchObject({ layout: "phone" });
+      });
+
+      it("folds down to a bar under the staged form, and comes back once it is answered", async () => {
+        onAPhone();
+        serveAssistant();
+        await startTalking();
+
+        stage(VOICE);
+        receive({ type: "proposal", ...VOICE });
+
+        expect(await screen.findByRole("dialog", { name: "New meeting" })).toBeInTheDocument();
+        expect(panel().className).toContain("bottom-0");
+        expect(within(panel()).getByRole("button", { name: "Approve" })).toBeVisible();
+        expect(within(panel()).getByRole("button", { name: "Show the conversation" })).toBeVisible();
+
+        receive(
+          { type: "proposal_result", id: VOICE.id, status: "cancelled" },
+          { type: "ui", directive_id: "d-2", action: "unstage" },
+          { type: "mode", mode: "conversing" },
+        );
+
+        await waitFor(() => expect(panel().className).toContain("inset-0"));
+      });
+
+      it("asks for the confirmation line back, not a yes", async () => {
+        onAPhone();
+        serveAssistant();
+        await startTalking();
+        stage(VOICE);
+
+        receive({ type: "proposal", ...VOICE });
+
+        const card = within(panel()).getByRole("region", { name: "Waiting for your approval" });
+        expect(
+          within(card).getByText(/Hendricks walkthrough, Wednesday 14 October at 2:30 PM/),
+        ).toBeVisible();
+        expect(within(card).getByText(/A yes alone will not do/)).toBeVisible();
+        expect(within(card).queryByText(/Say yes/)).not.toBeInTheDocument();
+      });
     });
 
     it("sends the user's decision, not a result", async () => {

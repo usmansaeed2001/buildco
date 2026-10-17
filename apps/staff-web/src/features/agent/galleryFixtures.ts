@@ -71,7 +71,10 @@ export const VOICE_MEETING: Proposal = {
   summary:
     "I am about to create the meeting Site visit on Thursday, 15 October 2026 at 2:00 PM, for 45 minutes. Nobody will be emailed.",
   payload: { ...MEETING.payload, title: "Site visit" },
-  labels: { when: "Thu 15 Oct 2026, 2:00–2:45 PM" },
+  labels: {
+    when: "Thu 15 Oct 2026, 2:00–2:45 PM",
+    confirm: { line: "Site visit, Thursday 15 October at 2:00 PM" },
+  },
   warnings: [],
   approval: "voice_or_click",
 };
@@ -218,6 +221,9 @@ export function previewOf(
     state,
     locked: isLocked(state),
     panelOpen: true,
+    phone: false,
+    phoneView: "full",
+    setPhoneView: noop,
     levels: createLevels(),
     openPanel: noop,
     closePanel: noop,
@@ -235,6 +241,7 @@ export function previewOf(
     takeHandover: noop,
     reportContext: noop,
     viewRecord: noop,
+    viewSelection: noop,
     registerEditor: noop,
     ...over,
   };

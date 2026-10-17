@@ -80,6 +80,12 @@ export const ArrowDownIcon = icon(<path d="M10 4v12M5 11l5 5 5-5" />);
 
 export const BackIcon = icon(<path d="M12 4.5L6.5 10l5.5 5.5" />);
 
+/** Unfold the panel to fill a phone's screen. */
+export const ExpandIcon = icon(<path d="M5 12.5l5-5 5 5" />);
+
+/** Fold the panel down to a bar, to see the app. */
+export const FoldIcon = icon(<path d="M5 7.5l5 5 5-5" />);
+
 export const PauseIcon = icon(<path d="M7 5v10M13 5v10" />);
 
 export const MailIcon = icon(

@@ -70,6 +70,35 @@ export interface ProposalLabels {
   old?: string;
   new?: string | null;
   warnings?: string[];
+  /**
+   * What a user on a phone says back to approve it by voice. Absent for anything only a
+   * click approves.
+   */
+  confirm?: { line: string };
+  /** Lines being added to a supplement, each as it would be saved. */
+  lines?: AddedLineLabel[];
+  /** Rooms the added lines create. */
+  new_rooms?: string[];
+  /** The supplement's total before and after, as decimal strings. */
+  old_total?: string;
+  new_total?: string;
+}
+
+/** One line a proposal would add. Money and quantities are decimal strings. */
+export interface AddedLineLabel {
+  room: string;
+  room_index: number;
+  new_room: boolean;
+  name: string;
+  quantity: string;
+  unit: string;
+  category: string;
+  unit_cost: string;
+  /** The catalogue's price, when the user stated a different one. */
+  catalogue_unit_cost: string | null;
+  /** `catalogue`, `stated` or `differs`. */
+  source: string;
+  total: string;
 }
 
 /** A change the assistant has staged and is waiting to be told to save, or not. */
@@ -162,6 +191,15 @@ export interface ViewedRecord {
   label?: string;
 }
 
+/** The part of the record that is selected, for "this room". */
+export interface ViewedSelection {
+  room_position: number;
+  room_name: string;
+}
+
+/** How the app is laid out: a panel beside it, or the assistant filling a phone. */
+export type Layout = "phone" | "wide";
+
 export type ClientFrame =
   | { type: "text"; text: string }
   | {
@@ -169,7 +207,9 @@ export type ClientFrame =
       route: string;
       dialog_open: boolean;
       entity?: ViewedRecord | null;
+      selection?: ViewedSelection | null;
       editor_save_state?: string | null;
+      layout?: Layout;
     }
   /** The read-back finished playing, or with the speaker off, was shown in full. */
   | { type: "readback_played"; proposal_id: string }
