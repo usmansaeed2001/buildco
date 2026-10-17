@@ -32,6 +32,7 @@ SUPPLEMENT_CREATE = "supplement.create"
 SUPPLEMENT_UPDATE = "supplement.update_details"
 SUPPLEMENT_TRANSITION = "supplement.transition"
 SUPPLEMENT_SUBMIT = "supplement.submit"
+SUPPLEMENT_ADD_LINES = "supplement.add_lines"
 MEMORY_CHANGE = "memory.change"
 
 #: Every kind of proposal there is. **None of them deletes a record**, and a test
@@ -44,6 +45,7 @@ KINDS: frozenset[str] = frozenset(
         SUPPLEMENT_UPDATE,
         SUPPLEMENT_TRANSITION,
         SUPPLEMENT_SUBMIT,
+        SUPPLEMENT_ADD_LINES,
         MEMORY_CHANGE,
     }
 )
@@ -101,7 +103,7 @@ def approval_policy(
         if transition is None or transition in CLICK_ONLY_TRANSITIONS:
             return AgentApprovalPolicy.CLICK
         return AgentApprovalPolicy.VOICE_OR_CLICK
-    if kind in (SUPPLEMENT_CREATE, SUPPLEMENT_UPDATE, MEMORY_CHANGE):
+    if kind in (SUPPLEMENT_CREATE, SUPPLEMENT_UPDATE, SUPPLEMENT_ADD_LINES, MEMORY_CHANGE):
         return AgentApprovalPolicy.VOICE_OR_CLICK
     return AgentApprovalPolicy.CLICK
 
@@ -436,6 +438,78 @@ def supplement_submit_summary(
         f"I am about to send the supplement {name} for review. Its total is {money(total)}. "
         f"{reviewer_name} will be emailed the approval link at {reviewer_email}."
     )
+
+
+@dataclass(frozen=True, slots=True)
+class AddedLine:
+    room: str
+    new_room: bool
+    name: str
+    unit_cost: Decimal
+    #: ``catalogue``, ``stated`` or ``differs``, as ``line_additions`` decides.
+    source: str
+    catalogue_unit_cost: Decimal | None = None
+
+
+def _counted(count: int, noun: str) -> str:
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
+def supplement_add_lines_summary(
+    *,
+    name: str,
+    lines: Sequence[AddedLine],
+    old_total: Decimal,
+    new_total: Decimal,
+    status_note: str = "",
+) -> str:
+    """The read-back for lines added to a supplement: how many, where, and the total.
+
+    Not a recital of every line: those are on screen. What is always said is each line
+    whose price did not come from the catalogue, because that price is the user's word
+    and not the team's rate.
+    """
+    per_room: dict[str, tuple[int, bool]] = {}
+    for line in lines:
+        count, new = per_room.get(line.room, (0, line.new_room))
+        per_room[line.room] = (count + 1, new)
+    where = [
+        f"{count} to {'a new room, ' if new else ''}{room}"
+        for room, (count, new) in per_room.items()
+    ]
+    parts = [
+        f"I am about to add {_counted(len(lines), 'line')} to the supplement {name}: "
+        f"{_listed(where)}.",
+        f"The total goes from {money(old_total)} to {money(new_total)}.",
+    ]
+    for line in lines:
+        if line.source == "stated":
+            parts.append(
+                f"{line.name} is at {money(line.unit_cost)}, the price you gave; it is not "
+                "from the catalogue."
+            )
+        elif line.source == "differs" and line.catalogue_unit_cost is not None:
+            parts.append(
+                f"{line.name} is at {money(line.unit_cost)}, the price you gave; the "
+                f"catalogue has {money(line.catalogue_unit_cost)}."
+            )
+    if status_note:
+        parts.append(status_note)
+    return " ".join(parts)
+
+
+def add_lines_terms(
+    *, record: Sequence[Term], lines: Sequence[AddedLine], new_total: Decimal
+) -> list[Term]:
+    """What must be heard: which supplement, the new total, and every price not from
+    the catalogue."""
+    terms = [*record, readback.amount_term("the supplement's new total", new_total)]
+    terms += [
+        readback.amount_term("a price that is not from the catalogue", line.unit_cost)
+        for line in lines
+        if line.source != "catalogue"
+    ]
+    return terms
 
 
 def memory_change_summary(*, old: str, new: str | None) -> str:

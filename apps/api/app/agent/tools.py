@@ -27,6 +27,7 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,7 +47,7 @@ from app.services import (
     project_service,
     settings_service,
 )
-from app.services.rules import agent_rules
+from app.services.rules import agent_rules, line_additions
 
 log = get_logger(__name__)
 
@@ -68,6 +69,31 @@ PAGES: dict[str, tuple[str, bool]] = {
     "profile": ("/profile", False),
     "settings": ("/settings", False),
 }
+
+
+class NewLine(BaseModel):
+    """One line to add. Either a catalogue item, or a name, unit, category and the
+    price the user stated."""
+
+    # The model sends numbers as numbers or as text; both are read as text and parsed
+    # as decimals, never through a float.
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    quantity: str
+    catalogue_id: str = ""
+    name: str = ""
+    unit: str = ""
+    category: str = ""
+    stated_unit_cost: str = ""
+
+
+class RoomLines(BaseModel):
+    """The lines for one room."""
+
+    room: str
+    lines: list[NewLine]
+    new_room: bool = False
+    room_position: int | None = None
 
 
 class Host(Protocol):
@@ -234,12 +260,13 @@ def build(host: Host) -> list[Tool]:
             totals = estimate_service.totals_for(estimate)
             rooms: list[dict[str, Any]] = []
             shown = 0
-            for room in estimate.rooms or []:
+            for position, room in enumerate(estimate.rooms or [], start=1):
                 items = room.get("items") or [] if isinstance(room, dict) else []
                 keep = items[: max(0, LINES_LIMIT - shown)]
                 shown += len(keep)
                 rooms.append(
                     {
+                        "position": position,
                         "name": room.get("name", "") if isinstance(room, dict) else "",
                         "lines": [
                             {
@@ -594,9 +621,9 @@ def build(host: Host) -> list[Tool]:
     ) -> dict[str, Any]:
         """Stage a new supplement for the user's approval. Saves nothing.
 
-        Creates the supplement's header only. Rooms and line items cannot be added by
-        voice yet: tell the user they add those in the editor, by hand or with the notes
-        parser.
+        Creates the supplement's header only. If the user also wants lines, add them
+        afterwards with propose_add_supplement_lines, as a second approval, once this
+        one is saved.
 
         Args:
             project_name: The project or job name. Ask if the user did not give one.
@@ -672,6 +699,56 @@ def build(host: Host) -> list[Tool]:
             "propose_update_supplement_details",
             build,
             step="Show the changed details",
+            supplement_id=supplement_id,
+        )
+
+    @blocking
+    async def propose_add_supplement_lines(
+        supplement_id: str, rooms: list[RoomLines]
+    ) -> dict[str, Any]:
+        """Stage new line items, and new rooms, on a supplement for the user's approval.
+        Saves nothing.
+
+        Lines are added at the end of a room, and new rooms at the end of the supplement.
+        This cannot change, move or remove a line or a room: say so if asked, and that
+        those are done by hand in the editor.
+
+        Prices: for each item, call search_catalogue first. If exactly one item fits, pass
+        its catalogue_id; its name, unit, category and price are filled in for you. If the
+        user said a price, pass it as stated_unit_cost as well. If nothing in the catalogue
+        fits, pass name, unit, category and the stated_unit_cost the user gave. If several
+        items could fit, or there is no price, ask. Never supply a price yourself.
+
+        Args:
+            supplement_id: The id from search_supplements or get_current_view.
+            rooms: One entry per room. ``room`` is the room's name. For a room that does
+                not exist yet set ``new_room`` to true. If two rooms share the name, ask
+                which and pass its ``room_position`` from get_supplement. Each line needs
+                a ``quantity``, plus either ``catalogue_id`` or ``name``, ``unit``,
+                ``category`` and ``stated_unit_cost``.
+        """
+        wanted = [
+            line_additions.Addition(
+                room=entry.room,
+                new_room=entry.new_room,
+                room_position=entry.room_position,
+                lines=[line_additions.NewLine(**line.model_dump()) for line in entry.lines],
+            )
+            for entry in (
+                item if isinstance(item, RoomLines) else RoomLines.model_validate(item)
+                for item in rooms
+            )
+        ]
+
+        async def build(db: AsyncSession, actor: Profile, talk: AgentConversation) -> AgentAction:
+            return await proposals.propose_supplement_add_lines(
+                db, actor, talk, supplement_id=supplement_id, additions=wanted
+            )
+
+        return await host.propose(
+            "propose_add_supplement_lines",
+            build,
+            step="Show the new lines",
             supplement_id=supplement_id,
         )
 
@@ -855,6 +932,7 @@ def build(host: Host) -> list[Tool]:
         propose_update_meeting,
         propose_create_supplement,
         propose_update_supplement_details,
+        propose_add_supplement_lines,
         propose_supplement_transition,
         propose_submit_for_review,
         propose_change_memory,

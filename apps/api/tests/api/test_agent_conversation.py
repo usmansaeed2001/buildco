@@ -155,6 +155,7 @@ async def test_the_model_is_given_the_tools_and_no_others(talk):
         "propose_update_meeting",
         "propose_create_supplement",
         "propose_update_supplement_details",
+        "propose_add_supplement_lines",
         "propose_supplement_transition",
         "propose_submit_for_review",
         "propose_change_memory",

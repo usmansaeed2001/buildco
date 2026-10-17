@@ -109,7 +109,7 @@ REACHABLE = {
     },
     "settings_service": {"list_catalogue", "get_settings_row", "reviewer_or_error"},
     "user_service": set(),
-    "attachment_service": set(),
+    "attachment_service": {"photo_positions"},
     #: The shared write functions. A delete is not among them, by that module's own rule.
     "actions": {
         "create_meeting",
@@ -232,6 +232,7 @@ async def test_one_supplement_is_read_with_its_rooms_lines_and_total(talk, sessi
 
     assert (read["claim_id"], read["total"], read["line_count"]) == ("CLM-4471", "$1,234.50", 1)
     assert read["rooms"][0]["lines"][0]["name"] == "Drywall"
+    assert read["rooms"][0]["position"] == 1
     assert "reviewer_note" not in read
 
 
@@ -413,6 +414,27 @@ async def test_someone_removed_mid_conversation_gets_nothing_from_any_tool(talk,
         ),
         ("propose_supplement_transition", {"action": "recall"}, None),
         ("propose_submit_for_review", {}, "supplement.submit"),
+        (
+            "propose_add_supplement_lines",
+            {
+                "rooms": [
+                    {
+                        "room": "Bathroom",
+                        "new_room": True,
+                        "lines": [
+                            {
+                                "quantity": 2,
+                                "name": "Grab bar",
+                                "unit": "Ea",
+                                "category": "other",
+                                "stated_unit_cost": 35,
+                            }
+                        ],
+                    }
+                ]
+            },
+            "supplement.add_lines",
+        ),
     ],
 )
 async def test_a_supplement_proposal_is_staged_on_that_supplements_page(

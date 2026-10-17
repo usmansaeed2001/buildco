@@ -21,14 +21,17 @@ from sqlalchemy import func, select
 from app.agent import proposals
 from app.agent.proposals import ProposalRefused
 from app.models.agent import AgentAction, AgentConversation, AgentMemory
+from app.models.attachment import Attachment
 from app.models.enums import AgentApprovedVia, UserStatus
 from app.models.estimate import Estimate
 from app.models.meeting import Meeting
 from app.models.profile import Profile
+from app.models.settings import CatalogueItem
 from app.schemas.estimate import EstimateCreate, EstimateUpdate
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
 from app.services import actions
 from app.services.rules import agent_readback
+from app.services.rules.line_additions import Addition, NewLine
 
 START = datetime(2026, 10, 14, 21, 30, tzinfo=UTC)
 ROOMS = [
@@ -884,6 +887,241 @@ def test_every_kind_has_somewhere_to_refresh_and_a_policy():
 
     assert set(proposals.REFRESH) == agent_rules.KINDS
     assert Decimal("1234.50") == Decimal(agent_rules.money("1234.5").strip("$").replace(",", ""))
+
+
+# ── Adding lines ──────────────────────────────────────────────────────────────
+
+
+async def a_catalogue_item(session_factory) -> CatalogueItem:
+    async with session_factory() as db:
+        item = CatalogueItem(
+            name="Baseboard", category="trim", unit="LF", unit_cost=Decimal("4.50")
+        )
+        db.add(item)
+        await db.commit()
+        return item
+
+
+def baseboard(item: CatalogueItem, quantity: str = "20", **overrides) -> NewLine:
+    return NewLine(quantity=quantity, catalogue_id=str(item.id), **overrides)
+
+
+async def test_added_lines_are_staged_read_back_with_the_new_total_and_saved_as_staged(
+    session_factory, member, conversation, db
+):
+    supplement = await a_supplement(session_factory, member)
+    item = await a_catalogue_item(session_factory)
+
+    action = await propose(
+        session_factory,
+        member,
+        conversation,
+        proposals.propose_supplement_add_lines,
+        supplement_id=str(supplement.id),
+        additions=[
+            Addition(room="Kitchen", lines=[baseboard(item)]),
+            Addition(
+                room="Bathroom",
+                new_room=True,
+                lines=[
+                    NewLine(
+                        quantity="2",
+                        name="Grab bar",
+                        unit="Ea",
+                        category="other",
+                        stated_unit_cost="35",
+                    )
+                ],
+            ),
+        ],
+    )
+
+    assert action.kind == "supplement.add_lines"
+    assert action.approval_policy == "voice_or_click"
+    assert "add 2 lines" in action.summary
+    assert "1 to Kitchen and 1 to a new room, Bathroom" in action.summary
+    assert "from $1,234.50 to $1,394.50" in action.summary
+    assert "Grab bar is at $35.00, the price you gave" in action.summary
+    assert heard_in_full(action)
+    assert [line["source"] for line in action.labels["lines"]] == ["catalogue", "stated"]
+    assert action.labels["new_rooms"] == ["Bathroom"]
+    assert action.payload["positions"] == [[0, 1], [1, 0]]
+
+    outcome = await commit(session_factory, action, member)
+
+    assert outcome.committed
+    saved = await db.get(Estimate, supplement.id, populate_existing=True)
+    assert [room["name"] for room in saved.rooms] == ["Kitchen", "Bathroom"]
+    assert [line["name"] for line in saved.rooms[0]["items"]] == ["Drywall", "Baseboard"]
+    assert saved.rooms[0]["items"][1]["catalogueId"] == str(item.id)
+    assert saved.total_amount == Decimal("1394.50")
+
+
+async def test_a_spoken_summary_without_the_price_the_user_gave_does_not_verify(
+    session_factory, member, conversation
+):
+    supplement = await a_supplement(session_factory, member)
+    item = await a_catalogue_item(session_factory)
+
+    action = await propose(
+        session_factory,
+        member,
+        conversation,
+        proposals.propose_supplement_add_lines,
+        supplement_id=str(supplement.id),
+        additions=[Addition(room="Kitchen", lines=[baseboard(item, stated_unit_cost="6")])],
+    )
+
+    assert action.labels["lines"][0]["source"] == "differs"
+    said = "I am about to add 1 line to Hendricks roof. The total goes to $1,354.50."
+    assert agent_readback.missing(action.required_terms, said) == [
+        "a price that is not from the catalogue"
+    ]
+
+
+async def test_a_member_cannot_add_lines_to_somebody_elses_supplement(
+    session_factory, owner, member, conversation
+):
+    supplement = await a_supplement(session_factory, owner)
+    item = await a_catalogue_item(session_factory)
+
+    with pytest.raises(ProposalRefused, match="not found"):
+        await propose(
+            session_factory,
+            member,
+            conversation,
+            proposals.propose_supplement_add_lines,
+            supplement_id=str(supplement.id),
+            additions=[Addition(room="Kitchen", lines=[baseboard(item)])],
+        )
+
+
+async def test_lines_cannot_be_added_to_a_locked_supplement_except_by_its_owner(
+    session_factory, owner, admin
+):
+    supplement = await a_supplement(session_factory, admin)
+    item = await a_catalogue_item(session_factory)
+    async with session_factory() as locking:
+        await actions.transition_estimate(
+            locking, await locking.get(Profile, owner.id), supplement.id, "lock"
+        )
+        await locking.commit()
+
+    with pytest.raises(ProposalRefused, match="locked"):
+        await propose(
+            session_factory,
+            admin,
+            await talk_of(session_factory, admin),
+            proposals.propose_supplement_add_lines,
+            supplement_id=str(supplement.id),
+            additions=[Addition(room="Kitchen", lines=[baseboard(item)])],
+        )
+
+
+async def test_a_line_with_no_price_is_refused_with_a_question(
+    session_factory, member, conversation
+):
+    supplement = await a_supplement(session_factory, member)
+
+    with pytest.raises(ProposalRefused, match="has no price"):
+        await propose(
+            session_factory,
+            member,
+            conversation,
+            proposals.propose_supplement_add_lines,
+            supplement_id=str(supplement.id),
+            additions=[
+                Addition(
+                    room="Kitchen",
+                    lines=[NewLine(quantity="1", name="Grab bar", unit="Ea", category="other")],
+                )
+            ],
+        )
+
+
+async def a_photo(session_factory, supplement, room_index, item_index) -> None:
+    async with session_factory() as db:
+        db.add(
+            Attachment(
+                estimate_id=supplement.id,
+                room_index=room_index,
+                item_index=item_index,
+                file_name="leftover.jpg",
+                file_type="image/jpeg",
+                storage_path=f"{supplement.id}/{room_index}_{item_index}_1.jpg",
+                uploaded_by=supplement.created_by,
+            )
+        )
+        await db.commit()
+
+
+async def test_a_line_that_would_inherit_a_deleted_lines_photos_is_refused(
+    session_factory, member, conversation
+):
+    supplement = await a_supplement(session_factory, member)
+    item = await a_catalogue_item(session_factory)
+    await a_photo(session_factory, supplement, 0, 1)
+
+    with pytest.raises(ProposalRefused, match="by hand in the editor"):
+        await propose(
+            session_factory,
+            member,
+            conversation,
+            proposals.propose_supplement_add_lines,
+            supplement_id=str(supplement.id),
+            additions=[Addition(room="Kitchen", lines=[baseboard(item)])],
+        )
+
+
+async def test_a_photo_uploaded_after_the_proposal_refuses_the_commit(
+    session_factory, member, conversation, db
+):
+    supplement = await a_supplement(session_factory, member)
+    item = await a_catalogue_item(session_factory)
+    action = await propose(
+        session_factory,
+        member,
+        conversation,
+        proposals.propose_supplement_add_lines,
+        supplement_id=str(supplement.id),
+        additions=[Addition(room="Kitchen", lines=[baseboard(item)])],
+    )
+    await a_photo(session_factory, supplement, 0, 1)
+
+    outcome = await commit(session_factory, action, member)
+
+    assert outcome.status == "failed" and "Nothing was saved" in (outcome.error or "")
+    saved = await db.get(Estimate, supplement.id, populate_existing=True)
+    assert len(saved.rooms[0]["items"]) == 1
+
+
+async def test_lines_added_by_hand_since_refuse_the_commit(
+    session_factory, member, conversation, db
+):
+    supplement = await a_supplement(session_factory, member)
+    item = await a_catalogue_item(session_factory)
+    action = await propose(
+        session_factory,
+        member,
+        conversation,
+        proposals.propose_supplement_add_lines,
+        supplement_id=str(supplement.id),
+        additions=[Addition(room="Kitchen", lines=[baseboard(item)])],
+    )
+    async with session_factory() as other:
+        await actions.update_estimate(
+            other,
+            await other.get(Profile, member.id),
+            supplement.id,
+            EstimateUpdate(rooms=[*ROOMS, {"name": "Garage", "items": []}]),
+        )
+        await other.commit()
+
+    outcome = await commit(session_factory, action, member)
+
+    assert outcome.status == "failed"
+    saved = await db.get(Estimate, supplement.id, populate_existing=True)
+    assert [room["name"] for room in saved.rooms] == ["Kitchen", "Garage"]
 
 
 # ── Against a hand edit at the same moment ────────────────────────────────────
