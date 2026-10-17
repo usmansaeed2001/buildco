@@ -82,11 +82,14 @@ export function StepList({ steps }: { steps: Step[] }) {
 function DockHeader({
   steps,
   folded,
+  keyboard,
   onStop,
 }: {
   steps: Step[];
   /** A proposal is waiting, so the steps are behind it: say how many, not which. */
   folded: boolean;
+  /** Whether to offer Escape. Not on a phone, which has no key for it. */
+  keyboard: boolean;
   onStop: () => void;
 }) {
   const current = steps.find((step) => step.status === "active") ?? steps[steps.length - 1];
@@ -109,9 +112,11 @@ function DockHeader({
       <Button size="sm" className="ast-press h-11! shrink-0 px-4!" onClick={onStop}>
         Stop
       </Button>
-      <kbd className="shrink-0 rounded border border-gray-200 px-1.5 py-0.5 font-sans text-[11px] text-gray-500">
-        Esc
-      </kbd>
+      {keyboard && (
+        <kbd className="shrink-0 rounded border border-gray-200 px-1.5 py-0.5 font-sans text-[11px] text-gray-500">
+          Esc
+        </kbd>
+      )}
     </div>
   );
 }
@@ -122,6 +127,8 @@ export function Dock({
   speaking,
   settling,
   closing = false,
+  compact = false,
+  phone = false,
   onStop,
   onApprove,
   onReject,
@@ -133,6 +140,13 @@ export function Dock({
   settling: Settling | null;
   /** On its way out. It can be seen and cannot be pressed. */
   closing?: boolean;
+  /**
+   * In the bar a phone's panel folds down to. The panel has no fixed height there, so
+   * the dock sets its own limit and scrolls past it.
+   */
+  compact?: boolean;
+  /** Laid out for a phone, where a voice approval is the confirmation line said back. */
+  phone?: boolean;
   onStop: () => void;
   onApprove: () => void;
   onReject: () => void;
@@ -144,10 +158,18 @@ export function Dock({
   return (
     <div
       {...(closing ? { "data-closing": "", inert: true } : {})}
-      className="ast-dock flex max-h-[60%] min-h-0 shrink-0 flex-col gap-2 border-t border-gray-200 p-3"
+      className={cn(
+        "ast-dock flex min-h-0 shrink-0 flex-col gap-2 border-t border-gray-200 p-3",
+        compact ? "max-h-[55dvh] overflow-y-auto" : "max-h-[60%]",
+      )}
     >
       {locked && (
-        <DockHeader steps={state.steps} folded={state.proposal !== null} onStop={onStop} />
+        <DockHeader
+          steps={state.steps}
+          folded={state.proposal !== null}
+          keyboard={!phone}
+          onStop={onStop}
+        />
       )}
 
       {locked && state.steps.length > 0 && (
@@ -167,6 +189,7 @@ export function Dock({
           paused={state.paused}
           speaking={speaking}
           readbackPlayed={state.readbackPlayed === proposal.id}
+          phone={phone}
           settled={settled}
           onApprove={onApprove}
           onReject={onReject}

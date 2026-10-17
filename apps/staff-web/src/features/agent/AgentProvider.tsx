@@ -59,6 +59,7 @@ import {
   type ProposalOutcome,
   type ServerFrame,
   type ViewedRecord,
+  type ViewedSelection,
 } from "./protocol";
 import {
   connectSocket,
@@ -66,6 +67,7 @@ import {
   type Connect,
   type TransportHandlers,
 } from "./transport";
+import { usePhoneLayout } from "./useLauncherShown";
 
 /** How long a page has to show a staged proposal before the server is told it failed. */
 const STAGE_TIMEOUT_MS = 4000;
@@ -80,6 +82,13 @@ export interface EditorHandle {
   flush: () => Promise<void>;
 }
 
+/**
+ * How the panel is drawn on a phone. `full`: it fills the screen. `mini`: it folds down
+ * to a bar at the foot, so the app above it can be seen, which is how a staged change
+ * is shown.
+ */
+export type PhoneView = "full" | "mini";
+
 export interface AgentContextValue {
   /** Whether the assistant is offered to this person at all. */
   available: boolean;
@@ -93,6 +102,11 @@ export interface AgentContextValue {
   /** Whether the app beside the panel is locked while the assistant works. */
   locked: boolean;
   panelOpen: boolean;
+  /** Whether the window is laid out for a phone: no room for a panel beside the app. */
+  phone: boolean;
+  /** On a phone, whether the panel fills the screen or is folded down to a bar. */
+  phoneView: PhoneView;
+  setPhoneView: (view: PhoneView) => void;
   /**
    * How loud the microphone and the voice are, and whether the assistant is speaking.
    * Not state: the levels go straight to the stylesheet, so nothing redraws for them.
@@ -123,6 +137,8 @@ export interface AgentContextValue {
   reportContext: (context: { route: string; dialogOpen: boolean }) => void;
   /** For a page: the record it is showing, or null when it stops showing one. */
   viewRecord: (record: ViewedRecord | null, saveState?: string | null) => void;
+  /** For a page: the part of its record that is selected, such as a room. */
+  viewSelection: (selection: ViewedSelection | null) => void;
   /** For the supplement editor: how to make sure it has saved. */
   registerEditor: (editor: EditorHandle | null) => void;
 }
@@ -160,7 +176,9 @@ interface View {
   route: string;
   dialogOpen: boolean;
   entity: ViewedRecord | null;
+  selection: ViewedSelection | null;
   saveState: string | null;
+  phone: boolean;
 }
 
 export function AgentProvider({
@@ -182,6 +200,8 @@ export function AgentProvider({
   }));
   const [panelOpen, setPanelOpen] = useState(false);
   const [levels] = useState(createLevels);
+  const phone = usePhoneLayout();
+  const [phoneView, setPhoneView] = useState<PhoneView>("full");
 
   const transport = useRef<AgentTransport | null>(null);
   const device = useRef<AgentAudio | null>(null);
@@ -192,7 +212,14 @@ export function AgentProvider({
   const openProposal = useRef<string | null>(null);
   openProposal.current = state.proposal?.id ?? null;
   const staging = useRef<{ directiveId: string; proposalId: string; timer: number } | null>(null);
-  const view = useRef<View>({ route: "/", dialogOpen: false, entity: null, saveState: null });
+  const view = useRef<View>({
+    route: "/",
+    dialogOpen: false,
+    entity: null,
+    selection: null,
+    saveState: null,
+    phone,
+  });
   const editor = useRef<EditorHandle | null>(null);
   /** The conversation this browser is in, from `ready` until it is known to be over. */
   const conversation = useRef<string | null>(null);
@@ -208,9 +235,18 @@ export function AgentProvider({
       route: now.route,
       dialog_open: now.dialogOpen,
       entity: now.entity,
+      selection: now.selection,
       editor_save_state: now.saveState,
+      // On a phone a spoken yes is not enough to approve, so the server has to know.
+      layout: now.phone ? "phone" : "wide",
     });
   }, [send]);
+
+  useEffect(() => {
+    if (view.current.phone === phone) return;
+    view.current = { ...view.current, phone };
+    sendContext();
+  }, [phone, sendContext]);
 
   const answerStage = useCallback(
     (ok: boolean, reason?: string) => {
@@ -319,6 +355,8 @@ export function AgentProvider({
 
         if (frame.action === "navigate") {
           navigate(frame.to);
+          // Shown something on a phone, the user has to be able to see it.
+          setPhoneView("mini");
           acknowledge(true);
         }
 
@@ -523,11 +561,40 @@ export function AgentProvider({
         now.entity?.type === record?.type &&
         now.saveState === saveState;
       if (same) return;
-      view.current = { ...now, entity: record, saveState };
+      // A selection belongs to the record it was made in.
+      view.current = {
+        ...now,
+        entity: record,
+        saveState,
+        selection: now.entity?.id === record?.id ? now.selection : null,
+      };
       sendContext();
     },
     [sendContext],
   );
+  const viewSelection = useCallback(
+    (selection: ViewedSelection | null) => {
+      const now = view.current;
+      if (
+        now.selection?.room_position === selection?.room_position &&
+        now.selection?.room_name === selection?.room_name
+      )
+        return;
+      view.current = { ...now, selection };
+      sendContext();
+    },
+    [sendContext],
+  );
+
+  // On a phone the panel covers the app, so a staged change is shown with the panel
+  // folded down under it, and the panel comes back once it has been answered. A change
+  // handed over with Stop is the user's to finish in the app, so the app stays in view.
+  const stagedId = state.staged?.id ?? null;
+  const handingOver = state.handover !== null;
+  useEffect(() => {
+    if (stagedId !== null || handingOver) setPhoneView("mini");
+    else setPhoneView("full");
+  }, [stagedId, handingOver]);
   const registerEditor = useCallback((next: EditorHandle | null) => {
     editor.current = next;
   }, []);
@@ -565,8 +632,14 @@ export function AgentProvider({
       state,
       locked,
       panelOpen,
+      phone,
+      phoneView,
+      setPhoneView,
       levels,
-      openPanel: () => setPanelOpen(true),
+      openPanel: () => {
+        setPhoneView("full");
+        setPanelOpen(true);
+      },
       closePanel: () => {
         if (transport.current || conversation.current) end();
         setPanelOpen(false);
@@ -618,6 +691,7 @@ export function AgentProvider({
       takeHandover,
       reportContext,
       viewRecord,
+      viewSelection,
       registerEditor,
     }),
     [
@@ -627,6 +701,8 @@ export function AgentProvider({
       levels,
       locked,
       panelOpen,
+      phone,
+      phoneView,
       queryClient,
       registerEditor,
       reportContext,
@@ -636,6 +712,7 @@ export function AgentProvider({
       stop,
       takeHandover,
       viewRecord,
+      viewSelection,
     ],
   );
 

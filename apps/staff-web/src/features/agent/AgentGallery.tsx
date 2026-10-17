@@ -53,6 +53,7 @@ import {
 import { createLevels } from "./levels";
 import { Orb, type OrbSize, type OrbState } from "./Orb";
 import type { ServerFrame } from "./protocol";
+import { usePhoneLayout } from "./useLauncherShown";
 import { usePresence } from "./usePresence";
 
 const ORB_STATES: { state: OrbState; label: string }[] = [
@@ -434,6 +435,10 @@ function Stage() {
   const [state, dispatch] = useReducer(agentReducer, initialState);
   const [panelOpen, setPanelOpen] = useState(false);
   const [levels] = useState(createLevels);
+  const phone = usePhoneLayout();
+  const [phoneView, setPhoneView] = useState<"full" | "mini">("full");
+  const stagedId = state.staged?.id ?? null;
+  useEffect(() => setPhoneView(stagedId ? "mini" : "full"), [stagedId]);
   const send = (...frames: ServerFrame[]) =>
     frames.forEach((frame) => dispatch({ type: "frame", frame }));
 
@@ -452,6 +457,9 @@ function Stage() {
     levels,
     locked: isLocked(state),
     panelOpen,
+    phone,
+    phoneView,
+    setPhoneView,
     openPanel: () => setPanelOpen(true),
     closePanel: () => {
       setPanelOpen(false);
@@ -486,8 +494,18 @@ function Stage() {
 
         <AgentPreview value={value}>
           <AppFrame
-            panel={panel.mounted ? <AgentPanel closing={panel.closing} firstName="Maria" /> : undefined}
+            panel={
+              panel.mounted ? (
+                <AgentPanel
+                  closing={panel.closing}
+                  compact={phone && phoneView === "mini"}
+                  firstName="Maria"
+                />
+              ) : undefined
+            }
             panelClosing={panel.closing}
+            phone={phone}
+            phoneView={phoneView}
             launcher={<AgentLauncher hidden={panel.mounted} />}
             locked={value.locked}
             lockBanner={<AgentLockBanner />}

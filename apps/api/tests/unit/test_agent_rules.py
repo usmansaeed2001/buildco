@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -159,10 +160,163 @@ def test_every_refusal_has_something_for_the_model_to_say():
             replace(GOOD, readback_played_at=None),
             replace(GOOD, last_utterance_began_at=1.0),
             replace(GOOD, readback_verified=False),
+            replace(GOOD, phone=True),
         )
     }
 
     assert reasons == set(agent_rules.REFUSALS)
+
+
+# ── On a phone, the user says the line back ───────────────────────────────────
+
+MEETING_LINE = agent_rules.confirm_meeting(
+    title="Hendricks walkthrough",
+    start=datetime(2026, 10, 14, 14, 30, tzinfo=ZoneInfo("America/Los_Angeles")),
+)
+ON_A_PHONE = replace(GOOD, phone=True, confirm_terms=MEETING_LINE.terms)
+
+
+def test_the_meeting_line_names_the_meeting_and_when_it_is():
+    assert MEETING_LINE.line == "Hendricks walkthrough, Wednesday 14 October at 2:30 PM"
+
+
+def test_on_a_phone_a_bare_yes_does_not_approve():
+    facts = replace(ON_A_PHONE, said_since_readback="yes")
+
+    assert agent_rules.refuse_voice_commit(facts) == "confirmation_missing"
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "Hendricks walkthrough, Wednesday 14 October at 2:30 PM",
+        "yes, the hendricks walkthrough on the fourteenth of october at two thirty pm",
+        "Yes. Hendricks walkthrough October 14th, 2:30 in the afternoon",
+    ],
+)
+def test_on_a_phone_the_line_said_back_in_the_users_own_words_approves(said):
+    facts = replace(ON_A_PHONE, said_since_readback=said)
+
+    assert agent_rules.refuse_voice_commit(facts) is None
+
+
+def test_on_a_phone_the_line_with_the_wrong_time_does_not_approve():
+    facts = replace(ON_A_PHONE, said_since_readback="Hendricks walkthrough, 14 October at 3:30 PM")
+
+    assert agent_rules.refuse_voice_commit(facts) == "confirmation_missing"
+
+
+def test_on_a_phone_typing_the_line_approves_too():
+    facts = replace(
+        ON_A_PHONE,
+        typed_after_readback=True,
+        last_utterance_began_at=None,
+        said_since_readback="hendricks walkthrough 14 october 2:30pm",
+    )
+
+    assert agent_rules.refuse_voice_commit(facts) is None
+
+
+def test_on_a_phone_saying_the_line_before_the_readback_finished_still_does_not_count():
+    facts = replace(
+        ON_A_PHONE,
+        last_utterance_began_at=39.0,
+        said_since_readback=MEETING_LINE.line,
+    )
+
+    assert agent_rules.refuse_voice_commit(facts) == "answered_too_early"
+
+
+def test_on_a_phone_a_proposal_with_no_line_needs_a_click():
+    facts = replace(GOOD, phone=True, said_since_readback="yes")
+
+    assert agent_rules.refuse_voice_commit(facts) == "confirmation_missing"
+
+
+def test_away_from_a_phone_a_yes_is_still_enough():
+    assert agent_rules.refuse_voice_commit(replace(GOOD, said_since_readback="yes")) is None
+
+
+def test_the_supplement_line_needs_the_action_as_well_as_the_record():
+    line = agent_rules.confirm_supplement(
+        verb="Archive",
+        keywords=["archive"],
+        name="Hendricks roof, claim ID CLM-4471",
+        record=agent_rules.supplement_terms(
+            project_name="Hendricks roof", client_name="", identifier="CLM-4471"
+        ),
+    )
+    facts = replace(GOOD, phone=True, confirm_terms=line.terms)
+
+    assert line.line == "Archive Hendricks roof, claim ID CLM-4471"
+    assert (
+        agent_rules.refuse_voice_commit(replace(facts, said_since_readback="yes, hendricks roof"))
+        == "confirmation_missing"
+    )
+    assert (
+        agent_rules.refuse_voice_commit(
+            replace(facts, said_since_readback="archive hendricks roof")
+        )
+        is None
+    )
+
+
+def test_the_add_lines_line_needs_the_new_total():
+    line = agent_rules.confirm_add_lines(
+        name="Hendricks roof",
+        count=3,
+        new_total=Decimal("5030.00"),
+        record=agent_rules.supplement_terms(
+            project_name="Hendricks roof", client_name="", identifier=""
+        ),
+    )
+    facts = replace(GOOD, phone=True, confirm_terms=line.terms)
+
+    assert line.line == "Add 3 lines to Hendricks roof, new total $5,030.00"
+    assert (
+        agent_rules.refuse_voice_commit(
+            replace(facts, said_since_readback="add them to hendricks roof")
+        )
+        == "confirmation_missing"
+    )
+    assert (
+        agent_rules.refuse_voice_commit(
+            replace(facts, said_since_readback="add three lines to Hendricks roof, 5,030")
+        )
+        is None
+    )
+
+
+# ── Adding lines ──────────────────────────────────────────────────────────────
+
+
+def test_adding_lines_may_be_approved_by_voice():
+    assert (
+        agent_rules.approval_policy(agent_rules.SUPPLEMENT_ADD_LINES)
+        is AgentApprovalPolicy.VOICE_OR_CLICK
+    )
+
+
+def test_the_add_lines_readback_names_every_price_not_from_the_catalogue():
+    lines = [
+        agent_rules.AddedLine("Kitchen", False, "Baseboard", Decimal("4.50"), "catalogue"),
+        agent_rules.AddedLine("Kitchen", False, "Paint", Decimal("30"), "differs", Decimal("25")),
+        agent_rules.AddedLine("Bath", True, "Grab bar", Decimal("35"), "stated"),
+    ]
+
+    summary = agent_rules.supplement_add_lines_summary(
+        name="Hendricks roof", lines=lines, old_total=Decimal("100"), new_total=Decimal("300")
+    )
+    terms = agent_rules.add_lines_terms(record=[], lines=lines, new_total=Decimal("300"))
+
+    assert summary.startswith(
+        "I am about to add 3 lines to the supplement Hendricks roof: 2 to Kitchen and 1 to "
+        "a new room, Bath. The total goes from $100.00 to $300.00."
+    )
+    assert "Paint is at $30.00, the price you gave; the catalogue has $25.00." in summary
+    assert "Grab bar is at $35.00, the price you gave; it is not from the catalogue." in summary
+    assert "Baseboard" not in summary
+    assert [term["value"] for term in terms] == ["300", "30", "35"]
 
 
 def test_a_readback_that_left_something_out_cannot_be_approved_by_voice():

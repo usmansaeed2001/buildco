@@ -193,6 +193,15 @@ const panel = () => screen.getByRole("complementary", { name: "Side panel" });
 /** The two words under the panel's title that say what the assistant is doing. */
 const status = () => within(panel()).getByRole("status", { name: "Assistant status" });
 
+/** A window narrow enough for the phone layout. */
+function onAPhone() {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width"),
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+}
+
 beforeEach(() => {
   fakes.sockets.length = 0;
   fakes.audio.length = 0;
@@ -225,18 +234,17 @@ describe("BuildCo Assistant in the shell", () => {
       expect(launcher).not.toHaveAttribute("title");
     });
 
-    it("is not offered in a window under 1024px", async () => {
-      vi.stubGlobal("matchMedia", () => ({
-        matches: false,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-      }));
+    it("is offered on a phone too, and opens filling the screen", async () => {
+      onAPhone();
       serveAssistant();
-      renderShell();
+      const { user } = renderShell();
 
-      await screen.findByText("Supplements page");
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(screen.queryByRole("button", { name: "Ask BuildCo Assistant" })).not.toBeInTheDocument();
+      await user.click(await screen.findByRole("button", { name: "Ask BuildCo Assistant" }));
+
+      expect(panel().className).toContain("inset-0");
+      // The app under it cannot be seen, so it cannot be reached either.
+      expect(appColumn()).toHaveAttribute("inert");
+      expect(within(panel()).getByRole("button", { name: "Show the app" })).toBeVisible();
     });
 
     it("opens a panel beside the app, idle, and gets out of the way", async () => {
@@ -406,6 +414,63 @@ describe("BuildCo Assistant in the shell", () => {
       expect(within(card).getByText(PROPOSAL.summary)).toBeVisible();
       expect(within(card).getByText(/Needs a click/)).toBeVisible();
       expect(within(card).getByText(/Sam Member/)).toBeVisible();
+    });
+
+    describe("on a phone", () => {
+      const VOICE: Proposal = {
+        ...PROPOSAL,
+        approval: "voice_or_click",
+        labels: {
+          ...PROPOSAL.labels,
+          confirm: { line: "Hendricks walkthrough, Wednesday 14 October at 2:30 PM" },
+        },
+      };
+
+      it("tells the server the app is laid out for a phone", async () => {
+        onAPhone();
+        serveAssistant();
+        await startTalking();
+
+        expect(sentOf("context").at(-1)).toMatchObject({ layout: "phone" });
+      });
+
+      it("folds down to a bar under the staged form, and comes back once it is answered", async () => {
+        onAPhone();
+        serveAssistant();
+        await startTalking();
+
+        stage(VOICE);
+        receive({ type: "proposal", ...VOICE });
+
+        expect(await screen.findByRole("dialog", { name: "New meeting" })).toBeInTheDocument();
+        expect(panel().className).toContain("bottom-0");
+        expect(within(panel()).getByRole("button", { name: "Approve" })).toBeVisible();
+        expect(within(panel()).getByRole("button", { name: "Show the conversation" })).toBeVisible();
+
+        receive(
+          { type: "proposal_result", id: VOICE.id, status: "cancelled" },
+          { type: "ui", directive_id: "d-2", action: "unstage" },
+          { type: "mode", mode: "conversing" },
+        );
+
+        await waitFor(() => expect(panel().className).toContain("inset-0"));
+      });
+
+      it("asks for the confirmation line back, not a yes", async () => {
+        onAPhone();
+        serveAssistant();
+        await startTalking();
+        stage(VOICE);
+
+        receive({ type: "proposal", ...VOICE });
+
+        const card = within(panel()).getByRole("region", { name: "Waiting for your approval" });
+        expect(
+          within(card).getByText(/Hendricks walkthrough, Wednesday 14 October at 2:30 PM/),
+        ).toBeVisible();
+        expect(within(card).getByText(/A yes alone will not do/)).toBeVisible();
+        expect(within(card).queryByText(/Say yes/)).not.toBeInTheDocument();
+      });
     });
 
     it("sends the user's decision, not a result", async () => {
@@ -1197,6 +1262,156 @@ describe("a change to an open supplement", () => {
     expect(within(row).getByText("Beacon Mutual")).toBeVisible();
     // The editor's own field is untouched until the change is approved and saved.
     expect(screen.getByLabelText(/Client name/)).toHaveValue("Acme Insurance");
+  });
+
+  describe("adding lines", () => {
+    const WITH_A_KITCHEN = {
+      ...ESTIMATE,
+      rooms: [
+        {
+          name: "Kitchen",
+          items: [{ name: "Drywall", category: "drywall", unit: "SF", quantity: "10", unitCost: "12.00" }],
+        },
+      ],
+    };
+    const BASEBOARD = {
+      name: "Baseboard",
+      category: "trim",
+      unit: "LF",
+      quantity: "20",
+      unitCost: "4.50",
+      isCustom: false,
+      catalogueId: "cat-9",
+      notes: "",
+    };
+    const GRAB_BAR = {
+      name: "Grab bar",
+      category: "other",
+      unit: "Ea",
+      quantity: "2",
+      unitCost: "35.00",
+      isCustom: true,
+      catalogueId: null,
+      notes: "",
+    };
+    const ADD = onEditor("supplement.add_lines", {
+      summary: "I am about to add 2 lines to the supplement Hendricks roof.",
+      payload: {
+        supplement_id: "est-1",
+        rooms: [
+          { name: "Kitchen", items: [...WITH_A_KITCHEN.rooms[0]!.items, BASEBOARD] },
+          { name: "Bathroom", items: [GRAB_BAR] },
+        ],
+        positions: [
+          [0, 1],
+          [1, 0],
+        ],
+      },
+      labels: {
+        name: "Hendricks roof, claim ID CLM-4471",
+        lines: [
+          {
+            room: "Kitchen",
+            room_index: 0,
+            new_room: false,
+            name: "Baseboard",
+            quantity: "20",
+            unit: "LF",
+            category: "trim",
+            unit_cost: "4.50",
+            catalogue_unit_cost: null,
+            source: "catalogue",
+            total: "90.00",
+          },
+          {
+            room: "Bathroom",
+            room_index: 1,
+            new_room: true,
+            name: "Grab bar",
+            quantity: "2",
+            unit: "Ea",
+            category: "other",
+            unit_cost: "35.00",
+            catalogue_unit_cost: null,
+            source: "stated",
+            total: "70.00",
+          },
+        ],
+        new_rooms: ["Bathroom"],
+        old_total: "120.00",
+        new_total: "280.00",
+      },
+    });
+
+    it("stages the new lines by room, with where each price came from and the new total", async () => {
+      serveAssistant();
+      serveSupplement(WITH_A_KITCHEN);
+      await openEditor();
+
+      stage(ADD);
+
+      const card = await screen.findByRole("dialog", { name: "Add to supplement" });
+      expect(within(card).getByText("Baseboard")).toBeVisible();
+      expect(within(card).getByText("New room")).toBeVisible();
+      expect(within(card).getByText("stated by you")).toBeVisible();
+      expect(within(card).getByText("$120.00")).toBeVisible();
+      expect(within(card).getByText("$280.00")).toBeVisible();
+      expect(appColumn()).toHaveAttribute("inert");
+      await waitFor(() => expect(acks().at(-1)).toMatchObject({ ok: true }));
+    });
+
+    it("offers the lines to add by hand after Stop, and adds them as they were proposed", async () => {
+      serveAssistant();
+      const supplement = serveSupplement(WITH_A_KITCHEN);
+      const { user } = await openEditor();
+      stage(ADD);
+      await screen.findByRole("dialog", { name: "Add to supplement" });
+
+      receive(
+        { type: "proposal_result", id: ADD.id, status: "handed_over" },
+        { type: "mode", mode: "conversing" },
+      );
+      const offer = await screen.findByRole("dialog", { name: "Add these lines?" });
+      await user.click(within(offer).getByRole("button", { name: "Add to the editor" }));
+
+      await waitFor(() => {
+        const rooms = supplement.patches.at(-1)?.["rooms"] as { name: string; items: { name: string }[] }[];
+        expect(rooms?.map((room) => room.name)).toEqual(["Kitchen", "Bathroom"]);
+        expect(rooms?.[0]?.items.map((item) => item.name)).toEqual(["Drywall", "Baseboard"]);
+        expect(rooms?.[1]?.items.map((item) => item.name)).toEqual(["Grab bar"]);
+      }, { timeout: 5000 });
+    }, 10_000);
+
+    it("adds nothing when the user discards them", async () => {
+      serveAssistant();
+      const supplement = serveSupplement(WITH_A_KITCHEN);
+      const { user } = await openEditor();
+      stage(ADD);
+      await screen.findByRole("dialog", { name: "Add to supplement" });
+
+      receive(
+        { type: "proposal_result", id: ADD.id, status: "handed_over" },
+        { type: "mode", mode: "conversing" },
+      );
+      const offer = await screen.findByRole("dialog", { name: "Add these lines?" });
+      await user.click(within(offer).getByRole("button", { name: "Discard" }));
+
+      expect(screen.queryByRole("dialog", { name: "Add these lines?" })).not.toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(supplement.patches.some((patch) => "rooms" in patch)).toBe(false);
+    });
+
+    it("tells the assistant which room is selected, so that this room means it", async () => {
+      serveAssistant();
+      serveSupplement(WITH_A_KITCHEN);
+      await openEditor();
+
+      await waitFor(() =>
+        expect(sentOf("context").at(-1)).toMatchObject({
+          selection: { room_position: 1, room_name: "Kitchen" },
+        }),
+      );
+    });
   });
 
   it("does not stage a proposal about a different supplement on this one", async () => {

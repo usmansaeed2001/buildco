@@ -49,6 +49,13 @@ export interface EstimateDocument {
    * document outright with no way back.
    */
   applyRooms: (rooms: RoomDoc[], mode: "append" | "replace") => void;
+  /**
+   * Add lines at the end of the rooms they belong to, creating the new rooms named, as
+   * one undoable step. For lines the assistant proposed and the user took over.
+   */
+  appendLines: (
+    lines: readonly { roomIndex: number; room: string; newRoom: boolean; item: LineItemDoc }[],
+  ) => void;
 }
 
 export function useEstimateDocument(initial: RoomDoc[]): EstimateDocument {
@@ -163,6 +170,33 @@ export function useEstimateDocument(initial: RoomDoc[]): EstimateDocument {
     [update, rooms.length],
   );
 
+  const appendLines = useCallback<EstimateDocument["appendLines"]>(
+    (lines) => {
+      if (lines.length === 0) return;
+      update((current) => {
+        const next = current.map((room) => ({ ...room, items: [...room.items] }));
+        const created = new Map<string, number>();
+        for (const line of lines) {
+          let index = line.roomIndex;
+          if (line.newRoom || !next[index]) {
+            const known = created.get(line.room);
+            if (known === undefined) {
+              next.push({ name: line.room, items: [] });
+              index = next.length - 1;
+              created.set(line.room, index);
+            } else index = known;
+          }
+          next[index]?.items.push(line.item);
+        }
+        return next;
+      });
+      // Show where the first of them went.
+      const first = lines[0];
+      setSelected(first && !first.newRoom ? first.roomIndex : rooms.length);
+    },
+    [update, rooms.length],
+  );
+
   return {
     rooms,
     activeIndex,
@@ -181,5 +215,6 @@ export function useEstimateDocument(initial: RoomDoc[]): EstimateDocument {
     canRedo: history.canRedo,
     reset,
     applyRooms,
+    appendLines,
   };
 }

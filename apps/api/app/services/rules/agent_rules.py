@@ -6,7 +6,7 @@ and enforced by the server whatever the model says or does:
 
 * who is offered the assistant at all;
 * whether a proposal may be approved by voice or needs a click;
-* whether a spoken "yes" actually counts;
+* whether a spoken "yes" actually counts, and on a phone what has to be said instead;
 * the words of the read-back, and what must be heard in it;
 * how much of the day's allowance is left.
 
@@ -32,6 +32,7 @@ SUPPLEMENT_CREATE = "supplement.create"
 SUPPLEMENT_UPDATE = "supplement.update_details"
 SUPPLEMENT_TRANSITION = "supplement.transition"
 SUPPLEMENT_SUBMIT = "supplement.submit"
+SUPPLEMENT_ADD_LINES = "supplement.add_lines"
 MEMORY_CHANGE = "memory.change"
 
 #: Every kind of proposal there is. **None of them deletes a record**, and a test
@@ -44,6 +45,7 @@ KINDS: frozenset[str] = frozenset(
         SUPPLEMENT_UPDATE,
         SUPPLEMENT_TRANSITION,
         SUPPLEMENT_SUBMIT,
+        SUPPLEMENT_ADD_LINES,
         MEMORY_CHANGE,
     }
 )
@@ -101,7 +103,7 @@ def approval_policy(
         if transition is None or transition in CLICK_ONLY_TRANSITIONS:
             return AgentApprovalPolicy.CLICK
         return AgentApprovalPolicy.VOICE_OR_CLICK
-    if kind in (SUPPLEMENT_CREATE, SUPPLEMENT_UPDATE, MEMORY_CHANGE):
+    if kind in (SUPPLEMENT_CREATE, SUPPLEMENT_UPDATE, SUPPLEMENT_ADD_LINES, MEMORY_CHANGE):
         return AgentApprovalPolicy.VOICE_OR_CLICK
     return AgentApprovalPolicy.CLICK
 
@@ -132,6 +134,13 @@ class VoiceCommitFacts:
     typed_after_readback: bool
     #: Whether the essentials and every exception were found in what the agent said.
     readback_verified: bool = True
+    #: The user is on a phone, where a bare yes does not approve: they say the
+    #: confirmation line back instead.
+    phone: bool = False
+    #: What has to be heard in the user's own words, on a phone.
+    confirm_terms: Sequence[Term] = ()
+    #: What the user said or typed after the read-back finished, in order.
+    said_since_readback: str = ""
 
 
 #: Reasons a voice commit is refused. The value is also what the model is told to say.
@@ -154,6 +163,10 @@ REFUSALS: dict[str, str] = {
         "Part of the summary was not spoken, so this one cannot be approved by voice. "
         "Ask the user to check the card on screen and press Approve."
     ),
+    "confirmation_missing": (
+        "The user is on a phone, where a yes alone does not approve. Ask them to say the "
+        "confirmation line back, or to press Approve."
+    ),
 }
 
 
@@ -170,6 +183,10 @@ def refuse_voice_commit(facts: VoiceCommitFacts) -> str | None:
     Speech that started earlier, speech over the agent's own voice, and an interruption
     of the read-back all fail the second test, because their start offset is smaller.
 
+    On a phone the user cannot see the staged screen and the card at once, so hearing
+    the read-back is most of what they have. There a yes is not enough: what the user
+    said after the read-back must contain the essentials of the confirmation line.
+
     The order of the checks is the order in which each stops being worth explaining.
     """
     if not facts.in_this_conversation:
@@ -184,12 +201,84 @@ def refuse_voice_commit(facts: VoiceCommitFacts) -> str | None:
         return "readback_unverified"
     if facts.readback_played_at is None:
         return "readback_not_finished"
-    if facts.typed_after_readback:
-        return None
-    began = facts.last_utterance_began_at
-    if began is None or began <= facts.readback_played_at:
-        return "answered_too_early"
+    if not facts.typed_after_readback:
+        began = facts.last_utterance_began_at
+        if began is None or began <= facts.readback_played_at:
+            return "answered_too_early"
+    if facts.phone and (
+        not facts.confirm_terms or readback.missing(facts.confirm_terms, facts.said_since_readback)
+    ):
+        return "confirmation_missing"
     return None
+
+
+# ── The confirmation line ─────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class Confirmation:
+    """What a user on a phone says back to approve: one short line, and what in it
+    must be heard. Only the essentials, so a natural paraphrase still counts."""
+
+    line: str
+    terms: list[Term]
+
+    def as_label(self) -> dict[str, Any]:
+        return {"line": self.line, "terms": self.terms}
+
+
+def confirm_meeting(*, title: str, start: datetime) -> Confirmation:
+    clock = start.strftime("%I:%M %p").lstrip("0")
+    return Confirmation(
+        line=f"{title}, {start.strftime('%A')} {start.day} {start.strftime('%B')} at {clock}",
+        terms=[
+            readback.text_term("the meeting's title", title),
+            readback.date_term("the meeting's date", month=start.month, day=start.day),
+            readback.time_term("the meeting's time", hour=start.hour, minute=start.minute),
+        ],
+    )
+
+
+def confirm_supplement(
+    *, verb: str, keywords: Sequence[str], name: str, record: Sequence[Term]
+) -> Confirmation:
+    """``verb`` starts the line; one of ``keywords`` has to be heard, so that naming
+    the supplement alone does not approve whatever is staged on it."""
+    terms = [readback.any_term("what is being done", list(keywords)), *record]
+    return Confirmation(line=f"{verb} {name}", terms=terms)
+
+
+def confirm_add_lines(
+    *, name: str, count: int, new_total: Decimal, record: Sequence[Term]
+) -> Confirmation:
+    return Confirmation(
+        line=f"Add {_counted(count, 'line')} to {name}, new total {money(new_total)}",
+        terms=[
+            readback.any_term("what is being done", ["add"]),
+            *record,
+            readback.amount_term("the supplement's new total", new_total),
+        ],
+    )
+
+
+def confirm_memory(*, forget: bool) -> Confirmation:
+    if forget:
+        return Confirmation(
+            line="Forget it", terms=[readback.any_term("what is being done", ["forget"])]
+        )
+    return Confirmation(
+        line="Change what you remember",
+        terms=[readback.any_term("what is being done", ["change", "update"])],
+    )
+
+
+#: The word a user says back for each status change voice may approve.
+TRANSITION_CONFIRM: dict[str, tuple[str, list[str]]] = {
+    "archive": ("Archive", ["archive"]),
+    "unarchive": ("Unarchive", ["unarchive", "active"]),
+    "recall": ("Recall", ["recall"]),
+    "resubmit_ready": ("Reopen", ["reopen", "resubmit"]),
+}
 
 
 # ── The read-back ─────────────────────────────────────────────────────────────
@@ -436,6 +525,78 @@ def supplement_submit_summary(
         f"I am about to send the supplement {name} for review. Its total is {money(total)}. "
         f"{reviewer_name} will be emailed the approval link at {reviewer_email}."
     )
+
+
+@dataclass(frozen=True, slots=True)
+class AddedLine:
+    room: str
+    new_room: bool
+    name: str
+    unit_cost: Decimal
+    #: ``catalogue``, ``stated`` or ``differs``, as ``line_additions`` decides.
+    source: str
+    catalogue_unit_cost: Decimal | None = None
+
+
+def _counted(count: int, noun: str) -> str:
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
+def supplement_add_lines_summary(
+    *,
+    name: str,
+    lines: Sequence[AddedLine],
+    old_total: Decimal,
+    new_total: Decimal,
+    status_note: str = "",
+) -> str:
+    """The read-back for lines added to a supplement: how many, where, and the total.
+
+    Not a recital of every line: those are on screen. What is always said is each line
+    whose price did not come from the catalogue, because that price is the user's word
+    and not the team's rate.
+    """
+    per_room: dict[str, tuple[int, bool]] = {}
+    for line in lines:
+        count, new = per_room.get(line.room, (0, line.new_room))
+        per_room[line.room] = (count + 1, new)
+    where = [
+        f"{count} to {'a new room, ' if new else ''}{room}"
+        for room, (count, new) in per_room.items()
+    ]
+    parts = [
+        f"I am about to add {_counted(len(lines), 'line')} to the supplement {name}: "
+        f"{_listed(where)}.",
+        f"The total goes from {money(old_total)} to {money(new_total)}.",
+    ]
+    for line in lines:
+        if line.source == "stated":
+            parts.append(
+                f"{line.name} is at {money(line.unit_cost)}, the price you gave; it is not "
+                "from the catalogue."
+            )
+        elif line.source == "differs" and line.catalogue_unit_cost is not None:
+            parts.append(
+                f"{line.name} is at {money(line.unit_cost)}, the price you gave; the "
+                f"catalogue has {money(line.catalogue_unit_cost)}."
+            )
+    if status_note:
+        parts.append(status_note)
+    return " ".join(parts)
+
+
+def add_lines_terms(
+    *, record: Sequence[Term], lines: Sequence[AddedLine], new_total: Decimal
+) -> list[Term]:
+    """What must be heard: which supplement, the new total, and every price not from
+    the catalogue."""
+    terms = [*record, readback.amount_term("the supplement's new total", new_total)]
+    terms += [
+        readback.amount_term("a price that is not from the catalogue", line.unit_cost)
+        for line in lines
+        if line.source != "catalogue"
+    ]
+    return terms
 
 
 def memory_change_summary(*, old: str, new: str | None) -> str:

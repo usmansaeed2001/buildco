@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import Forbidden, NotFound
@@ -54,6 +54,24 @@ async def list_for_estimate(
     return [
         (row, await storage.create_download_url("attachments", row.storage_path)) for row in rows
     ]
+
+
+async def photo_positions(
+    session: AsyncSession, user: Profile, estimate_id: uuid.UUID
+) -> dict[tuple[int, int], int]:
+    """How many attachments sit at each (room, line) position of an estimate.
+
+    Attachments follow their line by position, and deleting a line leaves its rows
+    behind, so this is what says whether a new line appended at a position would
+    inherit someone else's photos.
+    """
+    await estimate_service.get_estimate(session, user, estimate_id)
+    rows = await session.execute(
+        select(Attachment.room_index, Attachment.item_index, func.count())
+        .where(Attachment.estimate_id == estimate_id)
+        .group_by(Attachment.room_index, Attachment.item_index)
+    )
+    return {(room, item): count for room, item, count in rows.tuples()}
 
 
 async def create_upload_url(

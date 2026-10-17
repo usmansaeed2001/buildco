@@ -150,6 +150,25 @@ class _OpenProposal:
     #: Where the microphone stream stood when the browser reported that turn played.
     played_at: float | None = None
     typed_after: bool = False
+    #: What a user on a phone says back to approve it, and what must be heard in it.
+    confirm_line: str = ""
+    confirm_terms: list[Term] = field(default_factory=list)
+    #: The user's own words since the read-back finished: utterances that began after
+    #: it, and anything typed. Never the agent's voice picked up by the microphone.
+    said_after: list[str] = field(default_factory=list)
+
+    @classmethod
+    def of(cls, action: AgentAction) -> _OpenProposal:
+        confirm = (action.labels or {}).get("confirm") or {}
+        return cls(
+            id=action.id,
+            kind=action.kind,
+            policy=proposals.policy_of(action),
+            expires_at=_as_utc(action.expires_at),
+            terms=list(action.required_terms or []),
+            confirm_line=str(confirm.get("line") or ""),
+            confirm_terms=list(confirm.get("terms") or []),
+        )
 
 
 class LiveConversation:
@@ -245,13 +264,7 @@ class LiveConversation:
                 # A reconnect. The proposal is still staged in the browser; what was
                 # known about its read-back went with the old socket, so a spoken yes
                 # needs it read again. A click needs nothing.
-                self._open = _OpenProposal(
-                    id=waiting.id,
-                    kind=waiting.kind,
-                    policy=proposals.policy_of(waiting),
-                    expires_at=_as_utc(waiting.expires_at),
-                    terms=list(waiting.required_terms or []),
-                )
+                self._open = _OpenProposal.of(waiting)
 
         limit = float(self._settings.agent_max_session_seconds)
         await self._send(
@@ -639,10 +652,15 @@ class LiveConversation:
             self._voice_bytes += len(event.audio)
             await self._send_bytes(event.audio)
 
+        # Before the transcript: what the user said is judged by when it began.
+        if event.speech_began_at is not None:
+            self._last_utterance_began = event.speech_began_at
+
         if event.heard:
             self._user_did_something()
             if event.heard_final:
                 self._last_heard = event.heard
+                self._heard_after_readback(event.heard)
                 await self._record(AgentMessageRole.USER, AgentMessageSource.VOICE, event.heard)
             await self._send("transcript", role="user", text=event.heard, final=event.heard_final)
 
@@ -657,9 +675,6 @@ class LiveConversation:
             await self._send(
                 "transcript", role="assistant", text=event.said, final=event.said_final
             )
-
-        if event.speech_began_at is not None:
-            self._last_utterance_began = event.speech_began_at
 
         if event.interrupted:
             # The read-back, if this was one, did not finish. Nothing marks it as spoken,
@@ -781,14 +796,47 @@ class LiveConversation:
         self._user_did_something()
         if self._open is not None and self._open.played_at is not None:
             self._open.typed_after = True
+            self._open.said_after.append(text)
         await self._unpause()
         self._session.send_text(text)
 
     async def _on_context(self, frame: dict[str, Any]) -> None:
         self.context = {
             key: frame.get(key)
-            for key in ("route", "entity", "selection", "editor_save_state", "dialog_open")
+            for key in (
+                "route",
+                "entity",
+                "selection",
+                "editor_save_state",
+                "dialog_open",
+                "layout",
+            )
         }
+
+    @property
+    def on_phone(self) -> bool:
+        """Whether the browser last said it is laid out for a phone.
+
+        Taken from the latest context, so turning a tablet or resizing a window between
+        the proposal and the answer applies the rule for the screen the user is on.
+        """
+        return self.context.get("layout") == "phone"
+
+    def _heard_after_readback(self, text: str) -> None:
+        """Keep what the user said, if it began after the read-back finished playing.
+
+        An utterance that began earlier may hold the read-back itself, heard back
+        through the microphone, and must never stand in for the user's own words.
+        """
+        waiting = self._open
+        began = self._last_utterance_began
+        if (
+            waiting is not None
+            and waiting.played_at is not None
+            and began is not None
+            and began > waiting.played_at
+        ):
+            waiting.said_after.append(text)
 
     async def _on_readback_played(self, frame: dict[str, Any]) -> None:
         """The browser reports that the read-back finished playing, or was shown in full.
@@ -943,13 +991,7 @@ class LiveConversation:
                 self._log.info("agent_tool_refused", tool=tool, rule="refused")
                 return refuse(str(refusal))
             proposal = proposals.describe(action)
-            waiting = _OpenProposal(
-                id=action.id,
-                kind=action.kind,
-                policy=proposals.policy_of(action),
-                expires_at=_as_utc(action.expires_at),
-                terms=list(action.required_terms or []),
-            )
+            waiting = _OpenProposal.of(action)
             await db.commit()
 
         replaced, self._open = self._open, waiting
@@ -984,6 +1026,13 @@ class LiveConversation:
                 "This one needs a click. Speak the summary in full, then say 'press "
                 "Approve when you are ready'. Do not call commit_proposal."
             )
+        elif self.on_phone and waiting.confirm_line:
+            how = (
+                "The user is on a phone, where a yes does not approve. Speak the summary in "
+                "full, then ask them to confirm by saying back this line: "
+                f'"{waiting.confirm_line}". Call commit_proposal only after they have said '
+                "it, after the whole summary. They can also press Approve."
+            )
         else:
             how = (
                 "Speak the summary in full, then ask the user to approve. Call "
@@ -1009,12 +1058,18 @@ class LiveConversation:
             last_utterance_began_at=self._last_utterance_began,
             typed_after_readback=bool(waiting and waiting.typed_after),
             readback_verified=bool(waiting and (waiting.verified or not waiting.readback_spoken)),
+            phone=self.on_phone,
+            confirm_terms=waiting.confirm_terms if waiting else [],
+            said_since_readback=" ".join(waiting.said_after) if waiting else "",
         )
         refusal = agent_rules.refuse_voice_commit(facts)
         if refusal is not None or waiting is None:
             reason = refusal or "unknown"
             self._log.info("agent_voice_commit_rejected", condition=reason)
-            return refuse(agent_rules.REFUSALS[reason])
+            message = agent_rules.REFUSALS[reason]
+            if reason == "confirmation_missing" and waiting is not None:
+                message += f' The line is: "{waiting.confirm_line}".'
+            return refuse(message)
 
         outcome = await self._commit(
             waiting, via=AgentApprovedVia.VOICE, utterance=self._last_heard or None

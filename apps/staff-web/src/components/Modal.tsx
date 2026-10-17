@@ -25,6 +25,9 @@
  * person is approving or rejecting it from the panel, not operating it. Its scrim is
  * light, because the user is being asked to look at the page, not away from it; an
  * ordinary dialog's is unchanged. How its fields are marked is in `staged.tsx`.
+ *
+ * **On a phone, a staged form is a sheet**: the whole room above the assistant's bar, so
+ * as much of the form as possible can be read while it is being read back.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -64,6 +67,7 @@ export function Modal({
 }) {
   const frame = useAppFrame();
   const layer = frame?.panelOpen ? frame.dialogLayer : null;
+  const sheet = staged && frame?.phone === true;
 
   // Decided on the render that opens the dialog and held until it closes.
   const [wasOpen, setWasOpen] = useState(false);
@@ -96,7 +100,7 @@ export function Modal({
   // a form nobody can see alive, with its state and its effects, and a test asserting
   // "this confirmation is not showing" would pass whether or not it was.
   const contents = !open ? null : (
-    <div className="flex flex-col">
+    <div className={cn("flex flex-col", sheet && "h-full")}>
       <header className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4">
         <div>
           <h2 className="font-display text-base font-semibold text-gray-900">{title}</h2>
@@ -123,7 +127,7 @@ export function Modal({
           still be scrolled, by the lock's layer over it (`AppFrame`). */}
       <div
         ref={body}
-        className="max-h-[70vh] overflow-y-auto px-5 py-4"
+        className={cn("overflow-y-auto px-5 py-4", sheet ? "min-h-0 flex-1" : "max-h-[70vh]")}
         inert={staged}
         {...(staged ? { "data-staged-body": "" } : {})}
       >
@@ -145,7 +149,7 @@ export function Modal({
     // nowhere to render; closing the panel is expected to have closed it first.
     if (!open || !frame?.dialogLayer) return null;
     return createPortal(
-      <ScopedDialog title={title} size={size} staged={staged} onClose={onClose}>
+      <ScopedDialog title={title} size={size} staged={staged} sheet={sheet} onClose={onClose}>
         {contents}
       </ScopedDialog>,
       frame.dialogLayer,
@@ -229,12 +233,14 @@ function ScopedDialog({
   title,
   size,
   staged,
+  sheet,
   onClose,
   children,
 }: {
   title: string;
   size: Size;
   staged: boolean;
+  sheet: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -302,8 +308,13 @@ function ScopedDialog({
         staged ? "bg-black/20 dark:bg-black/35" : "bg-black/45 dark:bg-black/65",
       )}
     >
+      {/* Short of the assistant's bar on a phone, which `AppFrame` measures, so the
+          foot of the dialog is never under it. */}
       <div
-        className="sticky top-0 flex h-dvh items-center justify-center p-4"
+        className={cn(
+          "sticky top-0 flex h-[calc(100dvh-var(--ast-bar,0px))] justify-center",
+          sheet ? "items-stretch px-2 pt-2" : "items-center p-4",
+        )}
         onMouseDown={(event) => {
           if (event.target === event.currentTarget && !staged) onClose();
         }}
@@ -316,9 +327,9 @@ function ScopedDialog({
           tabIndex={-1}
           onKeyDown={trapTab}
           className={cn(
-            "w-full rounded-card bg-surface text-gray-900 shadow-xl outline-none",
+            "w-full bg-surface text-gray-900 shadow-xl outline-none",
             staged && "ast-staged-dialog",
-            WIDTHS[size],
+            sheet ? "flex max-w-none flex-col rounded-t-card" : `rounded-card ${WIDTHS[size]}`,
           )}
         >
           {children}

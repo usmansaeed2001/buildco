@@ -384,7 +384,23 @@ A floating card (DS16).
 | Space it takes | 424px of the window: a 12px gap, the card, and 12px to the window's edge. The page ground (`canvas`) shows round it |
 | Position | Sticky, 12px from the top, so it stays put while the page scrolls |
 | At a 1024px window | The app column is 600px. It was 624px with the docked panel; both are under the first container breakpoint (`app-sm`, 640px), so no page changes layout because of this |
-| Below 1024px | A live conversation's card is never hidden (`AGENT_SPEC.md` 4.1). It overlays the app's right side with the same inset and shadow, at most the window's width less 24px |
+| Below 1024px | *Superseded 2026-10-17 by the phone layout below.* A live conversation's card is never hidden (`AGENT_SPEC.md` 4.1). It overlays the app's right side with the same inset and shadow, at most the window's width less 24px |
+
+**Phone layout** (added 2026-10-17; `AGENT_SPEC.md` D26 revised, D44). Below 1024px
+there is no beside, so the card has two forms, chosen by `phoneView` in the provider:
+
+| Form | When | What it is |
+|---|---|---|
+| Full | Idle, conversing, after a proposal is answered | The card fills the window: no inset, no corners, safe-area padding. The app column under it is inert. The header carries a fold button ("Show the app") |
+| Bar | A change is staged, a page was shown with `show_in_app`, or a form was handed over with Stop | The card folds to the window's foot, rounded top corners, at most 80% of the height: the header (with "Show the conversation"), the dock, and the controls. No conversation. The app column is padded by the bar's measured height (`--ast-bar`) |
+
+- A staged form over the column becomes a **sheet**: the full width and the whole height
+  above the bar, with its body scrolling. Other dialogs are unchanged.
+- The lock's banner is not drawn on a phone: Stop is in the bar, under the thumb. The
+  Escape hint is not shown either.
+- The approval card's line F, for anything voice may approve, reads "Once you have heard
+  it, say back:" (then "To approve, say back:") with the confirmation line set large in
+  an assistant-tinted box, and "or press Approve. A yes alone will not do." under it.
 
 **Zones.**
 

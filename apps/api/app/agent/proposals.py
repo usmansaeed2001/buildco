@@ -48,6 +48,8 @@ from app.models.enums import (
     AgentApprovalPolicy,
     AgentApprovedVia,
     EstimateStatus,
+    ItemCategory,
+    ItemUnit,
 )
 from app.models.estimate import Estimate
 from app.models.meeting import Meeting
@@ -57,16 +59,18 @@ from app.schemas.meeting import MeetingCreate, MeetingUpdate
 from app.services import (
     actions,
     agent_memory_service,
+    attachment_service,
     estimate_service,
     meeting_service,
     settings_service,
 )
 from app.services.actions import FollowUp
-from app.services.rules import agent_readback, agent_rules, estimate_rules
+from app.services.rules import agent_readback, agent_rules, estimate_rules, line_additions
 from app.services.rules.agent_rules import (
     MEETING_CREATE,
     MEETING_UPDATE,
     MEMORY_CHANGE,
+    SUPPLEMENT_ADD_LINES,
     SUPPLEMENT_CREATE,
     SUPPLEMENT_SUBMIT,
     SUPPLEMENT_TRANSITION,
@@ -88,6 +92,7 @@ REFRESH: dict[str, list[str]] = {
     SUPPLEMENT_UPDATE: ["estimates"],
     SUPPLEMENT_TRANSITION: ["estimates"],
     SUPPLEMENT_SUBMIT: ["estimates"],
+    SUPPLEMENT_ADD_LINES: ["estimates"],
     MEMORY_CHANGE: ["agent"],
 }
 
@@ -195,6 +200,9 @@ class Draft:
     target_type: str | None = None
     target_id: uuid.UUID | None = None
     target_fingerprint: str | None = None
+    #: What a user on a phone says back to approve it by voice. Absent for anything
+    #: that only a click approves.
+    confirm: agent_rules.Confirmation | None = None
 
 
 async def _store(
@@ -223,7 +231,11 @@ async def _store(
         kind=draft.kind,
         status=AgentActionStatus.PROPOSED.value,
         payload=draft.payload,
-        labels=draft.labels,
+        labels=(
+            {**draft.labels, "confirm": draft.confirm.as_label()}
+            if draft.confirm is not None
+            else draft.labels
+        ),
         summary=draft.summary,
         approval_policy=draft.policy.value,
         target_type=draft.target_type,
@@ -368,6 +380,7 @@ async def propose_meeting_create(
             required_terms=agent_rules.meeting_terms(
                 title=body.title, start=start, invitees=people, remembered=remembered
             ),
+            confirm=agent_rules.confirm_meeting(title=body.title, start=start),
         ),
     )
 
@@ -541,6 +554,7 @@ async def propose_meeting_update(
             target_type="meeting",
             target_id=meeting.id,
             target_fingerprint=fingerprint_meeting(meeting),
+            confirm=agent_rules.confirm_meeting(title=result_title, start=start),
         ),
     )
 
@@ -589,6 +603,26 @@ async def _supplement(session: AsyncSession, actor: Profile, supplement_id: str)
             "anything can be done with it."
         )
     return estimate
+
+
+def _check_editable(actor: Profile, estimate: Estimate) -> None:
+    if not estimate_rules.can_edit(
+        estimate_service.actor_of(actor), estimate_service.snapshot_of(estimate)
+    ):
+        raise ProposalRefused(
+            "This supplement is locked. Only the owner can edit it."
+            if estimate.status == EstimateStatus.LOCKED.value
+            else "You can only edit supplements you created."
+        )
+
+
+def _status_note(estimate: Estimate, terms: list[Term]) -> str:
+    """The warning for changing a supplement that is already out, and its term."""
+    if estimate.status not in (EstimateStatus.SUBMITTED.value, EstimateStatus.APPROVED.value):
+        return ""
+    said = agent_rules.said_status(estimate.status)
+    terms.append(agent_readback.text_term("that the supplement is already out", said))
+    return f"Note that this supplement is already {said}."
 
 
 async def propose_supplement_create(
@@ -650,6 +684,16 @@ async def propose_supplement_create(
             policy=agent_rules.approval_policy(SUPPLEMENT_CREATE),
             labels={"route": "/estimates", "warnings": [note] if note else []},
             required_terms=terms,
+            confirm=agent_rules.confirm_supplement(
+                verb="Create",
+                keywords=["create", "new", "make"],
+                name=body.project_name or body.client_name,
+                record=agent_rules.supplement_terms(
+                    project_name=body.project_name,
+                    client_name=body.client_name,
+                    identifier=body.identifier or "",
+                ),
+            ),
         ),
     )
 
@@ -669,14 +713,7 @@ async def propose_supplement_update(
 ) -> AgentAction:
     """Stage a change to a supplement's details. ``None`` leaves a field as it is."""
     estimate = await _supplement(session, actor, supplement_id)
-    if not estimate_rules.can_edit(
-        estimate_service.actor_of(actor), estimate_service.snapshot_of(estimate)
-    ):
-        raise ProposalRefused(
-            "This supplement is locked. Only the owner can edit it."
-            if estimate.status == EstimateStatus.LOCKED.value
-            else "You can only edit supplements you created."
-        )
+    _check_editable(actor, estimate)
 
     asked = {
         "project_name": project_name,
@@ -708,11 +745,7 @@ async def propose_supplement_update(
         for name, value in different.items()
     ]
     terms = _terms_of(estimate, with_total=False)
-    status_note = ""
-    if estimate.status in (EstimateStatus.SUBMITTED.value, EstimateStatus.APPROVED.value):
-        said = agent_rules.said_status(estimate.status)
-        status_note = f"Note that this supplement is already {said}."
-        terms.append(agent_readback.text_term("that the supplement is already out", said))
+    status_note = _status_note(estimate, terms)
 
     return await _store(
         session,
@@ -741,8 +774,175 @@ async def propose_supplement_update(
             target_type="supplement",
             target_id=estimate.id,
             target_fingerprint=fingerprint_estimate(estimate),
+            confirm=agent_rules.confirm_supplement(
+                verb="Change",
+                keywords=["change", "update"],
+                name=_name_of(estimate),
+                record=_terms_of(estimate, with_total=False),
+            ),
         ),
     )
+
+
+def _photos_in_the_way(done: str) -> str:
+    return (
+        "Photos from a line that was deleted are still recorded where the new lines would "
+        f"go, and the new lines would show them. Nothing was {done}. Ask the user to add "
+        "these lines by hand in the editor."
+    )
+
+
+async def propose_supplement_add_lines(
+    session: AsyncSession,
+    actor: Profile,
+    conversation: AgentConversation,
+    *,
+    supplement_id: str,
+    additions: Sequence[line_additions.Addition],
+) -> AgentAction:
+    """Stage new lines, and new rooms, at the end of a supplement. Changes nothing else.
+
+    The price of every line is decided here, from the catalogue or from the price the
+    user stated, never by the model. The whole new rooms document is what is staged and
+    what a commit writes, so the commit cannot differ from what was approved.
+    """
+    estimate = await _supplement(session, actor, supplement_id)
+    _check_editable(actor, estimate)
+
+    team = await settings_service.get_settings_row(session)
+    catalogue = {
+        str(row.id): line_additions.CatalogueEntry(
+            id=str(row.id),
+            name=row.name,
+            category=row.category,
+            unit=row.unit,
+            unit_cost=row.unit_cost,
+        )
+        for row in await settings_service.list_catalogue(session)
+    }
+    try:
+        plan = line_additions.plan_additions(
+            estimate.rooms or [],
+            additions,
+            catalogue,
+            units=[*(unit.value for unit in ItemUnit), *(team.custom_units or [])],
+            categories=[*(item.value for item in ItemCategory), *(team.custom_categories or [])],
+        )
+        body = EstimateUpdate(rooms=plan.rooms)
+    except line_additions.AdditionRefused as exc:
+        raise ProposalRefused(str(exc)) from exc
+    except ValidationError as exc:
+        raise ProposalRefused(
+            f"Those lines cannot be saved as described ({_problems(exc)})."
+        ) from exc
+
+    photos = await attachment_service.photo_positions(session, actor, estimate.id)
+    if line_additions.photos_in_the_way(plan.positions, photos):
+        raise ProposalRefused(_photos_in_the_way("staged"))
+
+    added = [
+        agent_rules.AddedLine(
+            room=line.room,
+            new_room=line.new_room,
+            name=line.name,
+            unit_cost=line.unit_cost,
+            source=line.source,
+            catalogue_unit_cost=line.catalogue_unit_cost,
+        )
+        for line in plan.lines
+    ]
+    record = _terms_of(estimate, with_total=False)
+    status_note = _status_note(estimate, record)
+    name = _name_of(estimate)
+    rooms_document = [room.model_dump(by_alias=True, mode="json") for room in body.rooms or []]
+    return await _store(
+        session,
+        actor,
+        conversation,
+        Draft(
+            kind=SUPPLEMENT_ADD_LINES,
+            payload={
+                "supplement_id": str(estimate.id),
+                "rooms": rooms_document,
+                "positions": [list(position) for position in plan.positions],
+            },
+            summary=agent_rules.supplement_add_lines_summary(
+                name=name,
+                lines=added,
+                old_total=plan.old_total,
+                new_total=plan.new_total,
+                status_note=status_note,
+            ),
+            policy=agent_rules.approval_policy(SUPPLEMENT_ADD_LINES),
+            labels={
+                "route": f"/estimates/{estimate.id}",
+                "name": name,
+                "lines": [
+                    {
+                        "room": line.room,
+                        "room_index": line.room_index,
+                        "new_room": line.new_room,
+                        "name": line.name,
+                        "quantity": str(line.quantity),
+                        "unit": line.unit,
+                        "category": line.category,
+                        "unit_cost": str(line.unit_cost),
+                        "catalogue_unit_cost": (
+                            str(line.catalogue_unit_cost)
+                            if line.catalogue_unit_cost is not None
+                            else None
+                        ),
+                        "source": line.source,
+                        "total": str(line.total),
+                    }
+                    for line in plan.lines
+                ],
+                "new_rooms": plan.new_rooms,
+                "old_total": str(plan.old_total),
+                "new_total": str(plan.new_total),
+                "facts": _add_lines_facts(plan),
+                "warnings": [status_note] if status_note else [],
+            },
+            required_terms=agent_rules.add_lines_terms(
+                record=record, lines=added, new_total=plan.new_total
+            ),
+            target_type="supplement",
+            target_id=estimate.id,
+            target_fingerprint=fingerprint_estimate(estimate),
+            confirm=agent_rules.confirm_add_lines(
+                name=name,
+                count=len(plan.lines),
+                new_total=plan.new_total,
+                record=_terms_of(estimate, with_total=False),
+            ),
+        ),
+    )
+
+
+def _add_lines_facts(plan: line_additions.Plan) -> list[dict[str, Any]]:
+    """The approval card's rows: counts and the total. The lines are on the staged
+    screen."""
+    facts: list[dict[str, Any]] = [
+        {"label": "Adding", "value": f"{len(plan.lines)} line{'' if len(plan.lines) == 1 else 's'}"}
+    ]
+    if plan.new_rooms:
+        facts.append({"label": "New rooms", "value": ", ".join(plan.new_rooms)})
+    facts.append(
+        {
+            "label": "Total",
+            "value": agent_rules.money(plan.new_total),
+            "was": agent_rules.money(plan.old_total),
+        }
+    )
+    for line in plan.unpriced_by_catalogue:
+        facts.append(
+            {
+                "label": line.name,
+                "value": f"{agent_rules.money(line.unit_cost)} per {line.unit}",
+                "source": "stated" if line.source == line_additions.STATED else "differs",
+            }
+        )
+    return facts
 
 
 async def propose_supplement_transition(
@@ -767,6 +967,8 @@ async def propose_supplement_transition(
         raise ProposalRefused(f"{exc}.") from exc
 
     verb, note = agent_rules.TRANSITION_WORDS[action]
+    policy = agent_rules.approval_policy(SUPPLEMENT_TRANSITION, transition=action)
+    said_back, keywords = agent_rules.TRANSITION_CONFIRM.get(action, (verb, [action]))
     return await _store(
         session,
         actor,
@@ -780,7 +982,7 @@ async def propose_supplement_transition(
                 status=estimate.status,
                 total=estimate.total_amount,
             ),
-            policy=agent_rules.approval_policy(SUPPLEMENT_TRANSITION, transition=action),
+            policy=policy,
             labels={
                 "route": f"/estimates/{estimate.id}",
                 "name": _name_of(estimate),
@@ -794,6 +996,16 @@ async def propose_supplement_transition(
             target_type="supplement",
             target_id=estimate.id,
             target_fingerprint=fingerprint_estimate(estimate),
+            confirm=(
+                agent_rules.confirm_supplement(
+                    verb=said_back,
+                    keywords=keywords,
+                    name=_name_of(estimate),
+                    record=_terms_of(estimate, with_total=False),
+                )
+                if policy is AgentApprovalPolicy.VOICE_OR_CLICK
+                else None
+            ),
         ),
     )
 
@@ -899,6 +1111,7 @@ async def propose_memory_change(
             target_type="memory",
             target_id=memory.id,
             target_fingerprint=fingerprint_memory(memory),
+            confirm=agent_rules.confirm_memory(forget=replacement is None),
         ),
     )
 
@@ -1003,6 +1216,18 @@ async def _apply(
             EstimateUpdate.model_validate(payload["changes"]),
         )
         return _target("supplement", updated.estimate.id), updated.follow_ups
+    if action.kind == SUPPLEMENT_ADD_LINES:
+        supplement_id = uuid.UUID(payload["supplement_id"])
+        positions = [(int(room), int(item)) for room, item in payload["positions"]]
+        # Checked again here, under the supplement's row lock: a photo can be uploaded
+        # between the proposal and the approval, and the fingerprint does not cover
+        # photos.
+        photos = await attachment_service.photo_positions(session, actor, supplement_id)
+        if line_additions.photos_in_the_way(positions, photos):
+            raise _CommitFailed(_photos_in_the_way("saved"))
+        rooms = EstimateUpdate.model_validate({"rooms": payload["rooms"]})
+        added = await actions.update_estimate(session, actor, supplement_id, rooms)
+        return _target("supplement", added.estimate.id), added.follow_ups
     if action.kind == SUPPLEMENT_TRANSITION:
         moved = await actions.transition_estimate(
             session, actor, uuid.UUID(payload["supplement_id"]), payload["action"]

@@ -9,6 +9,10 @@
  *   3  dock      only when there is work: the steps and the approval card, pinned
  *   4  controls  the text box, the voice controls, End
  *
+ * On a phone it fills the screen, or folds down to a bar along the foot (`compact`) so
+ * the app can be seen: the header, the dock and the controls, and no conversation. A
+ * staged change is shown that way, with its approval card pinned under the form.
+ *
  * It stays fully usable while the app beside it is locked. Stop, Approve, Reject and the
  * text box are the user's controls over the assistant, so they are never the thing that
  * is disabled, and no animation here delays, hides or moves one that could be pressed.
@@ -56,11 +60,14 @@ const FOLLOW_SLACK_PX = 32;
 
 export function AgentPanel({
   closing = false,
+  compact = false,
   firstName,
   showHistory,
 }: {
   /** The panel has been closed and is on its way out. */
   closing?: boolean;
+  /** Folded down to a bar on a phone: everything but the conversation. */
+  compact?: boolean;
   /** Who to greet. Left out, it is the signed-in person's first name. */
   firstName?: string | null;
   /**
@@ -77,7 +84,13 @@ export function AgentPanel({
   const agent = closing ? shown.current : current;
   if (!agent) return null;
   return (
-    <Panel agent={agent} closing={closing} firstName={firstName} showHistory={showHistory} />
+    <Panel
+      agent={agent}
+      closing={closing}
+      compact={compact}
+      firstName={firstName}
+      showHistory={showHistory}
+    />
   );
 }
 
@@ -107,11 +120,13 @@ function useFirstName(override: string | null | undefined): string | null {
 function Panel({
   agent,
   closing,
+  compact,
   firstName: greet,
   showHistory,
 }: {
   agent: AgentContextValue;
   closing: boolean;
+  compact: boolean;
   firstName?: string | null | undefined;
   showHistory?: string | null | undefined;
 }) {
@@ -161,6 +176,7 @@ function Panel({
   // The large orb is the centre of the body until something has been said. After a
   // conversation has ended there is something to read instead: why, and what next.
   const hero =
+    !compact &&
     view === null &&
     nothingSaid &&
     !needsDock &&
@@ -353,7 +369,7 @@ function Panel({
         event.preventDefault();
         setHistory(view.opened ? { opened: null, returning: true } : null);
       }}
-      className="relative flex h-full flex-col"
+      className={cn("relative flex flex-col", compact ? "max-h-[80dvh]" : "h-full")}
     >
       <span aria-hidden="true" className="ast-aura-top" data-tone="violet" {...(aura === "violet" ? { "data-on": "" } : {})} />
       <span aria-hidden="true" className="ast-aura-top" data-tone="amber" {...(aura === "amber" ? { "data-on": "" } : {})} />
@@ -367,11 +383,13 @@ function Panel({
         remaining={agent.remainingToday}
         dailyLimit={agent.dailyLimit}
         resetsAt={agent.resetsAt}
-        onHistory={between && !view ? () => openHistory(null) : undefined}
+        onHistory={between && !view && !compact ? () => openHistory(null) : undefined}
+        onFold={agent.phone && !compact ? () => agent.setPhoneView("mini") : undefined}
+        onExpand={agent.phone && compact ? () => agent.setPhoneView("full") : undefined}
         onClose={agent.closePanel}
       />
 
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className={cn("relative flex min-h-0 flex-1 flex-col", compact && "hidden")}>
         <div
           ref={scroller}
           onScroll={() => {
@@ -408,6 +426,8 @@ function Panel({
 
       {dock.mounted && (
         <Dock
+          compact={compact}
+          phone={agent.phone}
           state={inDock.state}
           locked={inDock.locked}
           speaking={speaking}

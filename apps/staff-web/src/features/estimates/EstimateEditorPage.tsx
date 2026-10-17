@@ -56,6 +56,9 @@ import { apiFetch } from "@/api/client";
 import { queryKeys } from "@/api/queries/keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAgent, useAgentRecord, useStagedProposal } from "@/features/agent/AgentProvider";
+import type { Proposal } from "@/features/agent/protocol";
+import { AddedLines } from "./AddedLines";
+import { linesToAdd } from "./proposedLines";
 import { RoomRail } from "./RoomRail";
 
 const TABS = [
@@ -188,6 +191,18 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
     { type: "supplement", id: estimate.id, label: details.project_name },
     autosave.state,
   );
+  // And which room is selected, so "add it to this room" means the one on screen.
+  const viewSelection = agent?.viewSelection;
+  const activeIndex = document.activeIndex;
+  const activeName = document.activeRoom?.name ?? null;
+  useEffect(() => {
+    if (!viewSelection) return;
+    viewSelection(
+      activeIndex === null || activeName === null
+        ? null
+        : { room_position: activeIndex + 1, room_name: activeName },
+    );
+  }, [viewSelection, activeIndex, activeName]);
   const flushRef = useRef(autosave.flush);
   flushRef.current = autosave.flush;
   const registerEditor = agent?.registerEditor;
@@ -202,6 +217,7 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
     "supplement.update_details",
     "supplement.transition",
     "supplement.submit",
+    "supplement.add_lines",
   );
   const staged =
     assistant.staged?.payload["supplement_id"] === estimate.id ? assistant.staged : null;
@@ -210,11 +226,15 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
   useEffect(() => {
     if (stagedId) confirmStaged(stagedId);
   }, [stagedId, confirmStaged]);
-  // After Stop there is nothing to hand over: these are confirmations, not forms. The
-  // staged dialog closes and nothing was written.
+  // After Stop, proposed lines are offered to the user to add by hand. The rest are
+  // confirmations, not forms: the staged dialog closes and nothing was written.
+  const [linesOffered, setLinesOffered] = useState<Proposal | null>(null);
   useEffect(() => {
-    if (handover) takeHandover();
-  }, [handover, takeHandover]);
+    if (!handover) return;
+    if (handover.kind === "supplement.add_lines" && handover.payload["supplement_id"] === estimate.id)
+      setLinesOffered(handover);
+    takeHandover();
+  }, [handover, takeHandover, estimate.id]);
 
   // And when it has committed a change to this supplement, the saved values are taken
   // in. Without this the editor would still hold the old ones, and the next keystroke
@@ -537,6 +557,37 @@ function Editor({ estimate, actor }: { estimate: EstimateOut; actor: ActorSnapsh
           <p className="text-sm text-gray-700">{staged.summary}</p>
         </ConfirmDialog>
       )}
+      {staged?.kind === "supplement.add_lines" && (
+        <Modal key={staged.id} open staged title="Add to supplement" onClose={() => {}}>
+          <AddedLines labels={staged.labels} />
+        </Modal>
+      )}
+      {/* Taken over with Stop: the user decides whether the lines go in, by hand. */}
+      <Modal
+        open={linesOffered !== null}
+        onClose={() => setLinesOffered(null)}
+        title="Add these lines?"
+        description="Nothing has been saved. Add them to the editor to keep them, then edit as usual."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setLinesOffered(null)}>
+              Discard
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                if (linesOffered)
+                  document.appendLines(linesToAdd(linesOffered.payload, linesOffered.labels));
+                setLinesOffered(null);
+              }}
+            >
+              Add to the editor
+            </Button>
+          </>
+        }
+      >
+        {linesOffered && <AddedLines labels={linesOffered.labels} />}
+      </Modal>
       {staged?.kind === "supplement.update_details" && (
         <Modal key={staged.id} open staged title="Change details" onClose={() => {}}>
           {/* Each detail as it would become, with what it is now struck through above. */}

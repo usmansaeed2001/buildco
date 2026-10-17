@@ -626,6 +626,10 @@ html[data-tab-hidden] .ast-orb *,
  * page is not dimmed, because the user has to read what is on it.
  */
 .ast-lock {
+  /* The sweep ends past the right edge. Clipped, not hidden: `hidden` would make this
+   * a scroll container and the sticky banner inside would stop sticking. On a phone the
+   * overflow widened the page, and the browser zoomed everything out to fit it. */
+  overflow-x: clip;
   box-shadow:
     inset 0 0 0 2px var(--color-assistant-500),
     inset 0 0 24px 0 color-mix(in oklab, var(--color-assistant-500) 16%, transparent);

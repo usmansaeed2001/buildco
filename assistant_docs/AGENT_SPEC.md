@@ -1,8 +1,9 @@
 # BuildCo Assistant — Voice Agent Specification
 
 **Status:** Release 1 is built and ships switched off. The Experience release (the
-design and the user guide) is next and is specified in two companion documents. Release 2
-is not started. See *Release status* below.
+design and the user guide) is next and is specified in two companion documents. Release
+2a (adding lines by voice) and the phone layout are built; Release 2 (changing and
+removing them) is not started. See *Release status* below.
 **Branch:** `feature/assistant-release-1`, at commit `d9af970`.
 **Written:** 2026-10-11. **Revised twice after code-level reviews** and once after the
 technical spike; section 14 lists what each one changed. **Status revision, 2026-10-11,**
@@ -38,7 +39,9 @@ As of 2026-10-11, from the repository.
 | **Experience release: guide** | How people learn to use it | **After the design.** Specified in `AGENT_GUIDE.md`, awaiting sign-off of its wording |
 | Pilot, then everyone | `DEPLOY_CHECKLIST.md` §3.10 | Not started. Follows the Experience release |
 | Preparatory change C | Stable ids for rooms and lines; photos follow their line | **Not started** (`BACKLOG.md` §14) |
-| Release 2 | Rooms and line items by voice | **Not started.** Needs change C released and its backfill run |
+| **Release 2a** | **Adding** rooms and line items by voice; no change or removal (D45) | **Built.** Needs no database change and does not wait for change C |
+| **Phone layout** | The assistant on screens under 1024px wide, approved by saying a confirmation line back (D26 revised, D44) | **Built** |
+| Release 2 | Changing and removing rooms and line items by voice | **Not started.** Needs change C released and its backfill run |
 
 The order was set on 2026-10-11: the assistant is released to people with the Experience
 release in place, and Release 2 follows later.
@@ -130,7 +133,7 @@ Taken on 2026-10-10 and 2026-10-11. Rows marked *revised* were changed by the re
 | D23 | Memory store | Own Postgres tables |
 | D24 | Language | English only |
 | D25 | Session control | Panel opens idle with a Start button and a text box. Closing the panel ends the conversation |
-| D26 | Devices | Desktop and tablet first. No phone layout in v1 |
+| D26 | Devices | *Revised 2026-10-17.* Every width. Below 1024px the panel fills the screen, and folds to a bar at the foot to show a staged change above it. See "Phone layout" in section 3 |
 | D27 | Limits | *Revised.* Ends after 2 minutes idle and at 30 minutes regardless. A daily allowance per person applies on top; see D37 |
 | D28 | Identity | "BuildCo Assistant", one voice chosen during the build |
 | D29 | New supplement with lines | Two approvals: the New Supplement form first, which creates it, then the lines in the editor. Applies from Release 2 |
@@ -147,6 +150,9 @@ Taken on 2026-10-10 and 2026-10-11. Rows marked *revised* were changed by the re
 | D40 | Waiting for approval | After the read-back the microphone stays live for about 30 seconds. With no answer the audio pauses: nothing is streamed and nothing is metered until the user taps to talk or clicks. The proposal still waits up to 10 minutes |
 | D41 | Rollout | A pilot allowlist first: a server setting names the two or three people who get the assistant. Opening it to everyone is a separate, explicit setting; an empty or missing list means nobody |
 | D42 | Ids for existing rooms and lines | Deterministic: computed from the supplement id and the position, so the browser, the server and the backfill agree without coordinating |
+| D44 | Approving on a phone | *Added 2026-10-17.* On a phone a spoken yes does not approve. Each proposal voice may approve carries a short confirmation line built from its essentials, shown on the card; the user says it back. Only the user's own words that began after the read-back finished count, and they must contain the line's essentials. Typing it works; a click is unchanged; click-only stays click-only |
+| D45 | Release 2a: add only | *Added 2026-10-17.* The assistant may add rooms and lines, appended at the end, and may not change or remove any. Appending moves nobody's photos, so it needs neither stable ids nor a database change. Editing and removing stay Release 2 |
+| D46 | Photos left behind | *Added 2026-10-17.* A line deleted by hand leaves its photo rows at its position. An append onto a position that holds any is refused, at proposal and again at commit under the row lock, and the agent says to add that line by hand |
 | D43 | Verified read-back | A spoken approval counts only when the server has confirmed, from the transcript of what the agent actually said, that the essentials (which record, the total, a meeting's date and time) and every exception were spoken. Otherwise that proposal needs a click |
 
 ---
@@ -191,13 +197,41 @@ specified in the companion documents, not here.
 
 The design is built first and the guide second. Both go in before the pilot.
 
+### Release 2a — built
+
+Added 2026-10-17 (D45). Needs no database change.
+
+- Supplements: **add** line items by voice, to an existing room or a new one, with
+  `propose_add_supplement_lines`. Lines and rooms are appended; nothing is changed,
+  moved or removed.
+- Prices follow 4.6: a catalogue item by id, filled in by the server, or a price the
+  user stated. Every price not from the catalogue is named in the read-back and must be
+  heard (D43). With no match and no price, the agent asks.
+- Staged as a read-only card over the editor ("Add to supplement"): the lines by room,
+  new rooms marked, each price's source, and the total before and after. After Stop the
+  user is offered the lines to add to the editor by hand, as one undoable step.
+- A new supplement with lines is two approvals, as D29 says.
+- Refused where an appended line would inherit a deleted line's photos (D46).
+
+### Phone layout — built
+
+Added 2026-10-17 (D26 revised, D44).
+
+- The launcher is offered at every width. Below 1024px the panel fills the screen.
+- When a change is staged the panel folds to a bar at the foot holding the step, Stop,
+  the approval card and the controls, and the real staged form opens above it as a
+  sheet. The panel fills the screen again once the proposal is answered. The user can
+  fold and unfold it themselves.
+- The browser reports `layout: "phone"` in its `context` frame. On a phone the card and
+  the agent ask for the confirmation line to be said back instead of a yes (D44).
+
 ### Release 2 — not started
 
 Waits on preparatory change C, which is also not started (`BACKLOG.md` §14).
 
-- Supplements: add, change and remove rooms and line items by voice, staged as a diff in
+- Supplements: change and remove rooms and line items by voice, staged as a diff in
   the editor. Depends on preparatory change C (stable ids, 6.13) being released and its
-  backfill run.
+  backfill run. Adding them is Release 2a.
 
 ### Out of both
 
@@ -213,7 +247,6 @@ Waits on preparatory change C, which is also not started (`BACKLOG.md` §14).
 | Resuming a conversation, audio recording, voice selection | D20, D28 |
 | Per-person allowances that differ from the team figure | One number for everyone is enough to stop abuse; overrides can follow real usage data |
 | Spanish and other languages | D24 |
-| Phone layout | D26 |
 | Wake word, proactive notifications, the agent speaking first | Not requested |
 
 ---
@@ -229,6 +262,8 @@ rules stand. `AGENT_GUIDE.md` 5.3 adds one state, *Viewing help*.
 - A round button, fixed bottom-left, on every page inside `AppShell`. Hover and keyboard
   focus show a tooltip: **"Ask BuildCo Assistant"**.
 - Offered at viewport widths of 1024px and up, and only when the agent is enabled.
+  *Phone layout:* now offered at every width; below 1024px the panel fills the screen
+  (section 3, "Phone layout").
 - Clicking opens a panel docked to the right edge, about 400px wide. The app content
   **reflows into the remaining width**; the panel does not overlay it.
 - **A live conversation's panel is never hidden.** The width rule decides only whether
@@ -387,6 +422,7 @@ Every write follows the same four beats.
 | **Voice or click** | Create a supplement; edit supplement details; edit rooms and lines (Release 2); archive, unarchive, recall, mark ready to resubmit; a meeting create or edit that emails nobody; change or forget a memory |
 | **Click only** (D33) | Submit for review; any meeting create or edit that sends invites; admin-approve; lock; unlock |
 | **Click only, case by case** (D43) | Any proposal whose read-back the server could not verify |
+| **On a phone** (D44) | Voice approval is the confirmation line said back, not a yes. Clicks are unchanged |
 
 Unlock joins lock in the click-only row: both change who can edit a supplement.
 
@@ -591,6 +627,7 @@ Each of these only **proposes**. None of them writes. See 6.4.
 | `propose_supplement_transition` | 1 | transition | Supplement page, the real confirmation | Click for `lock` and `admin_approve` |
 | `propose_submit_for_review` | 1 | submit for review | The real Submit for Review form | Click |
 | `propose_change_memory` | 1 | `agent_memories` | Panel only | Voice or click |
+| `propose_add_supplement_lines` | 2a | supplement update | Supplement editor, a card of the new lines | Voice or click |
 | `propose_edit_supplement_rooms` | 2 | supplement update | Supplement editor, as a diff | Voice or click |
 
 "Commits through" means the single function per action introduced by change A (6.5),
