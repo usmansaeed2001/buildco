@@ -376,6 +376,102 @@ async def test_typing_yes_after_the_readback_counts(talk, db):
     assert await meetings(db) == 1
 
 
+# ── On a phone ────────────────────────────────────────────────────────────────
+
+
+async def on_a_phone(talk: Talk) -> None:
+    talk.socket.frame("context", route="/calendar", layout="phone")
+
+    async def told():
+        return talk.conversation.on_phone
+
+    await eventually(told)
+
+
+async def test_on_a_phone_the_model_is_told_to_ask_for_the_line_back(talk):
+    await on_a_phone(talk)
+
+    staged = await stage(talk)
+
+    assert "Hendricks walkthrough, Wednesday 14 October at 2:30 PM" in staged["what_to_do"]
+    shown = await talk.socket.wait_for("proposal")
+    assert shown["labels"]["confirm"]["line"] == (
+        "Hendricks walkthrough, Wednesday 14 October at 2:30 PM"
+    )
+
+
+async def test_on_a_phone_a_yes_alone_does_not_approve(talk, db):
+    await on_a_phone(talk)
+    staged = await stage(talk)
+    await hear_the_readback(talk, staged, db, finished_at=40.0)
+    talk.model.session.hears("Yes, go ahead.", began_at=41.0)
+
+    result = await talk.model.session.calls("commit_proposal", proposal_id=staged["proposal_id"])
+
+    assert result["ok"] is False
+    assert "say the confirmation line back" in result["tell_the_user"]
+    assert "Hendricks walkthrough, Wednesday 14 October at 2:30 PM" in result["tell_the_user"]
+    assert await meetings(db) == 0
+
+
+async def test_on_a_phone_saying_the_line_back_approves(talk, db):
+    await on_a_phone(talk)
+    staged = await stage(talk)
+    await hear_the_readback(talk, staged, db, finished_at=40.0)
+    talk.model.session.hears("Yes.", began_at=41.0)
+    talk.model.session.hears(
+        "Hendricks walkthrough, Wednesday the fourteenth of October at two thirty PM",
+        began_at=43.0,
+    )
+
+    async def heard():
+        return "Hendricks" in talk.conversation._last_heard
+
+    await eventually(heard)
+    result = await talk.model.session.calls("commit_proposal", proposal_id=staged["proposal_id"])
+
+    assert result["ok"] is True
+    assert await meetings(db) == 1
+
+
+async def test_on_a_phone_the_readback_heard_through_the_microphone_is_not_the_users_words(
+    talk, db
+):
+    """Speech that began before the read-back finished may be the read-back itself."""
+    await on_a_phone(talk)
+    staged = await stage(talk)
+    talk.model.session.hears(
+        "Hendricks walkthrough on Wednesday 14 October 2026 at 2:30 PM", began_at=12.0
+    )
+    await hear_the_readback(talk, staged, db, finished_at=40.0)
+    talk.model.session.hears("Yes.", began_at=41.0)
+
+    async def heard():
+        return talk.conversation._last_heard == "Yes."
+
+    await eventually(heard)
+    result = await talk.model.session.calls("commit_proposal", proposal_id=staged["proposal_id"])
+
+    assert result["ok"] is False
+    assert await meetings(db) == 0
+
+
+async def test_on_a_phone_typing_the_line_approves(talk, db):
+    await on_a_phone(talk)
+    staged = await stage(talk)
+    await hear_the_readback(talk, staged, db, finished_at=40.0)
+    talk.socket.frame("text", text="hendricks walkthrough 14 october 2:30pm")
+
+    async def passed_on():
+        return any("hendricks" in text for text in talk.model.session.texts)
+
+    await eventually(passed_on)
+    result = await talk.model.session.calls("commit_proposal", proposal_id=staged["proposal_id"])
+
+    assert result["ok"] is True
+    assert await meetings(db) == 1
+
+
 # ── Approving with a click ────────────────────────────────────────────────────
 
 

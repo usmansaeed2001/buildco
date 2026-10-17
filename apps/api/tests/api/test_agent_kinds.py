@@ -787,10 +787,11 @@ async def test_changing_a_memory_shows_the_old_and_the_new_and_saves_on_approval
     )
 
     assert action.approval_policy == "voice_or_click"
-    assert action.labels == {
-        "old": "Prefers to be called Sam",
-        "new": "Prefers to be called Samuel",
-    }
+    assert (action.labels["old"], action.labels["new"]) == (
+        "Prefers to be called Sam",
+        "Prefers to be called Samuel",
+    )
+    assert action.labels["confirm"]["line"] == "Change what you remember"
     assert (await db.get(AgentMemory, memory.id)).content == "Prefers to be called Sam"
 
     assert (await commit(session_factory, action, member, via=AgentApprovedVia.VOICE)).committed

@@ -200,6 +200,9 @@ class Draft:
     target_type: str | None = None
     target_id: uuid.UUID | None = None
     target_fingerprint: str | None = None
+    #: What a user on a phone says back to approve it by voice. Absent for anything
+    #: that only a click approves.
+    confirm: agent_rules.Confirmation | None = None
 
 
 async def _store(
@@ -228,7 +231,11 @@ async def _store(
         kind=draft.kind,
         status=AgentActionStatus.PROPOSED.value,
         payload=draft.payload,
-        labels=draft.labels,
+        labels=(
+            {**draft.labels, "confirm": draft.confirm.as_label()}
+            if draft.confirm is not None
+            else draft.labels
+        ),
         summary=draft.summary,
         approval_policy=draft.policy.value,
         target_type=draft.target_type,
@@ -373,6 +380,7 @@ async def propose_meeting_create(
             required_terms=agent_rules.meeting_terms(
                 title=body.title, start=start, invitees=people, remembered=remembered
             ),
+            confirm=agent_rules.confirm_meeting(title=body.title, start=start),
         ),
     )
 
@@ -546,6 +554,7 @@ async def propose_meeting_update(
             target_type="meeting",
             target_id=meeting.id,
             target_fingerprint=fingerprint_meeting(meeting),
+            confirm=agent_rules.confirm_meeting(title=result_title, start=start),
         ),
     )
 
@@ -675,6 +684,16 @@ async def propose_supplement_create(
             policy=agent_rules.approval_policy(SUPPLEMENT_CREATE),
             labels={"route": "/estimates", "warnings": [note] if note else []},
             required_terms=terms,
+            confirm=agent_rules.confirm_supplement(
+                verb="Create",
+                keywords=["create", "new", "make"],
+                name=body.project_name or body.client_name,
+                record=agent_rules.supplement_terms(
+                    project_name=body.project_name,
+                    client_name=body.client_name,
+                    identifier=body.identifier or "",
+                ),
+            ),
         ),
     )
 
@@ -755,6 +774,12 @@ async def propose_supplement_update(
             target_type="supplement",
             target_id=estimate.id,
             target_fingerprint=fingerprint_estimate(estimate),
+            confirm=agent_rules.confirm_supplement(
+                verb="Change",
+                keywords=["change", "update"],
+                name=_name_of(estimate),
+                record=_terms_of(estimate, with_total=False),
+            ),
         ),
     )
 
@@ -884,6 +909,12 @@ async def propose_supplement_add_lines(
             target_type="supplement",
             target_id=estimate.id,
             target_fingerprint=fingerprint_estimate(estimate),
+            confirm=agent_rules.confirm_add_lines(
+                name=name,
+                count=len(plan.lines),
+                new_total=plan.new_total,
+                record=_terms_of(estimate, with_total=False),
+            ),
         ),
     )
 
@@ -936,6 +967,8 @@ async def propose_supplement_transition(
         raise ProposalRefused(f"{exc}.") from exc
 
     verb, note = agent_rules.TRANSITION_WORDS[action]
+    policy = agent_rules.approval_policy(SUPPLEMENT_TRANSITION, transition=action)
+    said_back, keywords = agent_rules.TRANSITION_CONFIRM.get(action, (verb, [action]))
     return await _store(
         session,
         actor,
@@ -949,7 +982,7 @@ async def propose_supplement_transition(
                 status=estimate.status,
                 total=estimate.total_amount,
             ),
-            policy=agent_rules.approval_policy(SUPPLEMENT_TRANSITION, transition=action),
+            policy=policy,
             labels={
                 "route": f"/estimates/{estimate.id}",
                 "name": _name_of(estimate),
@@ -963,6 +996,16 @@ async def propose_supplement_transition(
             target_type="supplement",
             target_id=estimate.id,
             target_fingerprint=fingerprint_estimate(estimate),
+            confirm=(
+                agent_rules.confirm_supplement(
+                    verb=said_back,
+                    keywords=keywords,
+                    name=_name_of(estimate),
+                    record=_terms_of(estimate, with_total=False),
+                )
+                if policy is AgentApprovalPolicy.VOICE_OR_CLICK
+                else None
+            ),
         ),
     )
 
@@ -1068,6 +1111,7 @@ async def propose_memory_change(
             target_type="memory",
             target_id=memory.id,
             target_fingerprint=fingerprint_memory(memory),
+            confirm=agent_rules.confirm_memory(forget=replacement is None),
         ),
     )
 

@@ -6,7 +6,7 @@ and enforced by the server whatever the model says or does:
 
 * who is offered the assistant at all;
 * whether a proposal may be approved by voice or needs a click;
-* whether a spoken "yes" actually counts;
+* whether a spoken "yes" actually counts, and on a phone what has to be said instead;
 * the words of the read-back, and what must be heard in it;
 * how much of the day's allowance is left.
 
@@ -134,6 +134,13 @@ class VoiceCommitFacts:
     typed_after_readback: bool
     #: Whether the essentials and every exception were found in what the agent said.
     readback_verified: bool = True
+    #: The user is on a phone, where a bare yes does not approve: they say the
+    #: confirmation line back instead.
+    phone: bool = False
+    #: What has to be heard in the user's own words, on a phone.
+    confirm_terms: Sequence[Term] = ()
+    #: What the user said or typed after the read-back finished, in order.
+    said_since_readback: str = ""
 
 
 #: Reasons a voice commit is refused. The value is also what the model is told to say.
@@ -156,6 +163,10 @@ REFUSALS: dict[str, str] = {
         "Part of the summary was not spoken, so this one cannot be approved by voice. "
         "Ask the user to check the card on screen and press Approve."
     ),
+    "confirmation_missing": (
+        "The user is on a phone, where a yes alone does not approve. Ask them to say the "
+        "confirmation line back, or to press Approve."
+    ),
 }
 
 
@@ -172,6 +183,10 @@ def refuse_voice_commit(facts: VoiceCommitFacts) -> str | None:
     Speech that started earlier, speech over the agent's own voice, and an interruption
     of the read-back all fail the second test, because their start offset is smaller.
 
+    On a phone the user cannot see the staged screen and the card at once, so hearing
+    the read-back is most of what they have. There a yes is not enough: what the user
+    said after the read-back must contain the essentials of the confirmation line.
+
     The order of the checks is the order in which each stops being worth explaining.
     """
     if not facts.in_this_conversation:
@@ -186,12 +201,84 @@ def refuse_voice_commit(facts: VoiceCommitFacts) -> str | None:
         return "readback_unverified"
     if facts.readback_played_at is None:
         return "readback_not_finished"
-    if facts.typed_after_readback:
-        return None
-    began = facts.last_utterance_began_at
-    if began is None or began <= facts.readback_played_at:
-        return "answered_too_early"
+    if not facts.typed_after_readback:
+        began = facts.last_utterance_began_at
+        if began is None or began <= facts.readback_played_at:
+            return "answered_too_early"
+    if facts.phone and (
+        not facts.confirm_terms or readback.missing(facts.confirm_terms, facts.said_since_readback)
+    ):
+        return "confirmation_missing"
     return None
+
+
+# ── The confirmation line ─────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class Confirmation:
+    """What a user on a phone says back to approve: one short line, and what in it
+    must be heard. Only the essentials, so a natural paraphrase still counts."""
+
+    line: str
+    terms: list[Term]
+
+    def as_label(self) -> dict[str, Any]:
+        return {"line": self.line, "terms": self.terms}
+
+
+def confirm_meeting(*, title: str, start: datetime) -> Confirmation:
+    clock = start.strftime("%I:%M %p").lstrip("0")
+    return Confirmation(
+        line=f"{title}, {start.strftime('%A')} {start.day} {start.strftime('%B')} at {clock}",
+        terms=[
+            readback.text_term("the meeting's title", title),
+            readback.date_term("the meeting's date", month=start.month, day=start.day),
+            readback.time_term("the meeting's time", hour=start.hour, minute=start.minute),
+        ],
+    )
+
+
+def confirm_supplement(
+    *, verb: str, keywords: Sequence[str], name: str, record: Sequence[Term]
+) -> Confirmation:
+    """``verb`` starts the line; one of ``keywords`` has to be heard, so that naming
+    the supplement alone does not approve whatever is staged on it."""
+    terms = [readback.any_term("what is being done", list(keywords)), *record]
+    return Confirmation(line=f"{verb} {name}", terms=terms)
+
+
+def confirm_add_lines(
+    *, name: str, count: int, new_total: Decimal, record: Sequence[Term]
+) -> Confirmation:
+    return Confirmation(
+        line=f"Add {_counted(count, 'line')} to {name}, new total {money(new_total)}",
+        terms=[
+            readback.any_term("what is being done", ["add"]),
+            *record,
+            readback.amount_term("the supplement's new total", new_total),
+        ],
+    )
+
+
+def confirm_memory(*, forget: bool) -> Confirmation:
+    if forget:
+        return Confirmation(
+            line="Forget it", terms=[readback.any_term("what is being done", ["forget"])]
+        )
+    return Confirmation(
+        line="Change what you remember",
+        terms=[readback.any_term("what is being done", ["change", "update"])],
+    )
+
+
+#: The word a user says back for each status change voice may approve.
+TRANSITION_CONFIRM: dict[str, tuple[str, list[str]]] = {
+    "archive": ("Archive", ["archive"]),
+    "unarchive": ("Unarchive", ["unarchive", "active"]),
+    "recall": ("Recall", ["recall"]),
+    "resubmit_ready": ("Reopen", ["reopen", "resubmit"]),
+}
 
 
 # ── The read-back ─────────────────────────────────────────────────────────────

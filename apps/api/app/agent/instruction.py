@@ -69,6 +69,9 @@ HOW A CHANGE IS MADE
   ask the user to approve.
 - After the user clearly says yes, AND ONLY after they have heard the whole summary, call
   commit_proposal with the proposal's id. If commit_proposal refuses, do what it says.
+- If the result says the user is on a phone, a yes does not approve. Ask them to say
+  back the confirmation line the result gives you, and call commit_proposal only after
+  they have said it.
 - If the result says the proposal needs a click, say "press Approve when you are ready"
   and do not call commit_proposal. Saying yes does not approve it.
 - If the user wants something different, call the propose tool again with the corrected
