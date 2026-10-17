@@ -25,7 +25,7 @@
  * 336 across a week — would be technically accessible and practically unusable, and
  * would trap anyone tabbing toward the content below for a minute.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { MeetingOut } from "@/api/types";
 import {
   SLOT_MINUTES,
@@ -37,10 +37,13 @@ import {
 } from "@/domain/calendar";
 import { cn } from "@/lib/cn";
 import { formatTime } from "@/lib/format";
+import { AttendeeStack } from "./AttendeeStack";
+import { meetingTint } from "./meetingStyle";
 
-/** An hour is 48px tall. Everything else is derived from this. */
-const HOUR_HEIGHT = 48;
-const PIXELS_PER_MINUTE = HOUR_HEIGHT / 60;
+/** An hour is 64px tall. Everything else is derived from this. Exported so the tests
+ *  turn times into pointer offsets the same way the grid does. */
+export const HOUR_HEIGHT = 64;
+export const PIXELS_PER_MINUTE = HOUR_HEIGHT / 60;
 const DAY_HEIGHT = 24 * HOUR_HEIGHT;
 
 /** Default length of a meeting created by a click rather than a drag. */
@@ -65,6 +68,12 @@ interface Cursor {
   dayIndex: number;
   minutes: number;
 }
+
+/** The hour the grid opens scrolled to, unless something on screen starts earlier. */
+const FIRST_VISIBLE_HOUR = 8;
+
+/** Below this a card has room for its title and time, but not for faces as well. */
+const MINUTES_FOR_ATTENDEES = 60;
 
 /** Half-hourly, not quarter-hourly: 48 arrow presses to cross a day is already plenty. */
 const SLOT_STEP = 30;
@@ -96,42 +105,75 @@ export function TimeGrid({
     setMoved(true);
   }
 
+  const now = useNow();
+  const todayKey = localDayKey(now);
+
+  // The grid is 24 hours tall and scrolls inside itself, so it opens on the working day
+  // rather than on midnight — or earlier, if something on screen starts earlier, so an
+  // early meeting is never scrolled out of sight on arrival.
+  const scroller = useRef<HTMLDivElement>(null);
+  const earliest = Math.min(
+    FIRST_VISIBLE_HOUR * 60,
+    ...days.flatMap((day) =>
+      (byDay.get(localDayKey(day)) ?? []).map((meeting) => minutesSinceMidnight(meeting.start_time)),
+    ),
+  );
+  const daysKey = days.map(localDayKey).join();
+  useLayoutEffect(() => {
+    if (scroller.current) {
+      scroller.current.scrollTop = Math.max(0, (earliest - 30) * PIXELS_PER_MINUTE);
+    }
+    // Only when the days change: re-scrolling whenever a meeting is added would yank
+    // the grid away from wherever the user had scrolled to.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daysKey]);
+
   return (
-    <div className="overflow-x-auto rounded-md bg-surface ring-1 ring-gray-200">
+    <div ref={scroller} className="max-h-[min(72vh,56rem)] overflow-auto">
       {/* A minimum width so a seven-column week stays legible on a phone and scrolls
           sideways instead of crushing each day to nothing. */}
-      <div style={{ minWidth: days.length > 1 ? 640 : undefined }}>
-        <div className="flex border-b border-gray-200">
-          <div className="w-14 shrink-0" />
-          {days.map((day) => (
-            <div key={localDayKey(day)} className="flex-1 px-2 py-2 text-center">
-              <p className="text-xs text-gray-500">
-                {day.toLocaleDateString("en-US", { weekday: "short" })}
-              </p>
-              <p
+      <div style={{ minWidth: days.length > 1 ? 720 : undefined }}>
+        <div className="sticky top-0 z-30 flex gap-1.5 border-b border-gray-100 bg-surface/95 px-1.5 py-2 backdrop-blur">
+          <div className="flex w-14 shrink-0 items-end justify-center pb-1">
+            <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">
+              {zoneLabel(now)}
+            </span>
+          </div>
+          {days.map((day) => {
+            const isToday = localDayKey(day) === todayKey;
+            const weekend = day.getDay() === 0 || day.getDay() === 6;
+            return (
+              <div
+                key={localDayKey(day)}
                 className={cn(
-                  "text-sm font-semibold",
-                  localDayKey(day) === localDayKey(new Date())
-                    ? "text-brand-700 dark:text-brand-300"
-                    : "text-gray-900",
+                  "flex flex-1 items-baseline justify-center gap-1.5 rounded-xl px-2 py-2 transition-colors",
+                  isToday
+                    ? "bg-lime-300 text-ink shadow-sm shadow-lime-500/20"
+                    : weekend
+                      ? "bg-gray-50 text-gray-500"
+                      : "bg-gray-100/70 text-gray-900",
                 )}
               >
-                {day.getDate()}
-              </p>
-            </div>
-          ))}
+                <p
+                  className={cn(
+                    "text-xs font-medium",
+                    isToday ? "text-ink/70" : "text-gray-500",
+                  )}
+                >
+                  {day.toLocaleDateString("en-US", { weekday: "short" })}
+                </p>
+                <p className="text-xl leading-none font-semibold tnum">{day.getDate()}</p>
+              </div>
+            );
+          })}
         </div>
 
         <div className="flex" style={{ height: DAY_HEIGHT }}>
           <div className="w-14 shrink-0">
             {HOURS.map((hour) => (
-              <div
-                key={hour}
-                style={{ height: HOUR_HEIGHT }}
-                className="relative border-r border-gray-200"
-              >
+              <div key={hour} style={{ height: HOUR_HEIGHT }} className="relative">
                 {/* Nudged up so the label sits *on* the line rather than below it. */}
-                <span className="absolute -top-2 right-1 text-[10px] text-gray-400">
+                <span className="absolute -top-2 right-2 text-[10px] font-medium text-gray-400 tnum">
                   {hour === 0 ? "" : `${((hour + 11) % 12) + 1} ${hour < 12 ? "AM" : "PM"}`}
                 </span>
               </div>
@@ -151,6 +193,7 @@ export function TimeGrid({
               cursor={cursor.dayIndex === dayIndex ? cursor.minutes : null}
               autoFocus={moved}
               onMove={(deltaDays, minutes) => moveCursor(dayIndex + deltaDays, minutes)}
+              nowMinutes={localDayKey(day) === todayKey ? minutesSinceMidnight(now) : null}
             />
           ))}
         </div>
@@ -170,6 +213,7 @@ function DayColumn({
   cursor,
   autoFocus,
   onMove,
+  nowMinutes,
 }: {
   day: Date;
   meetings: MeetingOut[];
@@ -183,6 +227,8 @@ function DayColumn({
   autoFocus: boolean;
   /** Days to step sideways, and the absolute minute the cursor should land on. */
   onMove: (deltaDays: number, minutes: number) => void;
+  /** Where the current-time line goes, or null when this column is not today. */
+  nowMinutes: number | null;
 }) {
   const column = useRef<HTMLDivElement>(null);
   const placed = assignColumns(meetings);
@@ -209,7 +255,12 @@ function DayColumn({
   return (
     <div
       ref={column}
-      className="relative flex-1 border-r border-gray-100 last:border-r-0"
+      className={cn(
+        "relative flex-1 border-l border-gray-100",
+        nowMinutes !== null
+          ? "bg-lime-300/[0.07]"
+          : (day.getDay() === 0 || day.getDay() === 6) && "bg-gray-50/70",
+      )}
       // Without this the browser tries to scroll the page while a drag is in progress on
       // a touch screen, and the selection never gets its move events.
       style={{ touchAction: canCreate ? "none" : undefined }}
@@ -247,6 +298,12 @@ function DayColumn({
           style={{ top: hour * HOUR_HEIGHT, height: HOUR_HEIGHT }}
           className="pointer-events-none absolute inset-x-0 border-t border-gray-100"
         >
+          {/* The half-hour, fainter than the hour so the hour still reads as the unit. */}
+          <span
+            aria-hidden="true"
+            style={{ top: HOUR_HEIGHT / 2 }}
+            className="absolute inset-x-0 border-t border-dashed border-gray-100/80"
+          />
           {canCreate &&
             [hour * 60, hour * 60 + SLOT_STEP].map((minutes) => (
               <SlotButton
@@ -271,12 +328,23 @@ function DayColumn({
               2,
             ),
           }}
-          className="pointer-events-none absolute inset-x-1 z-20 rounded border border-dashed border-brand-500 bg-brand-500/20"
+          className="pointer-events-none absolute inset-x-1 z-20 rounded-xl border-2 border-dashed border-brand-500 bg-brand-500/15"
         >
-          <span className="px-1 text-[10px] font-medium text-brand-700 dark:text-brand-300">
+          <span className="px-2 text-[10px] font-semibold text-brand-700 dark:text-brand-300">
             {label(day, Math.min(drag.fromMinutes, drag.toMinutes))} –{" "}
             {label(day, Math.max(drag.fromMinutes, drag.toMinutes))}
           </span>
+        </div>
+      )}
+
+      {nowMinutes !== null && (
+        <div
+          aria-hidden="true"
+          style={{ top: nowMinutes * PIXELS_PER_MINUTE }}
+          className="pointer-events-none absolute inset-x-0 z-20 flex -translate-y-1/2 items-center"
+        >
+          <span className="-ml-1.5 size-3 rounded-full bg-ink ring-2 ring-lime-300 dark:bg-lime-300 dark:ring-ink" />
+          <span className="h-0.5 flex-1 bg-ink dark:bg-lime-300" />
         </div>
       )}
 
@@ -284,6 +352,9 @@ function DayColumn({
         const top = minutesSinceMidnight(item.start_time) * PIXELS_PER_MINUTE;
         const minutes =
           minutesSinceMidnight(item.end_time) - minutesSinceMidnight(item.start_time);
+        // A 15-minute meeting is 16px tall, which is not enough to read or hit.
+        const height = Math.max(minutes * PIXELS_PER_MINUTE, 22);
+        const compact = minutes < 45;
         return (
           <button
             key={item.id}
@@ -291,20 +362,37 @@ function DayColumn({
             // Named for the assistant, which tints a meeting for a moment after saving it.
             data-agent-record={`meeting:${item.id}`}
             onClick={() => onOpenMeeting(item)}
+            title={`${item.title} · ${formatTime(item.start_time)} – ${formatTime(item.end_time)}`}
             style={{
-              top,
-              // A 15-minute meeting is 12px tall, which is not enough to read or hit.
-              height: Math.max(minutes * PIXELS_PER_MINUTE, 18),
-              left: `${(index / columnCount) * 100}%`,
-              width: `${(1 / columnCount) * 100}%`,
-              borderLeftColor: item.color,
+              // Inset by a hair on every side, so two meetings back to back read as two
+              // cards and not one long one.
+              top: top + 1,
+              height: height - 2,
+              left: `calc(${(index / columnCount) * 100}% + 3px)`,
+              width: `calc(${(1 / columnCount) * 100}% - 6px)`,
+              backgroundColor: meetingTint(item.color, 22),
             }}
-            className="absolute z-10 overflow-hidden rounded-r border-l-4 bg-gray-50 px-1.5 py-0.5 text-left ring-1 ring-gray-200 hover:bg-gray-100"
+            className={cn(
+              "group absolute z-10 flex flex-col overflow-hidden rounded-xl pr-1.5 pl-3 text-left ring-1 ring-gray-900/5",
+              "transition-[translate,box-shadow] duration-(--motion-fast) ease-(--ease-standard)",
+              "hover:z-20 hover:-translate-y-px hover:shadow-md focus-visible:z-20",
+              compact ? "justify-center py-0.5" : "gap-0.5 py-1.5",
+            )}
           >
-            <span className="block truncate text-xs font-medium text-gray-900">{item.title}</span>
-            <span className="block truncate text-[10px] text-gray-500">
-              {formatTime(item.start_time)}
+            <span
+              aria-hidden="true"
+              className="absolute inset-y-1.5 left-1 w-1 rounded-full"
+              style={{ backgroundColor: item.color }}
+            />
+            <span className="block truncate text-xs font-semibold text-gray-900">
+              {item.title}
             </span>
+            {!compact && (
+              <span className="block truncate text-[10px] font-medium text-gray-600 tnum">
+                {formatTime(item.start_time)} – {formatTime(item.end_time)}
+              </span>
+            )}
+            {minutes >= MINUTES_FOR_ATTENDEES && <AttendeeStack meeting={item} className="mt-auto" />}
           </button>
         );
       })}
@@ -351,7 +439,7 @@ function SlotButton({
       type="button"
       tabIndex={tabbable ? 0 : -1}
       style={{ top: (minutes % 60) * PIXELS_PER_MINUTE, height: HOUR_HEIGHT / 2 }}
-      className="pointer-events-auto absolute inset-x-0 focus-visible:bg-brand-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500"
+      className="pointer-events-auto absolute inset-x-0 transition-colors hover:bg-gray-100/60 focus-visible:bg-brand-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500"
       onKeyDown={(event) => {
         const moves: Record<string, [number, number]> = {
           ArrowDown: [0, SLOT_STEP],
@@ -384,4 +472,22 @@ function label(day: Date, minutes: number): string {
   const at = startOfDay(day);
   at.setMinutes(minutes);
   return at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+/** The time now, ticking once a minute: what the current-time line follows. */
+function useNow(): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}
+
+/** "GMT-7", "GMT+5:30" — the offset the grid's hours are drawn in. */
+function zoneLabel(at: Date): string {
+  const offset = -at.getTimezoneOffset();
+  const hours = Math.floor(Math.abs(offset) / 60);
+  const minutes = Math.abs(offset) % 60;
+  return `GMT${offset < 0 ? "-" : "+"}${hours}${minutes ? `:${String(minutes).padStart(2, "0")}` : ""}`;
 }

@@ -120,6 +120,12 @@
   /* Sora stays on the brand mark. It is the wordmark, not body copy. */
   --font-display: "Sora", "Archivo", ui-sans-serif, system-ui, sans-serif;
 
+  /* ── Ink. A near-black that does **not** invert in dark mode, unlike `gray-900`. It is
+   * for text sitting on a light accent fill (the calendar's lime "today") and for the
+   * calendar's dark mini-month card, both of which must look the same in either
+   * theme. ─────────────────────────────────────────────────────────────────── */
+  --color-ink: #1c1b2b;
+
   --radius-card: 10px;
 
   /* ── Motion. Three ways of arriving and one of leaving. `soft` is a spring with no

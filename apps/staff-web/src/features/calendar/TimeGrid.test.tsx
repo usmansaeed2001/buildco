@@ -12,11 +12,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TimeGrid } from "./TimeGrid";
+import { PIXELS_PER_MINUTE, TimeGrid } from "./TimeGrid";
 
 const DAY = new Date(2026, 2, 15); // A Sunday.
 
-/** 48px an hour, so y=480 is 10:00 and y=576 is 12:00. */
+/** The pointer offset of a wall-clock time, computed the way the grid computes it. */
+const y = (hour: number, minute = 0) => (hour * 60 + minute) * PIXELS_PER_MINUTE;
+
+/** The column's box: 24 hours tall, from the top of the viewport. */
 function stubGeometry() {
   const original = Element.prototype.getBoundingClientRect;
   Element.prototype.getBoundingClientRect = () =>
@@ -24,9 +27,9 @@ function stubGeometry() {
       top: 0,
       left: 0,
       right: 200,
-      bottom: 1152,
+      bottom: y(24),
       width: 200,
-      height: 1152,
+      height: y(24),
       x: 0,
       y: 0,
       toJSON: () => ({}),
@@ -94,9 +97,9 @@ describe("TimeGrid", () => {
       const onCreateRange = renderGrid();
       const column = dragSurface();
 
-      pointer(column, "pointerdown", { button: 0, clientY: 480 });
-      pointer(column, "pointermove", { clientY: 576 });
-      pointer(column, "pointerup", { clientY: 576 });
+      pointer(column, "pointerdown", { button: 0, clientY: y(10) });
+      pointer(column, "pointermove", { clientY: y(12) });
+      pointer(column, "pointerup", { clientY: y(12) });
 
       expect(times(onCreateRange.mock.calls[0] as [Date, Date])).toEqual(["10:00", "12:00"]);
     });
@@ -106,9 +109,9 @@ describe("TimeGrid", () => {
       const onCreateRange = renderGrid();
       const column = dragSurface();
 
-      pointer(column, "pointerdown", { button: 0, clientY: 576 });
-      pointer(column, "pointermove", { clientY: 480 });
-      pointer(column, "pointerup", { clientY: 480 });
+      pointer(column, "pointerdown", { button: 0, clientY: y(12) });
+      pointer(column, "pointermove", { clientY: y(10) });
+      pointer(column, "pointerup", { clientY: y(10) });
 
       expect(times(onCreateRange.mock.calls[0] as [Date, Date])).toEqual(["10:00", "12:00"]);
     });
@@ -118,10 +121,10 @@ describe("TimeGrid", () => {
       const onCreateRange = renderGrid();
       const column = dragSurface();
 
-      // 484px is 10:05, which nobody meant.
-      pointer(column, "pointerdown", { button: 0, clientY: 484 });
-      pointer(column, "pointermove", { clientY: 540 });
-      pointer(column, "pointerup", { clientY: 540 });
+      // 10:05, which nobody meant.
+      pointer(column, "pointerdown", { button: 0, clientY: y(10, 5) });
+      pointer(column, "pointermove", { clientY: y(11, 15) });
+      pointer(column, "pointerup", { clientY: y(11, 15) });
 
       expect(times(onCreateRange.mock.calls[0] as [Date, Date])).toEqual(["10:00", "11:15"]);
     });
@@ -132,8 +135,8 @@ describe("TimeGrid", () => {
       const onCreateRange = renderGrid();
       const column = dragSurface();
 
-      pointer(column, "pointerdown", { button: 0, clientY: 480 });
-      pointer(column, "pointerup", { clientY: 482 });
+      pointer(column, "pointerdown", { button: 0, clientY: y(10) });
+      pointer(column, "pointerup", { clientY: y(10, 2) });
 
       expect(times(onCreateRange.mock.calls[0] as [Date, Date])).toEqual(["10:00", "11:00"]);
     });
@@ -143,8 +146,8 @@ describe("TimeGrid", () => {
       const onCreateRange = renderGrid();
       const column = dragSurface();
 
-      pointer(column, "pointerdown", { button: 2, clientY: 480 });
-      pointer(column, "pointerup", { clientY: 576 });
+      pointer(column, "pointerdown", { button: 2, clientY: y(10) });
+      pointer(column, "pointerup", { clientY: y(12) });
 
       expect(onCreateRange).not.toHaveBeenCalled();
     });

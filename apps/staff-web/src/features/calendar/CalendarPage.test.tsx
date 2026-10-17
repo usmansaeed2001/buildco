@@ -105,7 +105,10 @@ describe("CalendarPage", () => {
       renderCalendar(OWNER, `/calendar?on=${today}&view=month`);
 
       await waitFor(() =>
-        expect(screen.getByRole("button", { name: `Open ${today}` })).toHaveClass("bg-brand-600"),
+        expect(screen.getByRole("button", { name: `Open ${today}` })).toHaveAttribute(
+          "aria-current",
+          "date",
+        ),
       );
     });
   });
