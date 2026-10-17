@@ -1264,6 +1264,156 @@ describe("a change to an open supplement", () => {
     expect(screen.getByLabelText(/Client name/)).toHaveValue("Acme Insurance");
   });
 
+  describe("adding lines", () => {
+    const WITH_A_KITCHEN = {
+      ...ESTIMATE,
+      rooms: [
+        {
+          name: "Kitchen",
+          items: [{ name: "Drywall", category: "drywall", unit: "SF", quantity: "10", unitCost: "12.00" }],
+        },
+      ],
+    };
+    const BASEBOARD = {
+      name: "Baseboard",
+      category: "trim",
+      unit: "LF",
+      quantity: "20",
+      unitCost: "4.50",
+      isCustom: false,
+      catalogueId: "cat-9",
+      notes: "",
+    };
+    const GRAB_BAR = {
+      name: "Grab bar",
+      category: "other",
+      unit: "Ea",
+      quantity: "2",
+      unitCost: "35.00",
+      isCustom: true,
+      catalogueId: null,
+      notes: "",
+    };
+    const ADD = onEditor("supplement.add_lines", {
+      summary: "I am about to add 2 lines to the supplement Hendricks roof.",
+      payload: {
+        supplement_id: "est-1",
+        rooms: [
+          { name: "Kitchen", items: [...WITH_A_KITCHEN.rooms[0]!.items, BASEBOARD] },
+          { name: "Bathroom", items: [GRAB_BAR] },
+        ],
+        positions: [
+          [0, 1],
+          [1, 0],
+        ],
+      },
+      labels: {
+        name: "Hendricks roof, claim ID CLM-4471",
+        lines: [
+          {
+            room: "Kitchen",
+            room_index: 0,
+            new_room: false,
+            name: "Baseboard",
+            quantity: "20",
+            unit: "LF",
+            category: "trim",
+            unit_cost: "4.50",
+            catalogue_unit_cost: null,
+            source: "catalogue",
+            total: "90.00",
+          },
+          {
+            room: "Bathroom",
+            room_index: 1,
+            new_room: true,
+            name: "Grab bar",
+            quantity: "2",
+            unit: "Ea",
+            category: "other",
+            unit_cost: "35.00",
+            catalogue_unit_cost: null,
+            source: "stated",
+            total: "70.00",
+          },
+        ],
+        new_rooms: ["Bathroom"],
+        old_total: "120.00",
+        new_total: "280.00",
+      },
+    });
+
+    it("stages the new lines by room, with where each price came from and the new total", async () => {
+      serveAssistant();
+      serveSupplement(WITH_A_KITCHEN);
+      await openEditor();
+
+      stage(ADD);
+
+      const card = await screen.findByRole("dialog", { name: "Add to supplement" });
+      expect(within(card).getByText("Baseboard")).toBeVisible();
+      expect(within(card).getByText("New room")).toBeVisible();
+      expect(within(card).getByText("stated by you")).toBeVisible();
+      expect(within(card).getByText("$120.00")).toBeVisible();
+      expect(within(card).getByText("$280.00")).toBeVisible();
+      expect(appColumn()).toHaveAttribute("inert");
+      await waitFor(() => expect(acks().at(-1)).toMatchObject({ ok: true }));
+    });
+
+    it("offers the lines to add by hand after Stop, and adds them as they were proposed", async () => {
+      serveAssistant();
+      const supplement = serveSupplement(WITH_A_KITCHEN);
+      const { user } = await openEditor();
+      stage(ADD);
+      await screen.findByRole("dialog", { name: "Add to supplement" });
+
+      receive(
+        { type: "proposal_result", id: ADD.id, status: "handed_over" },
+        { type: "mode", mode: "conversing" },
+      );
+      const offer = await screen.findByRole("dialog", { name: "Add these lines?" });
+      await user.click(within(offer).getByRole("button", { name: "Add to the editor" }));
+
+      await waitFor(() => {
+        const rooms = supplement.patches.at(-1)?.["rooms"] as { name: string; items: { name: string }[] }[];
+        expect(rooms?.map((room) => room.name)).toEqual(["Kitchen", "Bathroom"]);
+        expect(rooms?.[0]?.items.map((item) => item.name)).toEqual(["Drywall", "Baseboard"]);
+        expect(rooms?.[1]?.items.map((item) => item.name)).toEqual(["Grab bar"]);
+      }, { timeout: 5000 });
+    }, 10_000);
+
+    it("adds nothing when the user discards them", async () => {
+      serveAssistant();
+      const supplement = serveSupplement(WITH_A_KITCHEN);
+      const { user } = await openEditor();
+      stage(ADD);
+      await screen.findByRole("dialog", { name: "Add to supplement" });
+
+      receive(
+        { type: "proposal_result", id: ADD.id, status: "handed_over" },
+        { type: "mode", mode: "conversing" },
+      );
+      const offer = await screen.findByRole("dialog", { name: "Add these lines?" });
+      await user.click(within(offer).getByRole("button", { name: "Discard" }));
+
+      expect(screen.queryByRole("dialog", { name: "Add these lines?" })).not.toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(supplement.patches.some((patch) => "rooms" in patch)).toBe(false);
+    });
+
+    it("tells the assistant which room is selected, so that this room means it", async () => {
+      serveAssistant();
+      serveSupplement(WITH_A_KITCHEN);
+      await openEditor();
+
+      await waitFor(() =>
+        expect(sentOf("context").at(-1)).toMatchObject({
+          selection: { room_position: 1, room_name: "Kitchen" },
+        }),
+      );
+    });
+  });
+
   it("does not stage a proposal about a different supplement on this one", async () => {
     serveAssistant();
     serveSupplement();

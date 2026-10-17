@@ -11,6 +11,7 @@ export const KIND_TITLES: Record<string, string> = {
   "supplement.update_details": "Change supplement details",
   "supplement.transition": "Change supplement status",
   "supplement.submit": "Send for review",
+  "supplement.add_lines": "Add lines",
   "memory.change": "Change to what I remember",
 };
 

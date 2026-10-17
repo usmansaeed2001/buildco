@@ -491,9 +491,11 @@ def build(host: Host) -> list[Tool]:
         return await _as_user("get_team_settings", run)
 
     async def get_current_view() -> dict[str, Any]:
-        """Say which page of the app the user is looking at, and which record is open.
+        """Say which page of the app the user is looking at, which record is open, and in
+        a supplement which room is selected (its position and name).
 
-        Use it to resolve "this one" or "that meeting". If no record is open, ask.
+        Use it to resolve "this one", "that meeting" or "this room". If no record is open,
+        ask.
         """
         return {"view": host.context or {"route": None}}
 
